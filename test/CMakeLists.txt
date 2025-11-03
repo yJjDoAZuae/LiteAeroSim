@@ -22,9 +22,8 @@ endif()
 
 # Collect test sources in this folder (add new test files here)
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/*_test.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*_test.cc"
 )
 
 if(TEST_SOURCES)
