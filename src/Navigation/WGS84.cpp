@@ -21,37 +21,125 @@ void normalizeLatLon(double *latitude_geodetic_rad, double *longitude_rad);
 void WGS84_Datum::printJSON() {
     printf("{\n");
     printf("  \"WGS84_Datum\": {\n");
-    printf("    \"latitude_rad\": %.12f,\n", latitudeGeodetic_rad);
-    printf("    \"longitude_rad\": %.12f,\n", longitude_rad);
-    printf("    \"height_m\": %.6f\n", height_WGS84_m);
+    printf("    \"latitude_rad\": %.12f,\n", latitudeGeodetic_rad());
+    printf("    \"longitude_rad\": %.12f,\n", longitude_rad());
+    printf("    \"height_m\": %.6f\n", height_WGS84_m());
     printf("  }\n");
     printf("}\n");
 }
 
+void WGS84_Datum::setLatitudeGeodetic_rad(double lat) {
+    _latitudeGeodetic_rad = lat;
+    normalizeLatLon(&_latitudeGeodetic_rad, &_longitude_rad);
+}
+
+void WGS84_Datum::setLongitude_rad(double lon) {
+    _longitude_rad = lon;
+    normalizeLatLon(&_latitudeGeodetic_rad, &_longitude_rad);
+}
+
+void WGS84_Datum::setHeight_WGS84_m(float h) {
+    // impose a radius limit
+    if (h < -WGS84_Datum::b) {
+        h = -WGS84_Datum::b;
+    }
+    _height_WGS84_m = h;
+}
+
 Eigen::Vector3d WGS84_Datum::ECEF() {
     Eigen::Vector3d ecef;
-    latLonHeight2ECEF(latitudeGeodetic_rad, longitude_rad, height_WGS84_m, ecef);
+    latLonHeight2ECEF(latitudeGeodetic_rad(), longitude_rad(), height_WGS84_m(), ecef);
     return ecef;
 }
 
 Eigen::Quaterniond WGS84_Datum::qne() {
     Eigen::Quaterniond q_ne;
-    latLon2qne(latitudeGeodetic_rad, longitude_rad, q_ne);
+    latLon2qne(latitudeGeodetic_rad(), longitude_rad(), q_ne);
     return q_ne;
 }
 
 Eigen::Vector3d WGS84_Datum::LLH() {
     Eigen::Vector3d llh;
-    llh(0) = latitudeGeodetic_rad;
-    llh(1) = longitude_rad;
-    llh(2) = height_WGS84_m;
+    llh(0) = latitudeGeodetic_rad();
+    llh(1) = longitude_rad();
+    llh(2) = height_WGS84_m();
     return llh;
 }
 
 Eigen::Matrix3d WGS84_Datum::Cne() {
     Eigen::Matrix3d Cne;
-    latLon2Cne(latitudeGeodetic_rad, longitude_rad, Cne);
+    latLon2Cne(latitudeGeodetic_rad(), longitude_rad(), Cne);
     return Cne;
+}
+
+// this radius is the radius of curvature of a meridian or an ellipse of constant longitude
+double WGS84_Datum::meridionalRadius() const {
+    double sin_lat = sin(latitudeGeodetic_rad());
+    return a * (1 - e2) / pow(1 - e2 * sin_lat * sin_lat, 1.5);
+}
+
+// this radius is the forward radius of curvature for an east-west direction
+// but not the radius of a circle of latitude
+// it is in a plane normal to the meridian and contains the normal vector to the ellipsoid
+// I.e. it is tilted with respect to the horizontal plane unless at the equator
+double WGS84_Datum::primeVerticalRadius() const {
+    double sin_lat = sin(latitudeGeodetic_rad());
+    return a / sqrt(1 - e2 * sin_lat * sin_lat);
+}
+
+// this radius is the radius of curvature of a meridian or an ellipse of constant longitude
+double WGS84_Datum::northRadius() const {
+    return meridionalRadius();
+}
+
+// this radius is the radius of curvature of a circle of latitude
+double WGS84_Datum::eastRadius() const {
+    return primeVerticalRadius() * cos(latitudeGeodetic_rad());
+}
+
+// radius of curvature in an arbitrary azimuth direction
+// https://www.oc.nps.edu/oc2902w/geodesy/radiigeo.pdf
+double WGS84_Datum::skewRadius(double azimuth_rad) const {
+    double N = primeVerticalRadius();
+    double M = meridionalRadius();
+    double cos_lat = cos(latitudeGeodetic_rad());
+
+    double sin_az = sin(azimuth_rad);
+    double cos_az = cos(azimuth_rad);
+
+    return N*M / (N*cos_az*cos_az + M*sin_az*sin_az);
+}
+
+double WGS84_Datum::latitudeRate(double Vnorth) const {
+    return Vnorth / (northRadius() + height_WGS84_m());
+}
+
+double WGS84_Datum::longitudeRate(double Veast) const {
+    double Rmeridional = meridionalRadius() + height_WGS84_m();
+    return Veast / (Rmeridional * cos(latitudeGeodetic_rad()));
+}
+
+// angular rate of change of the horizon angle due to forward motion over the ellipsoid
+// expressed as a positive value
+double WGS84_Datum::horizonRate(double Vnorth, double Veast) const {
+    double azimuth_rad = atan2(Veast, Vnorth);
+    double Rskew = skewRadius(azimuth_rad) + height_WGS84_m();
+    double Vhoriz = sqrt(Vnorth*Vnorth + Veast*Veast);
+    return Vhoriz / Rskew;
+}
+
+// angular rotation rate of NED frame relative to ECEF due to transport over the ellipsoid, expressed in NED frame
+Eigen::Vector3d WGS84_Datum::transportRate(double Vnorth, double Veast) const {
+
+    double azimuth_rad = atan2(Veast, Vnorth);
+
+    // transport rate in the local level frame (forward, right, down)
+    Eigen::Vector3d omega_transport_LL;
+    omega_transport_LL(0) = 0.0; // roll rate (about forward)
+    omega_transport_LL(1) = -horizonRate(Vnorth, Veast); // pitch rate (about right)
+    omega_transport_LL(2) = longitudeRate(Veast); // yaw rate (about down)
+
+    return Eigen::AngleAxisd(-azimuth_rad, Eigen::Vector3d::UnitZ()) * omega_transport_LL;
 }
 
 void WGS84_Datum::setECEF(const Eigen::Vector3d& ecefDatum) {

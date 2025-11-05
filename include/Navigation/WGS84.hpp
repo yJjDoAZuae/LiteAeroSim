@@ -11,9 +11,9 @@ class WGS84_Datum {
 
     private:
 
-        float height_WGS84_m;
-        double latitudeGeodetic_rad;
-        double longitude_rad;
+        float _height_WGS84_m;
+        double _latitudeGeodetic_rad;
+        double _longitude_rad;
 
     public:
 
@@ -31,20 +31,32 @@ class WGS84_Datum {
         static const double e; // First eccentricity
 
         WGS84_Datum() :
-            height_WGS84_m(0),
-            latitudeGeodetic_rad(0),
-            longitude_rad(0)
+            _height_WGS84_m(0),
+            _latitudeGeodetic_rad(0),
+            _longitude_rad(0)
          {};
         
         ~WGS84_Datum() {};
 
         // setters and getters
-        void setHeight_WGS84_m(float h) { height_WGS84_m = h; }
-        float getHeight_WGS84_m() const { return height_WGS84_m; }
-        void setLatitudeGeodetic_rad(double lat) { latitudeGeodetic_rad = lat; }
-        double getLatitudeGeodetic_rad() const { return latitudeGeodetic_rad; }
-        void setLongitude_rad(double lon) { longitude_rad = lon; }
-        double getLongitude_rad() const { return longitude_rad; }
+        void setHeight_WGS84_m(float h);
+        float height_WGS84_m() const { return _height_WGS84_m; }
+        void setLatitudeGeodetic_rad(double lat);
+        double latitudeGeodetic_rad() const { return _latitudeGeodetic_rad; }
+        void setLongitude_rad(double lon);
+        double longitude_rad() const { return _longitude_rad; }
+
+        double northRadius() const;
+        double eastRadius() const;
+
+        double meridionalRadius() const;
+        double primeVerticalRadius() const;
+        double skewRadius(double azimuth_rad) const;
+        double latitudeRate(double Vnorth) const;
+        double longitudeRate(double Veast) const;
+        double horizonRate(double Vnorth, double Veast) const;
+
+        Eigen::Vector3d transportRate(double Vnorth, double Veast) const;
 
         // JSON print
         void printJSON();

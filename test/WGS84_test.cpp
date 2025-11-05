@@ -36,9 +36,9 @@ TEST(WGS84Test, getters) {
     datum.setLatitudeGeodetic_rad(0.5);
     datum.setLongitude_rad(1.0);
 
-    EXPECT_FLOAT_EQ(datum.getHeight_WGS84_m(), 100.0f);
-    EXPECT_DOUBLE_EQ(datum.getLatitudeGeodetic_rad(), 0.5);
-    EXPECT_DOUBLE_EQ(datum.getLongitude_rad(), 1.0);
+    EXPECT_FLOAT_EQ(datum.height_WGS84_m(), 100.0f);
+    EXPECT_DOUBLE_EQ(datum.latitudeGeodetic_rad(), 0.5);
+    EXPECT_DOUBLE_EQ(datum.longitude_rad(), 1.0);
 
     Eigen::Vector3d llh = datum.LLH();
     EXPECT_DOUBLE_EQ(llh.x(), 0.5);
@@ -250,29 +250,29 @@ TEST(WGS84Test, setters) {
 
     Eigen::Vector3d ecef_set(3026633.4955051164, 4713702.3855989361, 3039758.8494056859);
     datum.setECEF(ecef_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), 1.0, 1e-9);
-    EXPECT_NEAR(datum.getHeight_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum.height_WGS84_m(), 100.0f, 1e-9);
 
     // 45,0 case
     Eigen::Quaterniond qne_set(0.0, sin(-0.5*(M_PI/2.0 + M_PI/4.0)), 0.0, cos(-0.5*(M_PI/2.0 + M_PI/4.0)));
     datum.setQne(qne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), M_PI/4, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getHeight_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), M_PI/4, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.height_WGS84_m(), 100.0f, 1e-9);
 
     // 30,0 case
     qne_set = Eigen::Quaterniond(0.0, sin(-0.5*(M_PI/2.0 + M_PI/6.0)), 0.0, cos(-0.5*(M_PI/2.0 + M_PI/6.0)));
     datum.setQne(qne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), M_PI/6, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getHeight_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), M_PI/6, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.height_WGS84_m(), 100.0f, 1e-9);
 
     Eigen::Vector3d llh_set(0.5, 1.0, 100.0);
     datum.setLLH(llh_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), 1.0, 1e-9);
-    EXPECT_NEAR(datum.getHeight_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum.height_WGS84_m(), 100.0f, 1e-9);
 
     // 0,0 case
     Eigen::Matrix3d Cne_set;
@@ -281,8 +281,8 @@ TEST(WGS84Test, setters) {
               -1, 0, 0;
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), 0.0, 1e-9);
 
     // 45,0 case
     Cne_set << -cos(M_PI/4.0), 0, cos(M_PI/4.0),
@@ -290,8 +290,8 @@ TEST(WGS84Test, setters) {
               -cos(M_PI/4.0), 0, -cos(M_PI/4.0);
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), M_PI/4.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), M_PI/4.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), 0.0, 1e-9);
 
     // 0,90 case
     Cne_set << 0,  0, 1,
@@ -299,8 +299,8 @@ TEST(WGS84Test, setters) {
                0, -1, 0;
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), M_PI/2.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), M_PI/2.0, 1e-9);
 
     // 0,180 case
     Cne_set << 0,  0, 1,
@@ -308,8 +308,8 @@ TEST(WGS84Test, setters) {
                1,  0, 0;
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(MathUtil::wrapToPi(datum.getLongitude_rad()-M_PI), 0.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(MathUtil::wrapToPi(datum.longitude_rad()-M_PI), 0.0, 1e-9);
 
     // 0,-90 case
     Cne_set << 0, 0, 1,
@@ -317,8 +317,8 @@ TEST(WGS84Test, setters) {
                0, 1, 0;
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), -M_PI/2.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), -M_PI/2.0, 1e-9);
 
     // 0,30 case
     Cne_set << 0,  0, 1,
@@ -326,8 +326,8 @@ TEST(WGS84Test, setters) {
               -cos(M_PI/6.0), -sin(M_PI/6.0), 0;
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), M_PI/6.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), M_PI/6.0, 1e-9);
 
     // 0,-30 case
     Cne_set << 0,  0, 1,
@@ -335,8 +335,8 @@ TEST(WGS84Test, setters) {
               -cos(-M_PI/6.0), -sin(-M_PI/6.0), 0;
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), 0.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), -M_PI/6.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), 0.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), -M_PI/6.0, 1e-9);
 
     // 45,90 case
     Cne_set <<  0, -cos(M_PI/4.0), cos(M_PI/4.0),
@@ -344,8 +344,8 @@ TEST(WGS84Test, setters) {
                 0, -cos(M_PI/4.0), -cos(M_PI/4.0);
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), M_PI/4.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), M_PI/2.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), M_PI/4.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), M_PI/2.0, 1e-9);
 
     // 30,90 case
     Cne_set <<  0, -sin(M_PI/6.0), cos(M_PI/6.0),
@@ -353,8 +353,8 @@ TEST(WGS84Test, setters) {
                 0, -cos(M_PI/6.0), -sin(M_PI/6.0);
 
     datum.setCne(Cne_set);
-    EXPECT_NEAR(datum.getLatitudeGeodetic_rad(), M_PI/6.0, 1e-9);
-    EXPECT_NEAR(datum.getLongitude_rad(), M_PI/2.0, 1e-9);
+    EXPECT_NEAR(datum.latitudeGeodetic_rad(), M_PI/6.0, 1e-9);
+    EXPECT_NEAR(datum.longitude_rad(), M_PI/2.0, 1e-9);
 
 }
 
@@ -463,44 +463,44 @@ TEST(WGS84Test, getter_setter_round_trip) {
 
     ecef_get = datum.ECEF();
     datum_set.setECEF(ecef_get);
-    EXPECT_NEAR(datum_set.getHeight_WGS84_m(), 100.0f, 1e-9);
-    EXPECT_NEAR(datum_set.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum_set.getLongitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum_set.height_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum_set.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum_set.longitude_rad(), 1.0, 1e-9);
 
     qne_get = datum.qne();
     datum_set.setQne(qne_get);
-    EXPECT_NEAR(datum_set.getHeight_WGS84_m(), 100.0f, 1e-9);
-    EXPECT_NEAR(datum_set.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum_set.getLongitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum_set.height_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum_set.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum_set.longitude_rad(), 1.0, 1e-9);
 
     llh_get = datum.LLH();
     datum_set.setLLH(llh_get);
-    EXPECT_NEAR(datum_set.getHeight_WGS84_m(), 100.0f, 1e-9);
-    EXPECT_NEAR(datum_set.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum_set.getLongitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum_set.height_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum_set.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum_set.longitude_rad(), 1.0, 1e-9);
 
     Cne_get = datum.Cne();
     datum_set.setCne(Cne_get);
-    EXPECT_NEAR(datum_set.getHeight_WGS84_m(), 100.0f, 1e-9);
-    EXPECT_NEAR(datum_set.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum_set.getLongitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum_set.height_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum_set.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum_set.longitude_rad(), 1.0, 1e-9);
 
 
     Cne_get = datum.Cne();
     qne_get = Eigen::Quaterniond(Cne_get);
     Cne_set = qne_get.toRotationMatrix();
     datum_set.setCne(Cne_set);
-    EXPECT_NEAR(datum_set.getHeight_WGS84_m(), 100.0f, 1e-9);
-    EXPECT_NEAR(datum_set.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum_set.getLongitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum_set.height_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum_set.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum_set.longitude_rad(), 1.0, 1e-9);
 
     Cne_get = datum.Cne();
     qne_get = Eigen::Quaterniond(Cne_get);
     Cne_set = qne_get.toRotationMatrix();
     datum_set.setCne(Cne_set);
-    EXPECT_NEAR(datum_set.getHeight_WGS84_m(), 100.0f, 1e-9);
-    EXPECT_NEAR(datum_set.getLatitudeGeodetic_rad(), 0.5, 1e-9);
-    EXPECT_NEAR(datum_set.getLongitude_rad(), 1.0, 1e-9);
+    EXPECT_NEAR(datum_set.height_WGS84_m(), 100.0f, 1e-9);
+    EXPECT_NEAR(datum_set.latitudeGeodetic_rad(), 0.5, 1e-9);
+    EXPECT_NEAR(datum_set.longitude_rad(), 1.0, 1e-9);
 
     // random rotation matrix test
     qne_set = Eigen::Quaterniond::UnitRandom();
