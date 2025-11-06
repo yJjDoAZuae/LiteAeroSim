@@ -46,19 +46,19 @@ void WGS84_Datum::setHeight_WGS84_m(float h) {
     _height_WGS84_m = h;
 }
 
-Eigen::Vector3d WGS84_Datum::ECEF() {
+Eigen::Vector3d WGS84_Datum::ECEF() const {
     Eigen::Vector3d ecef;
     latLonHeight2ECEF(latitudeGeodetic_rad(), longitude_rad(), height_WGS84_m(), ecef);
     return ecef;
 }
 
-Eigen::Quaterniond WGS84_Datum::qne() {
+Eigen::Quaterniond WGS84_Datum::qne() const {
     Eigen::Quaterniond q_ne;
     latLon2qne(latitudeGeodetic_rad(), longitude_rad(), q_ne);
     return q_ne;
 }
 
-Eigen::Vector3d WGS84_Datum::LLH() {
+Eigen::Vector3d WGS84_Datum::LLH() const {
     Eigen::Vector3d llh;
     llh(0) = latitudeGeodetic_rad();
     llh(1) = longitude_rad();
@@ -66,7 +66,7 @@ Eigen::Vector3d WGS84_Datum::LLH() {
     return llh;
 }
 
-Eigen::Matrix3d WGS84_Datum::Cne() {
+Eigen::Matrix3d WGS84_Datum::Cne() const {
     Eigen::Matrix3d Cne;
     latLon2Cne(latitudeGeodetic_rad(), longitude_rad(), Cne);
     return Cne;

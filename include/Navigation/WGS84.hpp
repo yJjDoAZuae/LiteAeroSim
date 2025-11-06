@@ -65,10 +65,10 @@ class WGS84_Datum {
         void printJSON();
 
         // Eigen getters
-        Eigen::Vector3d ECEF();
-        Eigen::Quaterniond qne();
-        Eigen::Vector3d LLH();
-        Eigen::Matrix3d Cne();
+        Eigen::Vector3d ECEF() const;
+        Eigen::Quaterniond qne() const;
+        Eigen::Vector3d LLH() const;
+        Eigen::Matrix3d Cne() const;
 
         // Eigen setters
         void setECEF(const Eigen::Vector3d& ecefDatum);
@@ -85,19 +85,19 @@ class WGS84_Datum {
     private:
 
         // datum conversion from ECEF
-        void ECEF2LatHeight(const Eigen::Vector3d& ecefDatum, double* latitude_geodetic_rad, float* height_WGS84_m);
-        void ECEF2Lon(const Eigen::Vector3d& ecefDatum, double* longitude_rad);
+        static void ECEF2LatHeight(const Eigen::Vector3d& ecefDatum, double* latitude_geodetic_rad, float* height_WGS84_m);
+        static void ECEF2Lon(const Eigen::Vector3d& ecefDatum, double* longitude_rad);
 
         // to/from navigation frame quaternion
-        void qne2LatLon(const Eigen::Quaterniond& q_ne, double* latitude_geodetic_rad, double* longitude_rad);
-        void latLon2qne(double latitude_geodetic_rad, double longitude_rad, Eigen::Quaterniond& q_ne);
+        static void qne2LatLon(const Eigen::Quaterniond& q_ne, double* latitude_geodetic_rad, double* longitude_rad);
+        static void latLon2qne(double latitude_geodetic_rad, double longitude_rad, Eigen::Quaterniond& q_ne);
 
         // to/from navigation frame direction cosine matrix
-        void Cne2LatLon(const Eigen::Matrix3d& Cne, double* latitude_geodetic_rad, double* longitude_rad);
-        void latLon2Cne(double latitude_geodetic_rad, double longitude_rad, Eigen::Matrix3d& Cne);
+        static void Cne2LatLon(const Eigen::Matrix3d& Cne, double* latitude_geodetic_rad, double* longitude_rad);
+        static void latLon2Cne(double latitude_geodetic_rad, double longitude_rad, Eigen::Matrix3d& Cne);
 
         // datum conversion to ECEF
-        void latLonHeight2ECEF(double latitude_geodetic_rad, double longitude_rad, float height_WGS84_m, Eigen::Vector3d& ecef);
+        static void latLonHeight2ECEF(double latitude_geodetic_rad, double longitude_rad, float height_WGS84_m, Eigen::Vector3d& ecef);
 
 };
 
