@@ -58,6 +58,9 @@ class WGS84_Datum {
 
         Eigen::Vector3d transportRate(double Vnorth, double Veast) const;
 
+        // gravity model
+        double gravityMagnitude_mps2() const;
+
         // JSON print
         void printJSON();
 
