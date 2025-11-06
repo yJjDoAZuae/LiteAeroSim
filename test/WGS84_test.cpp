@@ -694,7 +694,7 @@ TEST(WGS84Test, transportRates) {
     EXPECT_NEAR(omega_en_n.z(), -datum.longitudeRate(Ve), 1e-12);
 
 
-    // test at 45 deg latitude, skewed azimuth, height 50000 n
+    // test at 45 deg latitude, skewed azimuth, height 50000 m
     double h = 50000.0; // m
     double lat_rad = M_PI/4.0;
     datum.setLatitudeGeodetic_rad(lat_rad);
@@ -709,7 +709,7 @@ TEST(WGS84Test, transportRates) {
     EXPECT_NEAR(lon_rate, Ve / (datum.eastRadius() + cos(lat_rad)*h), 1e-12);
     EXPECT_NEAR(horiz_rate, sqrt(Vn*Vn + Ve*Ve)/(datum.skewRadius(atan2(Ve,Vn)) + h), 1e-12);
 
-    // test transport rate vector calculation, height 50000 n
+    // test transport rate vector calculation, height 50000 m
     h = 50000.0; // m
     lat_rad = M_PI/4.0;
     datum.setLatitudeGeodetic_rad(lat_rad);
