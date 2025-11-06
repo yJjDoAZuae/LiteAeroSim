@@ -341,6 +341,13 @@ Eigen::Quaterniond WGS84_Datum::qne_fix(const Eigen::Quaterniond& qneDatum)
 
 }
 
+// angular rate of the Earth expressed in the NED frame
+Eigen::Vector3d WGS84_Datum::omega_ie_n() const {
+    Eigen::Vector3d omega_ie_n;
+    omega_ie_n = Cne() * Eigen::Vector3d(0.0, 0.0, WGS84_Datum::omega);
+    return omega_ie_n;
+}
+
 // gravity magnitude in m/s^2 at the given latitude and height
 // TODO: check coefficients
 double WGS84_Datum::gravityMagnitude_mps2() const {

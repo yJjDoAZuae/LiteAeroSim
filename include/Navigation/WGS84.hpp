@@ -61,6 +61,9 @@ class WGS84_Datum {
         // gravity model
         double gravityMagnitude_mps2() const;
 
+        // earth rate
+        Eigen::Vector3d WGS84_Datum::omega_ie_n() const;
+
         // JSON print
         void printJSON();
 
