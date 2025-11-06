@@ -516,3 +516,93 @@ TEST(WGS84Test, getter_setter_round_trip) {
     }
 
 }
+
+// test earth curvatures at various datum points
+TEST(WGS84Test, curvatures) {
+
+    // test at equator and prime meridian
+    WGS84_Datum datum;
+    datum.setLatitudeGeodetic_rad(0.0);
+    datum.setLongitude_rad(0.0);
+    double Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6335439.327292124, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6335439.327292124, 1e-6);
+    double Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6378137.0, 1e-6);
+    Re_E = datum.eastRadius();
+    EXPECT_NEAR(Re_E, 6378137.0, 1e-6);
+
+    // test at 45 deg latitude
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6367381.8156195479, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6367381.8156195479, 1e-6);
+    Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6388838.290121146, 1e-6);
+    Re_E = datum.eastRadius(); // 4517590.8788489318 ??
+    EXPECT_NEAR(Re_E, 6388838.290121146*cos(45.0 * M_PI / 180.0), 1e-6);
+
+    // test at -30 deg latitude
+    datum.setLatitudeGeodetic_rad(-30.0 * M_PI / 180.0);
+    datum.setLongitude_rad(0.0);
+    Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6351377.1037155138, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6351377.1037155138, 1e-6);
+    Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6383480.9176901085, 1e-6);
+    Re_E = datum.eastRadius(); // ??
+    EXPECT_NEAR(Re_E, 6383480.9176901085*cos(-30.0 * M_PI / 180.0), 1e-6);
+
+    // test at -90 deg latitude
+    datum.setLatitudeGeodetic_rad(-M_PI/2.0);
+    datum.setLongitude_rad(0.0);
+    Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6399593.625758194, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6399593.625758194, 1e-6);
+    Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6399593.6257584933, 1e-6);
+    Re_E = datum.eastRadius();
+    EXPECT_NEAR(Re_E, 0.0, 1e-6);
+
+    // test at 90 deg latitude
+    datum.setLatitudeGeodetic_rad(M_PI/2.0);
+    datum.setLongitude_rad(0.0);
+    Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6399593.625758194, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6399593.625758194, 1e-6);
+    Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6399593.6257584933, 1e-6);
+    Re_E = datum.eastRadius();
+    EXPECT_NEAR(Re_E, 0.0, 1e-6);
+
+    // test at 0 deg latitude and 45 deg longitude
+    datum.setLatitudeGeodetic_rad(0.0);
+    datum.setLongitude_rad(M_PI/4.0);
+    Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6335439.327292124, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6335439.327292124, 1e-6);
+    Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6378137.0, 1e-6);
+    Re_E = datum.eastRadius();
+    EXPECT_NEAR(Re_E, 6378137.0, 1e-6);
+
+    // test at 30 deg latitude and -60 deg longitude
+    datum.setLatitudeGeodetic_rad(30.0 * M_PI / 180.0);
+    datum.setLongitude_rad(-60.0 * M_PI / 180.0);
+    Re_N = datum.meridionalRadius();
+    EXPECT_NEAR(Re_N, 6351377.1037155138, 1e-6);
+    Re_N = datum.northRadius();
+    EXPECT_NEAR(Re_N, 6351377.1037155138, 1e-6);
+    Re_E = datum.primeVerticalRadius();
+    EXPECT_NEAR(Re_E, 6383480.9176901085, 1e-6);
+    Re_E = datum.eastRadius();
+    EXPECT_NEAR(Re_E, 6383480.9176901085*cos(30.0 * M_PI / 180.0), 1e-6);
+
+}
