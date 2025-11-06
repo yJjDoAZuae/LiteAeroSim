@@ -340,3 +340,16 @@ Eigen::Quaterniond WGS84_Datum::qne_fix(const Eigen::Quaterniond& qneDatum)
     return qne_set;
 
 }
+
+// gravity magnitude in m/s^2 at the given latitude and height
+// TODO: check coefficients
+double WGS84_Datum::gravityMagnitude_mps2() const {
+    // Somigliana model
+    double sin_lat = sin(latitudeGeodetic_rad());
+    double sin2_lat = sin_lat * sin_lat;
+
+    double g0 = 9.7803253359 * (1 + 0.00193185265241 * sin2_lat) / sqrt(1 - e2 * sin2_lat);
+    double g = g0 - (3.086e-6 - 0.004e-6 * sin2_lat) * height_WGS84_m();
+
+    return g;
+}

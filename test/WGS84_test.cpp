@@ -605,4 +605,86 @@ TEST(WGS84Test, curvatures) {
     Re_E = datum.eastRadius();
     EXPECT_NEAR(Re_E, 6383480.9176901085*cos(30.0 * M_PI / 180.0), 1e-6);
 
+    // test skewRadius at the equator
+    datum.setLatitudeGeodetic_rad(0.0);
+    datum.setLongitude_rad(0.0);
+    double Re_S = datum.skewRadius(90.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6378137.0, 1e-6);
+    Re_S = datum.skewRadius(0.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6335439.327292124, 1e-6);
+    Re_S = datum.skewRadius(45.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6356716.4650461227, 1e-6);
+    Re_S = datum.skewRadius(135.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6356716.4650461227, 1e-6);
+    Re_S = datum.skewRadius(-45.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6356716.4650461227, 1e-6);
+    Re_S = datum.skewRadius(-135.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6356716.4650461227, 1e-6);
+    Re_S = datum.skewRadius(180.0*M_PI/180.0);
+    EXPECT_NEAR(Re_S, 6335439.327292124, 1e-6);
+    
+}
+
+// TODO: check these values against a reference source
+TEST(WGS84Test, gravity) {
+
+    WGS84_Datum datum;
+
+    // test at equator and prime meridian
+    datum.setLatitudeGeodetic_rad(0.0);
+    datum.setLongitude_rad(0.0);
+    double g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.7803253359, 1e-9);
+
+    // test at 45 deg latitude
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.8061977693732381, 1e-9);
+
+    // test at 30 deg latitude
+    datum.setLatitudeGeodetic_rad(30.0 * M_PI / 180.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.793247269215307, 1e-9);
+
+    // test at -30 deg latitude
+    datum.setLatitudeGeodetic_rad(-30.0 * M_PI / 180.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.793247269215307, 1e-9);
+
+    // test at -90 deg latitude
+    datum.setLatitudeGeodetic_rad(-M_PI/2.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.8321849378590152, 1e-9);
+
+    // test at 90 deg latitude
+    datum.setLatitudeGeodetic_rad(M_PI/2.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.8321849378590152, 1e-9);
+
+    // test with altitude = 50000 m
+    datum.setHeight_WGS84_m(50000.0f);
+    datum.setLatitudeGeodetic_rad(45.0 * M_PI / 180.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.6519977693732386, 1e-9);
+
+    // test with altitude = -50000 m
+    datum.setHeight_WGS84_m(-50000.0f);
+    datum.setLatitudeGeodetic_rad(45.0 * M_PI / 180.0);
+    datum.setLongitude_rad(0.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.9603977693732376, 1e-9);
+
+    // test with longitude = 90 deg
+    datum.setHeight_WGS84_m(0.0f);
+    datum.setLatitudeGeodetic_rad(45.0 * M_PI / 180.0);
+    datum.setLongitude_rad(M_PI/2.0);
+    g = datum.gravityMagnitude_mps2();
+    EXPECT_NEAR(g, 9.8061977693732381, 1e-9);
+
 }
