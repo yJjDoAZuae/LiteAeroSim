@@ -625,6 +625,104 @@ TEST(WGS84Test, curvatures) {
     
 }
 
+// test cases for transport rate
+TEST(WGS84Test, transportRates) {
+
+    WGS84_Datum datum;
+
+    // test at equator and prime meridian
+    datum.setLatitudeGeodetic_rad(0.0);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(0.0f);
+    double Vn = 1000.0; // m/s
+    double Ve = 0.0;    // m/s
+    double lat_rate = datum.latitudeRate(Vn);
+    double lon_rate = datum.longitudeRate(Ve);
+    double horiz_rate = datum.horizonRate(Vn, Ve);
+    EXPECT_NEAR(lat_rate, Vn / datum.meridionalRadius(), 1e-12);
+    EXPECT_NEAR(lon_rate, Ve / (datum.primeVerticalRadius() * cos(0.0)), 1e-12);
+    EXPECT_NEAR(horiz_rate, sqrt(lat_rate*lat_rate + lon_rate*lon_rate), 1e-12);
+
+    // test at 45 deg latitude, north velocity
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(0.0f);
+    Vn = 1000.0; // m/s
+    Ve = 0.0;    // m/s
+    lat_rate = datum.latitudeRate(Vn);
+    lon_rate = datum.longitudeRate(Ve);
+    horiz_rate = datum.horizonRate(Vn, Ve);
+    EXPECT_NEAR(lat_rate, Vn / datum.northRadius(), 1e-12);
+    EXPECT_NEAR(lon_rate, 0.0, 1e-12);
+    EXPECT_NEAR(horiz_rate, Vn / datum.northRadius(), 1e-12);
+
+    // test at 45 deg latitude, east velocity
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(0.0f);
+    Vn = 0.0;    // m/s
+    Ve = 1000.0; // m/s
+    lat_rate = datum.latitudeRate(Vn);
+    lon_rate = datum.longitudeRate(Ve);
+    horiz_rate = datum.horizonRate(Vn, Ve);
+    EXPECT_NEAR(lat_rate, 0.0, 1e-12);
+    EXPECT_NEAR(lon_rate, Ve/datum.eastRadius(), 1e-12);
+    EXPECT_NEAR(horiz_rate, Ve/datum.primeVerticalRadius(), 1e-12);
+
+    // test at 45 deg latitude, skewed azimuth
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(0.0f);
+    Vn = 1000.0; // m/s
+    Ve = 500.0;    // m/s
+    lat_rate = datum.latitudeRate(Vn);
+    lon_rate = datum.longitudeRate(Ve);
+    horiz_rate = datum.horizonRate(Vn, Ve);
+    EXPECT_NEAR(lat_rate, Vn / datum.northRadius(), 1e-12);
+    EXPECT_NEAR(lon_rate, Ve / datum.eastRadius(), 1e-12);
+    EXPECT_NEAR(horiz_rate, sqrt(Vn*Vn + Ve*Ve)/datum.skewRadius(atan2(Ve,Vn)), 1e-12);
+
+    // test transport rate vector calculation
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(0.0f);
+    Vn = 1000.0; // m/s
+    Ve = 500.0;    // m/s
+    Eigen::Vector3d omega_en_n = datum.transportRate(Vn, Ve);
+    EXPECT_NEAR(omega_en_n.x(), -datum.horizonRate(Vn,Ve)*Ve/hypot(Vn,Ve), 1e-12);
+    EXPECT_NEAR(omega_en_n.y(), -datum.horizonRate(Vn,Ve)*Vn/hypot(Vn,Ve), 1e-12);
+    EXPECT_NEAR(omega_en_n.z(), -datum.longitudeRate(Ve), 1e-12);
+
+
+    // test at 45 deg latitude, skewed azimuth, height 50000 n
+    double h = 50000.0; // m
+    double lat_rad = M_PI/4.0;
+    datum.setLatitudeGeodetic_rad(lat_rad);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(h);
+    Vn = 1000.0; // m/s
+    Ve = 500.0;    // m/s
+    lat_rate = datum.latitudeRate(Vn);
+    lon_rate = datum.longitudeRate(Ve);
+    horiz_rate = datum.horizonRate(Vn, Ve);
+    EXPECT_NEAR(lat_rate, Vn / (datum.northRadius() + h), 1e-12);
+    EXPECT_NEAR(lon_rate, Ve / (datum.eastRadius() + cos(lat_rad)*h), 1e-12);
+    EXPECT_NEAR(horiz_rate, sqrt(Vn*Vn + Ve*Ve)/(datum.skewRadius(atan2(Ve,Vn)) + h), 1e-12);
+
+    // test transport rate vector calculation, height 50000 n
+    h = 50000.0; // m
+    lat_rad = M_PI/4.0;
+    datum.setLatitudeGeodetic_rad(lat_rad);
+    datum.setLongitude_rad(0.0);
+    datum.setHeight_WGS84_m(h);
+    Vn = 1000.0; // m/s
+    Ve = 500.0;    // m/s
+    omega_en_n = datum.transportRate(Vn, Ve);
+    EXPECT_NEAR(omega_en_n.x(), -datum.horizonRate(Vn,Ve)*Ve/hypot(Vn,Ve), 1e-12);
+    EXPECT_NEAR(omega_en_n.y(), -datum.horizonRate(Vn,Ve)*Vn/hypot(Vn,Ve), 1e-12);
+    EXPECT_NEAR(omega_en_n.z(), -datum.longitudeRate(Ve), 1e-12);
+
+}
 
 // test cases for earth rate
 TEST(WGS84Test, earthRates) {

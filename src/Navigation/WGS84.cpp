@@ -115,8 +115,8 @@ double WGS84_Datum::latitudeRate(double Vnorth) const {
 }
 
 double WGS84_Datum::longitudeRate(double Veast) const {
-    double Rmeridional = meridionalRadius() + height_WGS84_m();
-    return Veast / (Rmeridional * cos(latitudeGeodetic_rad()));
+    double R = primeVerticalRadius() + height_WGS84_m();
+    return Veast / (R * cos(latitudeGeodetic_rad()));
 }
 
 // angular rate of change of the horizon angle due to forward motion over the ellipsoid
@@ -137,7 +137,7 @@ Eigen::Vector3d WGS84_Datum::transportRate(double Vnorth, double Veast) const {
     Eigen::Vector3d omega_transport_LL;
     omega_transport_LL(0) = 0.0; // roll rate (about forward)
     omega_transport_LL(1) = -horizonRate(Vnorth, Veast); // pitch rate (about right)
-    omega_transport_LL(2) = longitudeRate(Veast); // yaw rate (about down)
+    omega_transport_LL(2) = -longitudeRate(Veast); // yaw rate (about down)
 
     return Eigen::AngleAxisd(-azimuth_rad, Eigen::Vector3d::UnitZ()) * omega_transport_LL;
 }
