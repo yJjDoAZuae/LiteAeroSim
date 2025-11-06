@@ -625,6 +625,39 @@ TEST(WGS84Test, curvatures) {
     
 }
 
+
+// test cases for earth rate
+TEST(WGS84Test, earthRates) {
+
+    WGS84_Datum datum;
+
+    // test at equator and prime meridian
+    datum.setLatitudeGeodetic_rad(0.0);
+    datum.setLongitude_rad(0.0);
+    Eigen::Vector3d omega_ie_n = datum.omega_ie_n();
+    EXPECT_NEAR(omega_ie_n.x(), WGS84_Datum::omega, 1e-9);
+    EXPECT_NEAR(omega_ie_n.y(), 0.0, 1e-9);
+    EXPECT_NEAR(omega_ie_n.z(), 0.0, 1e-12);
+
+    // test at 45 deg latitude
+    datum.setLatitudeGeodetic_rad(M_PI/4.0);
+    datum.setLongitude_rad(0.0);
+    omega_ie_n = datum.omega_ie_n();
+    EXPECT_NEAR(omega_ie_n.x(), WGS84_Datum::omega * cos(M_PI/4.0), 1e-12);
+    EXPECT_NEAR(omega_ie_n.y(), 0.0, 1e-9);
+    EXPECT_NEAR(omega_ie_n.z(), -WGS84_Datum::omega * sin(M_PI/4.0), 1e-12);
+
+    // test at -30 deg latitude
+    datum.setLatitudeGeodetic_rad(-30.0 * M_PI / 180.0);
+    datum.setLongitude_rad(0.0);
+    omega_ie_n = datum.omega_ie_n();
+    EXPECT_NEAR(omega_ie_n.x(), WGS84_Datum::omega * cos(-30.0 * M_PI / 180.0), 1e-12);
+    EXPECT_NEAR(omega_ie_n.y(), 0.0, 1e-9);
+    EXPECT_NEAR(omega_ie_n.z(), -WGS84_Datum::omega * sin(-30.0 * M_PI / 180.0), 1e-12);
+
+}
+
+
 // TODO: check these values against a reference source
 TEST(WGS84Test, gravity) {
 
