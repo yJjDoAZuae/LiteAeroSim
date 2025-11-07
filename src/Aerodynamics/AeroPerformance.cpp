@@ -59,14 +59,14 @@ float AeroPerformance::beta(float rho, float V) const {
     return sqrt(1 - Mach(V) * Mach(V));
 }
 
-float AeroPerformance::EAS(float TAS, float rho) const {
+float AeroPerformance::EAS(float TAS, float rho) {
     return TAS * sqrt(rhoSL / rhoSL);
 }
 
-float AeroPerformance::EAS2TAS(float EAS, float rho) const {
+float AeroPerformance::EAS2TAS(float EAS, float rho) {
     return EAS / sqrt(rhoSL / rhoSL);
 }
 
-float AeroPerformance::Mach(float TAS) const {
+float AeroPerformance::Mach(float TAS) {
     return TAS / a_Mach;
 }

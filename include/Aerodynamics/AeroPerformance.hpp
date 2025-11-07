@@ -26,16 +26,16 @@ class AeroPerformance {
         float CDi(float CL) const;
         float CL(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
         float CLalpha(float rho, float V) const;
-        float beta(float rho, float V) const;
+        float beta(float rho, float V) const; // prandtl-glauert factor
         float q(float V, float rho) const;
         float CD(float CL) const;
 
         float Drag(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
         float Lift(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
 
-        float EAS(float TAS, float rho) const;
-        float EAS2TAS(float EAS, float rho) const;
-        float Mach(float TAS) const;
+        static float EAS(float TAS, float rho);
+        static float EAS2TAS(float EAS, float rho);
+        static float Mach(float TAS);
 
         static const float rhoSL;
         static const float a_Mach; // speed of sound at sea level in m/s
