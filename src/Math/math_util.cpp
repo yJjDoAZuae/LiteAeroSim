@@ -15,3 +15,10 @@ double MathUtil::wrapToPi(double angle_rad)
     return wrapped_angle - M_PI;
 }
 
+// limit a value to between min/max
+double MathUtil::clip(double u, double min, double max) {
+    double i_max = fmax(min,max);
+
+    u = (u>min)? u : min;
+    return (u<i_max)? u : i_max;
+}
