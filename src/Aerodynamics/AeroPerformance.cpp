@@ -21,10 +21,6 @@ float AeroPerformance::CDi(float CL) const {
     return K() * CL * CL;
 }
 
-float AeroPerformance::q(float V, float rho) const {
-    return 0.5f * rho * V * V;
-}
-
 float AeroPerformance::CL(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const
 {
     float L = MathUtil::clip(N, airframe.GMin, airframe.GMax) * mass_kg * g;
@@ -55,7 +51,11 @@ float AeroPerformance::CLalpha(float rho, float V) const {
     return (2.0f * M_PI * AR()) / (2.0f + sqrt(4.0f + pow((AR() * beta(rho, V) / E), 2.0f))) * (Sref / q(V,rho));
 }
 
-float AeroPerformance::beta(float rho, float V) const {
+float AeroPerformance::q(float V, float rho) {
+    return 0.5f * rho * V * V;
+}
+
+float AeroPerformance::beta(float rho, float V) {
     return sqrt(1 - Mach(V) * Mach(V));
 }
 

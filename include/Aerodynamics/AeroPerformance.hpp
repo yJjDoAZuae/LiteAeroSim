@@ -26,13 +26,13 @@ class AeroPerformance {
         float CDi(float CL) const;
         float CL(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
         float CLalpha(float rho, float V) const;
-        float beta(float rho, float V) const; // prandtl-glauert factor
-        float q(float V, float rho) const;
         float CD(float CL) const;
 
         float Drag(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
         float Lift(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
 
+        static float q(float V, float rho);
+        static float beta(float rho, float V); // prandtl-glauert factor
         static float EAS(float TAS, float rho);
         static float EAS2TAS(float EAS, float rho);
         static float Mach(float TAS);
