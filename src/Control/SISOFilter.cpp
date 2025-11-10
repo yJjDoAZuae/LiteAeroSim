@@ -7,18 +7,21 @@
 static float dcTol = 1e-6;
 
 // copy implementation
-template <char NUM_STATES=FILTER_MAX_STATES> 
-void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
+// template <char NUM_STATES=FILTER_MAX_STATES> 
+// void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
+void SISOFilter::copy(SISOFilter &filt)
 {
-    const char nDim = (NUM_STATES >= filt.n()) : filt.n() : NUM_STATES;
+    // n = (NUM_STATES >= filt.n()) : filt.n() : NUM_STATES;
 
-    uBuff = filt->uBuff[0,nDim+1];
-    yBuff = filt->yBuff[0,nDim+1];
-    den = filt->den[0,nDim+1];
-    num = filt->num[0,nDim+1];
+    char n = (NUM_STATES >= filt.nDim())? filt.nDim() : NUM_STATES;
+
+    den = filt.den.head(n+1);
+    num = filt.num.head(n+1);
+    uBuff = filt.uBuff.head(n+1);
+    yBuff = filt.yBuff.head(n+1);
 
     // we ignore the first entry in den and set it to 1 in all cases
-    den[0] = 1.0f;
+    den(0) = 1.0f;
 }
 
 // int tustin_1(arma_buffer_t *num, arma_buffer_t *den, float dt, arma_buffer_t *numz, arma_buffer_t *denz)

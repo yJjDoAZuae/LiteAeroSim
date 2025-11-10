@@ -3,25 +3,28 @@
 #include <Eigen/Dense>
 
 #define FILTER_MAX_STATES 31
+#define NUM_STATES FILTER_MAX_STATES
 
 // A single input, single output discrete filter implementation
 // with ARMA parameterization
 // NOTE: filter parameterization enforces finite DC gain
-template <char NUM_STATES=FILTER_MAX_STATES> 
+// template <char NUM_STATES=FILTER_MAX_STATES>
 class SISOFilter : SISOBlock {
 
     public:
 
-        SISOFilter() : num(0),
-               den(0),
-               uBuff(0),
-               yBuff(0),
-               n(0) {};
-
-        SISOFilter(SISOFilter &filt) 
+        SISOFilter()
         {
-            copy(filt)
-        };
+            num << 1;
+            den << 1;
+            uBuff << 0;
+            yBuff << 0;
+        }
+
+        SISOFilter(SISOFilter &filt)
+        {
+            copy(filt);
+        }
 
         void copy(SISOFilter &filt);
 
@@ -33,7 +36,7 @@ class SISOFilter : SISOBlock {
         void setDerivIIR(float dt, float tau);  // first order derivative + low pass filter design
         void setNotchSecondIIR(float dt, float wn_rps, float zeta);  // second order notch filter design
 
-        void setDim(char nDim);
+        char nDim() { return den.rows() -1; }
 
         // FIR filter design
         void setButterworthFIR(char dim); // Butterworth low pass FIR filter design
@@ -55,8 +58,6 @@ class SISOFilter : SISOBlock {
         float dc_gain();
 
     private:
-
-        char n; // filter dimension
 
         Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES+1, 1> num;
         Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES+1, 1> den;
