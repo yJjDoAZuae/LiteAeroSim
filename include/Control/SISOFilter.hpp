@@ -5,6 +5,12 @@
 #define FILTER_MAX_STATES 31
 #define NUM_STATES FILTER_MAX_STATES
 
+
+namespace Control {
+
+// template <char NUM_STATES=FILTER_MAX_STATES>
+typedef Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> FiltVectorXf;
+
 // A single input, single output discrete filter implementation
 // with ARMA parameterization
 // NOTE: filter parameterization enforces finite DC gain
@@ -13,7 +19,7 @@ class SISOFilter : SISOBlock
 {
 
 public:
-    SISOFilter()
+    SISOFilter() : errorCode(0)
     {
         num << 1;
         den << 1;
@@ -30,11 +36,11 @@ public:
 
     // IIR filter design
     void setLowPassFirstIIR(float dt, float tau);                  // first order low pass filter design
-    void setLowPassSecondIIR(float dt, float wn_rps, float zeta);  // second order low pass filter design
+    void setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero);  // second order low pass filter design
     void setHighPassFirstIIR(float dt, float tau);                 // first order high pass filter design
-    void setHighPassSecondIIR(float dt, float wn_rps, float zeta); // second order high pass filter design
+    void setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero); // second order high pass filter design
     void setDerivIIR(float dt, float tau);                         // first order derivative + low pass filter design
-    void setNotchSecondIIR(float dt, float wn_rps, float zeta);    // second order notch filter design
+    void setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num);    // second order notch filter design
 
     char order() { return den.rows() - 1; }
 
@@ -47,24 +53,32 @@ public:
     float step(float in);
 
     // reset the fiter based on inputs
-    void reset_input(float in);
+    void resetInput(float in);
 
     // Reset the filter based on outputs
     // If dc gain is zero, then the filter is
     // reset to zero regardless of argument value
-    void reset_output(float out);
+    void resetOutput(float out);
 
     // dc gain value of the filter
-    float dc_gain();
+    float dcGain();
+
+    // retrieve the last errorCode generated
+    int lastError() { return errorCode; };
 
 private:
-    Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> num;
-    Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> den;
 
-    Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> uBuff;
-    Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> yBuff;
+    int errorCode=0;
+
+    FiltVectorXf num;
+    FiltVectorXf den;
+
+    FiltVectorXf uBuff;
+    FiltVectorXf yBuff;
 
     // Tustin discrete IIR filter realization
     void tustin_first();
     void tustin_second();
 };
+
+}

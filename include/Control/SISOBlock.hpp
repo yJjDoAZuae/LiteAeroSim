@@ -20,7 +20,7 @@ class SISOBlock {
         // time step
         float dt;
 
-    private:
+    protected:
 
         float _in;
         float _out;
