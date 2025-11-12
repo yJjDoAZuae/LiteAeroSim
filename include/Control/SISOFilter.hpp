@@ -41,13 +41,13 @@ public:
     void setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero); // second order high pass filter design
     void setDerivIIR(float dt, float tau);                         // first order derivative + low pass filter design
     void setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num);    // second order notch filter design
+    void setButterworthIIR(char order);    // Butterworth low pass IIR filter design
 
     char order() { return den.rows() - 1; }
 
     // FIR filter design
-    void setButterworthFIR(char order);    // Butterworth low pass FIR filter design
     void setAverageFIR(char order);        // equal weight moving average FIR filter design
-    void setExpFIR(char order, float tau); // exponential decaying weight moving average FIR filter design
+    void setExpFIR(char order, float dt, float tau); // exponential decaying weight moving average FIR filter design
 
     // step the filter
     float step(float in);

@@ -118,7 +118,6 @@ int tustin_2(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVec
 
 void SISOFilter::setLowPassFirstIIR(float dt, float tau)
 {
-
     // HACK: zero order hold realization
     // ydot = -1/tau y + 1/tau u
     // yk+1 - yk = (-1/tau yk + 1/tau u) * dt
@@ -163,7 +162,6 @@ void SISOFilter::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float t
 
 void SISOFilter::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num)
 {
-
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
@@ -182,7 +180,6 @@ void SISOFilter::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float
 
 void SISOFilter::setHighPassFirstIIR(float dt, float tau)
 {
-
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
@@ -199,7 +196,6 @@ void SISOFilter::setHighPassFirstIIR(float dt, float tau)
 
 void SISOFilter::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero)
 {
-
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
@@ -218,7 +214,6 @@ void SISOFilter::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float 
 
 void SISOFilter::setDerivIIR(float dt, float tau)
 {
- 
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
@@ -231,6 +226,32 @@ void SISOFilter::setDerivIIR(float dt, float tau)
     den_s(1) = 1.0f / tau;
 
     errorCode = tustin_1(num_s, den_s, dt, num, den);
+}
+
+void SISOFilter::setAverageFIR(char order)
+{
+    num = FiltVectorXf::Ones(order+1)*(1.0f/(order+1.0f));
+    den = FiltVectorXf::Zero(order+1);
+    uBuff = FiltVectorXf::Zero(order+1);
+    yBuff = FiltVectorXf::Zero(order+1);
+
+    den(0) = 1.0f;
+}
+
+void SISOFilter::setExpFIR(char order, float dt, float tau)
+{
+    num = FiltVectorXf::Zero(order+1);
+    den = FiltVectorXf::Zero(order+1);
+    uBuff = FiltVectorXf::Zero(order+1);
+    yBuff = FiltVectorXf::Zero(order+1);
+
+    den(0) = 1.0f;
+
+    for (int k=0; k<this->order()+1; k++) {
+        num(k) = exp(-k*dt/tau);
+    }
+    float sumNum = num.sum();
+    num *= 1.0f/sumNum;  // normalize to unity dc gain
 }
 
 void SISOFilter::resetInput(float in)
@@ -337,103 +358,6 @@ float SISOFilter::step(float in)
 
     return 0;
 }
-
-// // Reset a filter based on a constant input value
-// int fir_siso_filter_dcgain(fir_value_t *dcgain, fir_siso_filter_state_t *state)
-// {
-//     long long tmp_out = 0;
-
-//     if (state->n > FIR_SISO_MAX_ORDER)
-//     {
-//         return 1;
-//     }
-
-//     for (int k = 0; k < state->n; k++)
-//     {
-//         tmp_out += state->b[k];
-//     }
-
-//     *dcgain = tmp_out / state->n;
-
-//     return 0;
-// }
-
-// // Reset a filter based on a constant input value
-// int fir_siso_filter_input_reset(fir_value_t in, fir_siso_filter_state_t *state)
-// {
-//     if (state->n > FIR_SISO_MAX_ORDER)
-//     {
-//         return 1;
-//     }
-
-//     for (int k = state->n - 1; k >= 0; k--)
-//     {
-//         state->u[k] = in;
-//     }
-
-//     return 0;
-// }
-
-// // Reset a filter based on a constant output value
-// int fir_siso_filter_output_reset(fir_value_t out, fir_siso_filter_state_t *state)
-// {
-//     long long sum_b = 0;
-
-//     if (state->n > FIR_SISO_MAX_ORDER)
-//     {
-//         return 1;
-//     }
-
-//     for (int k = 0; k < state->n; k++)
-//     {
-//         sum_b += state->b[k];
-//     }
-
-//     fir_value_t in = 0;
-//     if (sum_b != 0)
-//     {
-//         in = out * state->n / sum_b;
-//     }
-//     else
-//     {
-//         in = 0;
-//     }
-
-//     for (int k = 0; k < state->n; k++)
-//     {
-//         state->u[k] = in;
-//     }
-
-//     if (sum_b == 0)
-//     {
-//         return 2;
-//     }
-
-//     return 0;
-// }
-
-// // Step a filter forward one iteration
-// int fir_siso_filter_update(fir_value_t in, fir_value_t *out, fir_siso_filter_state_t *state)
-// {
-//     long long tmp_out = 0;
-
-//     if (state->n > FIR_SISO_MAX_ORDER)
-//     {
-//         return 1;
-//     }
-
-//     for (int k = state->n - 1; k > 0; k--)
-//     {
-//         state->u[k] = state->u[k - 1];
-//         tmp_out += state->u[k] * state->b[k];
-//     }
-//     state->u[0] = in;
-//     tmp_out += state->u[0] * state->b[0];
-
-//     *out = tmp_out / state->n;
-
-//     return 0;
-// }
 
 // resize vector to specified length by either truncating from the left or
 // zero padding from the left
