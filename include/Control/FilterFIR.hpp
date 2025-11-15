@@ -1,0 +1,68 @@
+
+#pragma once
+
+#include "Control/SISOBlock.hpp"
+#include "Control/Filter.hpp"
+#include "Control/control.hpp"
+#include <Eigen/Dense>
+
+
+namespace Control {
+
+// A single input, single output discrete filter implementation
+// with ARMA parameterization
+// NOTE: filter parameterization enforces finite DC gain
+// template <char NUM_STATES=FILTER_MAX_STATES>
+class FilterFIR : Filter
+{
+
+public:
+    FilterFIR() : errorCode(0), maxNumStates(NUM_STATES)
+    {
+        num << 1;
+        uBuff << 0;
+    }
+
+    FilterFIR(FilterFIR &filt) : errorCode(0), maxNumStates(NUM_STATES)
+    {
+        copy(filt);
+    }
+
+    void copy(FilterFIR &filt);
+
+    char order() { return num.rows() - 1; }
+
+    // FIR filter design
+    void setAverageFIR(char order);        // equal weight moving average FIR filter design
+    void setExpFIR(char order, float dt, float tau); // exponential decaying weight moving average FIR filter design
+
+    // step the filter
+    float step(float in);
+
+    // reset the fiter based on inputs
+    void resetInput(float in);
+
+    // Reset the filter based on outputs
+    // If dc gain is zero, then the filter is
+    // reset to zero regardless of argument value
+    void resetOutput(float out);
+
+    // dc gain value of the filter
+    float dcGain();
+
+    // retrieve the last errorCode generated
+    int lastError() { return errorCode; };
+
+private:
+
+    const char maxNumStates;
+
+    int errorCode=0;
+
+    FiltVectorXf num;
+
+    FiltVectorXf uBuff;
+
+};
+
+}
