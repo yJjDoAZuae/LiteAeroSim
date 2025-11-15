@@ -21,9 +21,9 @@ typedef enum {
     NONE = 0, // no error
     INVALID_DIMENSION = 1, // invalid vector or matrix dimension input
     INVALID_TIMESTEP = 2, // invalid timestep
-    UNSTABLE = 3, // invalid denominator coefficients
-    INFINITE_DC_GAIN = 4, // non-finite dc gain
-    ZERO_DC_GAIN = 5 // attempt to perform output initialization with zero dc gain
+    UNSTABLE = 4, // invalid denominator coefficients
+    INFINITE_DC_GAIN = 8, // non-finite dc gain
+    ZERO_DC_GAIN = 16 // attempt to perform output initialization with zero dc gain
 
 } FilterError;
 

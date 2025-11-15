@@ -11,19 +11,19 @@ namespace Control {
 // template <char NUM_STATES=FILTER_MAX_STATES>
 typedef Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> FiltVectorXf;
 
-class FilterSS2 : Filter {
+class FilterSS2 : public Filter {
 
 public:
-    FilterSS2() : errorCode(FilterError::NONE)
+    FilterSS2()
     {
-        Phi.setZero();
-        Gamma.setZero();
-        H.setZero();
-        J.setZero();
-        x.setZero();
+        _Phi.setZero();
+        _Gamma.setZero();
+        _H.setZero();
+        _J.setZero();
+        _x.setZero();
     }
 
-    FilterSS2(FilterSS2 &filt) : errorCode(FilterError::NONE)
+    FilterSS2(FilterSS2 &filt)
     {
         copy(filt);
     }
@@ -50,23 +50,24 @@ public:
     void resetOutput(float out);
 
     // dc gain value of the filter
-    float dcGain();
+    float dcGain() const;
 
-    // retrieve the last errorCode generated
-    int lastError() { return errorCode; };
+    const Eigen::Matrix<float, 2, 2>& Phi() const {return _Phi;}
+    const Eigen::Matrix<float, 2, 1>& Gamma() const {return _Gamma;}
+    const Eigen::Matrix<float, 1, 2>& H() const {return _H;}
+    const Eigen::Matrix<float, 1, 1>& J() const {return _J;}
+    const Eigen::Matrix<float, 2, 1>& x() const {return _x;}
 
 private:
 
-    FilterError errorCode=FilterError::NONE;
-
     // 2nd order state space realization matrices
-    Eigen::Matrix<float, 2, 2> Phi;
-    Eigen::Matrix<float, 2, 1> Gamma;
-    Eigen::Matrix<float, 1, 2> H;
-    Eigen::Matrix<float, 1, 1> J;
+    Eigen::Matrix<float, 2, 2> _Phi;
+    Eigen::Matrix<float, 2, 1> _Gamma;
+    Eigen::Matrix<float, 1, 2> _H;
+    Eigen::Matrix<float, 1, 1> _J;
 
     // 2nd order state vector
-    Eigen::Vector<float, 2> x;
+    Eigen::Vector<float, 2> _x;
 
 };
 

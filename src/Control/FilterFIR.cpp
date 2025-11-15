@@ -49,7 +49,7 @@ void FilterFIR::resetOutput(float out)
         _out = _in/dcGain;
     } else {
         // zero DC gain
-        errorCode = 5;
+        _errorCode += FilterError::ZERO_DC_GAIN;
         _in = 0.0f;
         _out = 0.0f;
     }

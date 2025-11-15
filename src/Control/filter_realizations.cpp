@@ -151,10 +151,10 @@ FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 
 FilterError tf2ss( const FiltVectorXf &num, 
             const FiltVectorXf &den, 
-            Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, NUM_STATES, NUM_STATES> &A, 
-            Eigen::Matrix<float, Eigen::Dynamic, 1, NUM_STATES, 1> &B, 
-            Eigen::Matrix<float, 1, Eigen::Dynamic, 1, NUM_STATES> &C, 
-            Eigen::Matrix<float, 1, 1, 1, 1> &D)
+            Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, 0, NUM_STATES, NUM_STATES> &A, 
+            Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES, 1> &B, 
+            Eigen::Matrix<float, 1, Eigen::Dynamic, Eigen::RowMajor, 1, NUM_STATES> &C, 
+            Eigen::Matrix<float, 1, 1, 0, 1, 1> &D)
 {
 
     if (num.size() == 0 || den.size() < 2) {

@@ -13,17 +13,17 @@ namespace Control {
 // with ARMA parameterization
 // NOTE: filter parameterization enforces finite DC gain
 // template <char NUM_STATES=FILTER_MAX_STATES>
-class FilterFIR : Filter
+class FilterFIR : public Filter
 {
 
 public:
-    FilterFIR() : errorCode(0), maxNumStates(NUM_STATES)
+    FilterFIR()
     {
         num << 1;
         uBuff << 0;
     }
 
-    FilterFIR(FilterFIR &filt) : errorCode(0), maxNumStates(NUM_STATES)
+    FilterFIR(FilterFIR &filt)
     {
         copy(filt);
     }
@@ -50,17 +50,9 @@ public:
     // dc gain value of the filter
     float dcGain();
 
-    // retrieve the last errorCode generated
-    int lastError() { return errorCode; };
-
 private:
 
-    const char maxNumStates;
-
-    int errorCode=0;
-
     FiltVectorXf num;
-
     FiltVectorXf uBuff;
 
 };

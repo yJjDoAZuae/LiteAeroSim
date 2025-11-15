@@ -18,9 +18,11 @@ class Filter : protected SISOBlock
 
 public:
 
+    Filter::Filter() : _errorCode(0), maxNumStates(0) {}
+
     void copy(Filter &filt);
 
-    char order();
+    char order() const;
 
     // step the filter
     float step(float in);
@@ -34,14 +36,17 @@ public:
     void resetOutput(float out);
 
     // dc gain value of the filter
-    float dcGain();
+    float dcGain() const;
 
-    // retrieve the last errorCode generated
-    int lastError() { return errorCode; };
+    // retrieve the errorCode bitmask
+    uint16_t errorCode() const {
+        return _errorCode;
+    };
 
 protected:
 
-    FilterError errorCode;
+    const char maxNumStates = NUM_STATES;
+    uint16_t _errorCode;
 
 };
 

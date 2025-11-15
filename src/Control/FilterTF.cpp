@@ -33,120 +33,7 @@ void FilterTF::copy(FilterTF &filt)
     // we ignore the first entry in den and set it to 1 in all cases
     den(0) = 1.0f;
 
-    errorCode = filt.errorCode;
-}
-
-
-void FilterTF::setLowPassFirstIIR(float dt, float tau)
-{
-    // HACK: zero order hold realization
-    // ydot = -1/tau y + 1/tau u
-    // yk+1 - yk = (-1/tau yk + 1/tau u) * dt
-    // yk+1 = (1 - dt/tau) xk + dt/tau u
-
-    // numz.k[0] = dt/tau;
-    // numz.k[1] = 0.0f;
-    // denz.k[0] = 1.0f;
-    // denz.k[1] = -(1-dt/tau);
-
-    FiltVectorXf num_s;
-    FiltVectorXf den_s;
-
-    num_s.resize(2);
-    den_s.resize(2);
-
-    num_s(0) = 0.0f;
-    num_s(1) = 1.0f / tau;
-    den_s(0) = 1.0f;
-    den_s(1) = 1.0f / tau;
-
-    errorCode = tustin_1_tf(num_s, den_s, dt, num, den);
-}
-
-void FilterTF::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero)
-{
-    FiltVectorXf num_s;
-    FiltVectorXf den_s;
-
-    num_s.resize(3);
-    den_s.resize(3);
-
-    num_s(0) = 0.0f;  // s^2
-    num_s(1) = tau_zero * wn_rps * wn_rps; // s
-    num_s(2) = wn_rps * wn_rps;
-    den_s(0) = 1.0f;  // s^2
-    den_s(1) = 2.0f * zeta * wn_rps;  // s
-    den_s(2) = wn_rps * wn_rps;
-
-    errorCode = tustin_2_tf(num_s, den_s, dt, num, den);
-}
-
-void FilterTF::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num)
-{
-    FiltVectorXf num_s;
-    FiltVectorXf den_s;
-
-    num_s.resize(3);
-    den_s.resize(3);
-
-    num_s(0) = 1.0f;
-    num_s(1) = 2.0f * zeta_num * wn_rps;
-    num_s(2) = wn_rps * wn_rps;
-    den_s(0) = 1.0f;
-    den_s(1) = 2.0f * zeta_den * wn_rps;
-    den_s(2) = wn_rps * wn_rps;
-
-    errorCode = tustin_2_tf(num_s, den_s, dt, num, den);
-}
-
-void FilterTF::setHighPassFirstIIR(float dt, float tau)
-{
-    FiltVectorXf num_s;
-    FiltVectorXf den_s;
-
-    num_s.resize(2);
-    den_s.resize(2);
-
-    num_s(0) = 1.0f / tau;
-    num_s(1) = 0.0f;
-    den_s(0) = 1.0f;
-    den_s(1) = 1.0f / tau;
-
-    errorCode = tustin_1_tf(num_s, den_s, dt, num, den);
-}
-
-void FilterTF::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero)
-{
-    FiltVectorXf num_s;
-    FiltVectorXf den_s;
-
-    num_s.resize(3);
-    den_s.resize(3);
-
-    num_s(0) = 1.0f;  // s^2
-    num_s(1) = c_zero * 2.0f * zeta * wn_rps;  // s
-    num_s(2) = 0.0f;
-    den_s(0) = 1.0f;  // s^2
-    den_s(1) = 2.0f * zeta * wn_rps;  // s
-    den_s(2) = wn_rps * wn_rps;
-
-    errorCode = tustin_2_tf(num_s, den_s, dt, num, den);
-}
-
-void FilterTF::setDerivIIR(float dt, float tau)
-{
-    FiltVectorXf num_s;
-    FiltVectorXf den_s;
-
-    num_s.resize(2);
-    den_s.resize(2);
-
-    num_s(0) = 1.0f / tau;
-    num_s(1) = 0.0f;
-    den_s(0) = 1.0f;
-    den_s(1) = 1.0f / tau;
-
-    errorCode = tustin_1_tf(num_s, den_s, dt, num, den);
+    _errorCode += filt.errorCode();
 }
 
 // https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
@@ -208,7 +95,7 @@ void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
         den_s(k) *= 1/pow(wn_rps, order-k);
     }
 
-    errorCode = tustin_n_tf(num_s, den_s, dt, num, den);
+    _errorCode += tustin_n_tf(num_s, den_s, dt, num, den);
 
 }
 
@@ -223,7 +110,7 @@ void FilterTF::resetInput(float in)
 
     float dcGain = this->dcGain();
 
-    if (lastError() == 0)
+    if (errorCode() == 0)
     {
         uBuff << FiltVectorXf::Ones(order()+1) * in;
         yBuff << FiltVectorXf::Ones(order()+1) * in * dcGain;
@@ -244,7 +131,7 @@ void FilterTF::resetOutput(float out)
 
     float dcGain = this->dcGain();
 
-    if (lastError() == 0)
+    if (errorCode() == 0)
     {
         uBuff << FiltVectorXf::Ones(order()+1) * out / dcGain;
         yBuff << FiltVectorXf::Ones(order()+1) * out;
@@ -258,7 +145,7 @@ float FilterTF::dcGain()
 {
     const float tol = 1e-6;
 
-    float dcGain = 1.0f;
+    // float dcGain = 1.0f;
 
     float numSum = num.sum();
     float denSum = den.sum();
@@ -270,15 +157,14 @@ float FilterTF::dcGain()
     // Test for infinite DC gain.
     // Pure integrators should not be implemented
     // using an ARMA filter.
-    if (fabs(denSum) > tol)
+    if (denSum < tol)
     {
-        dcGain = numSum / denSum;
-    } else {
         // non-finite DC gain
-        errorCode = 4;
+        // errorCode = 4;
+        return 1.0f;
     }
 
-    return dcGain;
+    return numSum / denSum;
 }
 
 float FilterTF::step(float in)
