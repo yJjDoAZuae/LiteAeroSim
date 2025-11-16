@@ -205,6 +205,28 @@ float FilterSS::dcGain() const
     return (_H*ImPhiInv*_Gamma + _J).value();
 }
 
+MatNN FilterSS::controlGrammian() const
+{
+    MatNN C(MatN1::Zero(order(),order()));
+
+    for (int k = 0; k<order(); k++) {
+        C(Eigen::all, k) << MatN1(_Phi.pow(k) * _Gamma);
+    }
+
+    return C;
+}
+
+MatNN FilterSS::observeGrammian() const
+{
+    MatNN C(MatN1::Zero(order(),order()));
+
+    for (int k = 0; k<order(); k++) {
+        C(k, Eigen::all) << Mat1N(_H * _Phi.pow(k));
+    }
+
+    return C;
+}
+
 float FilterSS::step(float in)
 {
     this->_in = in;

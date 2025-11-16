@@ -6,7 +6,7 @@
 #include "Control/Filter.hpp"
 #include "Control/FilterSS2.hpp"
 #include <Eigen/Dense>
-
+#include <unsupported/Eigen/MatrixFunctions>  // for Matrix::pow()
 
 namespace Control {
 
@@ -54,6 +54,9 @@ public:
     MatN1 x() const {return _x;}
 
     Eigen::size_t order() const {return _Phi.rows();}
+
+    MatNN controlGrammian() const;
+    MatNN observeGrammian() const;
 
 private:
 
