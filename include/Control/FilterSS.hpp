@@ -47,16 +47,11 @@ public:
     // dc gain value of the filter
     float dcGain() const;
 
-    typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, 0, NUM_STATES, NUM_STATES> MatNN;
-    typedef Eigen::Matrix<float, Eigen::Dynamic,              1, 0, NUM_STATES,          1> MatN1;
-    typedef Eigen::Matrix<float,              1, Eigen::Dynamic, Eigen::RowMajor,          1, NUM_STATES> Mat1N;
-    typedef Eigen::Matrix<float,              1,              1, 0,          1,          1> Mat11;
-
-    const MatNN& Phi() const {return _Phi;}
-    const MatN1& Gamma() const {return _Gamma;}
-    const Mat1N& H() const {return _H;}
-    const Mat11& J() const {return _J;}
-    const MatN1& x() const {return _x;}
+    MatNN Phi() const {return _Phi;}
+    MatN1 Gamma() const {return _Gamma;}
+    Mat1N H() const {return _H;}
+    Mat11 J() const {return _J;}
+    MatN1 x() const {return _x;}
 
     char order() const {return _Phi.rows();}
 

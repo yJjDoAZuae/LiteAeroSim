@@ -52,22 +52,22 @@ public:
     // dc gain value of the filter
     float dcGain() const;
 
-    const Eigen::Matrix<float, 2, 2>& Phi() const {return _Phi;}
-    const Eigen::Matrix<float, 2, 1>& Gamma() const {return _Gamma;}
-    const Eigen::Matrix<float, 1, 2>& H() const {return _H;}
-    const Eigen::Matrix<float, 1, 1>& J() const {return _J;}
-    const Eigen::Matrix<float, 2, 1>& x() const {return _x;}
+    Mat22 Phi() const {return _Phi;}
+    Mat21 Gamma() const {return _Gamma;}
+    Mat12 H() const {return _H;}
+    Mat11 J() const {return _J;}
+    Mat21 x() const {return _x;}
 
 private:
 
     // 2nd order state space realization matrices
-    Eigen::Matrix<float, 2, 2> _Phi;
-    Eigen::Matrix<float, 2, 1> _Gamma;
-    Eigen::Matrix<float, 1, 2> _H;
-    Eigen::Matrix<float, 1, 1> _J;
+    Mat22 _Phi;
+    Mat21 _Gamma;
+    Mat12 _H;
+    Mat11 _J;
 
     // 2nd order state vector
-    Eigen::Vector<float, 2> _x;
+    Mat21 _x;
 
 };
 

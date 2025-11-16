@@ -36,8 +36,8 @@ void FilterSS2::setLowPassFirstIIR(float dt, float tau)
     // denz.k[0] = 1.0f;
     // denz.k[1] = -(1-dt/tau);
 
-    Eigen::Vector<float, 3> num_s;
-    Eigen::Vector<float, 3> den_s;
+    Eigen::Vector3f num_s;
+    Eigen::Vector3f den_s;
 
     num_s(0) = 0.0f;
     num_s(1) = 0.0f;
@@ -46,8 +46,8 @@ void FilterSS2::setLowPassFirstIIR(float dt, float tau)
     den_s(1) = 1.0f;
     den_s(2) = 1.0f / tau;
 
-    Eigen::Vector<float, 3> num_z;
-    Eigen::Vector<float, 3> den_z;
+    Eigen::Vector3f num_z;
+    Eigen::Vector3f den_z;
 
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
@@ -57,8 +57,8 @@ void FilterSS2::setLowPassFirstIIR(float dt, float tau)
 
 void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero)
 {
-    Eigen::Vector<float, 3> num_s;
-    Eigen::Vector<float, 3> den_s;
+    Eigen::Vector3f num_s;
+    Eigen::Vector3f den_s;
 
     num_s(0) = 0.0f;  // s^2
     num_s(1) = tau_zero * wn_rps * wn_rps; // s
@@ -67,8 +67,8 @@ void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float ta
     den_s(1) = 2.0f * zeta * wn_rps;  // s
     den_s(2) = wn_rps * wn_rps;
 
-    Eigen::Vector<float, 3> num_z;
-    Eigen::Vector<float, 3> den_z;
+    Eigen::Vector3f num_z;
+    Eigen::Vector3f den_z;
 
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, num_z);
 
@@ -77,8 +77,8 @@ void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float ta
 
 void FilterSS2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num)
 {
-    Eigen::Vector<float, 3> num_s;
-    Eigen::Vector<float, 3> den_s;
+    Eigen::Vector3f num_s;
+    Eigen::Vector3f den_s;
 
     num_s(0) = 1.0f;
     num_s(1) = 2.0f * zeta_num * wn_rps;
@@ -87,8 +87,8 @@ void FilterSS2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float 
     den_s(1) = 2.0f * zeta_den * wn_rps;
     den_s(2) = wn_rps * wn_rps;
 
-    Eigen::Vector<float, 3> num_z;
-    Eigen::Vector<float, 3> den_z;
+    Eigen::Vector3f num_z;
+    Eigen::Vector3f den_z;
 
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
@@ -97,8 +97,8 @@ void FilterSS2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float 
 
 void FilterSS2::setHighPassFirstIIR(float dt, float tau)
 {
-    Eigen::Vector<float, 3> num_s;
-    Eigen::Vector<float, 3> den_s;
+    Eigen::Vector3f num_s;
+    Eigen::Vector3f den_s;
 
     num_s(0) = 0.0f;
     num_s(1) = 1.0f / tau;
@@ -107,8 +107,8 @@ void FilterSS2::setHighPassFirstIIR(float dt, float tau)
     den_s(1) = 1.0f;
     den_s(2) = 1.0f / tau;
 
-    Eigen::Vector<float, 3> num_z;
-    Eigen::Vector<float, 3> den_z;
+    Eigen::Vector3f num_z;
+    Eigen::Vector3f den_z;
 
     _errorCode = tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
@@ -117,8 +117,8 @@ void FilterSS2::setHighPassFirstIIR(float dt, float tau)
 
 void FilterSS2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero)
 {
-    Eigen::Vector<float, 3> num_s;
-    Eigen::Vector<float, 3> den_s;
+    Eigen::Vector3f num_s;
+    Eigen::Vector3f den_s;
 
     num_s(0) = 1.0f;  // s^2
     num_s(1) = c_zero * 2.0f * zeta * wn_rps;  // s
@@ -127,8 +127,8 @@ void FilterSS2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c
     den_s(1) = 2.0f * zeta * wn_rps;  // s
     den_s(2) = wn_rps * wn_rps;
 
-    Eigen::Vector<float, 3> num_z;
-    Eigen::Vector<float, 3> den_z;
+    Eigen::Vector3f num_z;
+    Eigen::Vector3f den_z;
 
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
@@ -137,8 +137,8 @@ void FilterSS2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c
 
 void FilterSS2::setDerivIIR(float dt, float tau)
 {
-    Eigen::Vector<float, 3> num_s;
-    Eigen::Vector<float, 3> den_s;
+    Eigen::Vector3f num_s;
+    Eigen::Vector3f den_s;
 
     num_s(0) = 0.0f;
     num_s(1) = 1.0f / tau;
@@ -147,8 +147,8 @@ void FilterSS2::setDerivIIR(float dt, float tau)
     den_s(1) = 1.0f;
     den_s(2) = 1.0f / tau;
 
-    Eigen::Vector<float, 3> num_z;
-    Eigen::Vector<float, 3> den_z;
+    Eigen::Vector3f num_z;
+    Eigen::Vector3f den_z;
 
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
@@ -165,11 +165,11 @@ void FilterSS2::resetInput(float in)
     if (errorCode() == 0)
     {
 
-        Eigen::Matrix<float,2,2> ImPhiInv;
+        Mat22 ImPhiInv;
         bool invertible = false;
         float absDeterminantThreshold = 1e-4;
 
-        (Eigen::Matrix<float,2,2>::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
+        (Mat22::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
 
         if (!invertible) {
             _errorCode += FilterError::UNSTABLE;
@@ -195,11 +195,11 @@ void FilterSS2::resetOutput(float out)
     if (errorCode() == 0)
     {
 
-        Eigen::Matrix<float,2,2> ImPhiInv;
+        Mat22 ImPhiInv;
         bool invertible = false;
         float absDeterminantThreshold = 1e-4;
 
-        (_Phi.Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
+        (Mat22::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
 
         if (!invertible) {
             _errorCode += FilterError::UNSTABLE;
@@ -228,11 +228,11 @@ float FilterSS2::dcGain() const
     // Pure integrators should not be implemented
     // using an ARMA filter.
 
-    Eigen::Matrix<float,2,2> ImPhiInv;
+    Mat22 ImPhiInv;
     bool invertible = false;
     float absDeterminantThreshold = 1e-4;
 
-    Eigen::Inverse(Eigen::Matrix<float,2,2>::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
+    (Mat22::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
 
     if (!invertible) {
         // _errorCode += FilterError::INFINITE_DC_GAIN;
