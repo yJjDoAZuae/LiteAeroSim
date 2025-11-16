@@ -9,7 +9,6 @@
 namespace Control {
 
 // template <char NUM_STATES=FILTER_MAX_STATES>
-typedef Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> FiltVectorXf;
 
 class FilterSS2 : public Filter {
 
