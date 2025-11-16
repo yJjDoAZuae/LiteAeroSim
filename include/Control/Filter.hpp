@@ -22,7 +22,7 @@ public:
 
     void copy(Filter &filt);
 
-    char order() const;
+    Eigen::size_t order() const;
 
     // step the filter
     float step(float in);

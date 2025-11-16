@@ -53,7 +53,7 @@ public:
     Mat11 J() const {return _J;}
     MatN1 x() const {return _x;}
 
-    char order() const {return _Phi.rows();}
+    Eigen::size_t order() const {return _Phi.rows();}
 
 private:
 

@@ -36,7 +36,7 @@ public:
     // IIR filter design
     void setButterworthIIR(char order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
 
-    char order() { return den.rows() - 1; }
+    Eigen::size_t order() { return den.rows() - 1; }
 
     // step the filter
     float step(float in);

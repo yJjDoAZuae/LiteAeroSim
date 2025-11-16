@@ -58,6 +58,8 @@ public:
     Mat11 J() const {return _J;}
     Mat21 x() const {return _x;}
 
+    Eigen::size_t order() const {return _Phi.rows();}
+
 private:
 
     // 2nd order state space realization matrices

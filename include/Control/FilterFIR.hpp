@@ -30,7 +30,7 @@ public:
 
     void copy(FilterFIR &filt);
 
-    char order() { return num.rows() - 1; }
+    Eigen::size_t order() { return num.rows() - 1; }
 
     // FIR filter design
     void setAverageFIR(char order);        // equal weight moving average FIR filter design
