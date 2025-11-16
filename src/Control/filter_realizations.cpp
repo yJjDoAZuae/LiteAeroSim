@@ -4,6 +4,8 @@
 
 using namespace Control;
 
+namespace Control {
+
 FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
@@ -189,12 +191,12 @@ FilterError tf2ss( const FiltVectorXf &num,
     return FilterError::NONE;
 }
 
-FilterError tf2ss(const Eigen::Vector<float,3> &num, 
-             const Eigen::Vector<float,3> &den, 
-             Eigen::Matrix<float,2,2> &A, 
-             Eigen::Matrix<float,2,1> &B, 
-             Eigen::Matrix<float,1,2> &C, 
-             Eigen::Matrix<float,1,1> &D)
+FilterError tf2ss(const Eigen::Vector3f &num, 
+                  const Eigen::Vector3f &den,
+                  Mat22 &A,
+                  Mat21 &B,
+                  Mat12 &C,
+                  Mat11 &D)
 {
 
     if (num.size() == 0 || den.size() < 2) {
@@ -224,7 +226,7 @@ FilterError tf2ss(const Eigen::Vector<float,3> &num,
     return FilterError::NONE;
 }
 
-FilterError tustin_2_tf(const Eigen::Vector<float,3> &num, const Eigen::Vector<float,3> &den, float dt, Eigen::Vector<float,3> &numz, Eigen::Vector<float,3> &denz)
+FilterError tustin_2_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, float dt, Eigen::Vector3f &numz, Eigen::Vector3f &denz)
 {
     const float tol = 1.0e-6;
 
@@ -253,4 +255,6 @@ FilterError tustin_2_tf(const Eigen::Vector<float,3> &num, const Eigen::Vector<f
     denz(2) = (den(0)*K*K - den(1)*K + den(2)) / coeff_denom;
 
     return FilterError::NONE;
+}
+
 }

@@ -15,10 +15,7 @@ class SISOBlock {
         SISOBlock() : _in(0), _out(0) {}
 
         // iteration interface
-        virtual float step(float u);
-
-        // time step
-        float dt;
+        virtual float step(float u)=0;
 
     protected:
 

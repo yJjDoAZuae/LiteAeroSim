@@ -3,6 +3,8 @@
 
 using namespace Control;
 
+namespace Control {
+
 // resize vector to specified length by either truncating from the left or
 // zero padding from the left
 FiltVectorXf left_resize(const FiltVectorXf &in, char len)
@@ -61,4 +63,6 @@ void roll_buffer(FiltVectorXf &buff, float u)
 
     // // copy input
     // out.head(in.size()) = in;
+}
+
 }
