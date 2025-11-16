@@ -242,6 +242,28 @@ float FilterSS2::dcGain() const
     return (_H*ImPhiInv*_Gamma + _J).value();
 }
 
+Mat22 FilterSS2::controlGrammian() const
+{
+    Mat22 C(Mat22::Zero(2,2));
+
+    for (int k = 0; k<2; k++) {
+        C(Eigen::all, k) << Mat21(_Phi.pow(k) * _Gamma);
+    }
+
+    return C;
+}
+
+Mat22 FilterSS2::observeGrammian() const
+{
+    Mat22 C(Mat22::Zero(2,2));
+
+    for (int k = 0; k<2; k++) {
+        C(k, Eigen::all) << Mat12(_H * _Phi.pow(k));
+    }
+
+    return C;
+}
+
 float FilterSS2::step(float in)
 {
 
