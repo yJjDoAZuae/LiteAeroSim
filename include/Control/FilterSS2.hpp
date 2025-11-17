@@ -21,6 +21,7 @@ public:
         _H.setZero();
         _J.setOnes();
         _x.setZero();
+        _order = 0;
     }
 
     FilterSS2(FilterSS2 &filt)
@@ -58,7 +59,7 @@ public:
     Mat11 J() const {return _J;}
     Mat21 x() const {return _x;}
 
-    Eigen::size_t order() const {return _Phi.rows();}
+    Eigen::size_t order() const {return _order;}
 
     Mat22 controlGrammian() const;
     Mat22 observeGrammian() const;
@@ -73,6 +74,8 @@ private:
 
     // 2nd order state vector
     Mat21 _x;
+
+    Eigen::size_t _order;
 
 };
 

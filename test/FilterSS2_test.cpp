@@ -12,6 +12,8 @@ TEST(FilterSS2Test, Instantiation00) {
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
 
+    EXPECT_EQ(G.order(), 0);
+
 }
 
 TEST(FilterSS2Test, Update00) {
@@ -21,8 +23,9 @@ TEST(FilterSS2Test, Update00) {
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
 
-    EXPECT_EQ(G.step(1.0f), 1.0f);
+    EXPECT_EQ(G.order(), 0);
 
+    EXPECT_EQ(G.step(1.0f), 1.0f);
 }
 
 TEST(FilterSS2Test, Tustin2TF00) {
@@ -79,7 +82,6 @@ TEST(FilterSS2Test, TF2SS200) {
     EXPECT_EQ(Phi(1,0),0.0f);
     EXPECT_NEAR(Phi(1,1),0.9900497512437811f, 1e-8);
 
-
     EXPECT_EQ(Gamma(0,0),0.0f);
     EXPECT_EQ(Gamma(1,0),1.0f);
 
@@ -104,6 +106,8 @@ TEST(FilterSS2Test, FirstOrderLP00) {
 
     EXPECT_EQ(G.errorCode(), 0);
 
+    EXPECT_EQ(G.order(), 1);
+
     EXPECT_NEAR(G.step(1.0f), 0.00497512437810943f, 1e-6);
     EXPECT_NEAR(G.step(1.0f), 0.014875869409173084f, 1e-6);
     EXPECT_NEAR(G.step(1.0f), 0.024678099564305757f, 1e-6);
@@ -112,6 +116,8 @@ TEST(FilterSS2Test, FirstOrderLP00) {
     G.resetInput(0.0f);
 
     EXPECT_EQ(G.errorCode(), 0);
+
+    EXPECT_EQ(G.order(), 1);
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
@@ -219,6 +225,8 @@ TEST(FilterSS2Test, SecondOrderLP00) {
 
     EXPECT_EQ(G.errorCode(), 0);
 
+    EXPECT_EQ(G.order(), 2);
+
     Mat22 Phi(G.Phi());
     Mat21 Gamma(G.Gamma());
     Mat12 H(G.H());
@@ -241,7 +249,6 @@ TEST(FilterSS2Test, SecondOrderLP00) {
 
     EXPECT_NEAR(J(0,0),0.008684917945832371f, 1e-8);
 
-
     EXPECT_NEAR(G.step(1.0f), 0.008684917945832371f, 1e-6);
     EXPECT_NEAR(G.step(1.0f), 0.04098945818321358f, 1e-6);
     EXPECT_NEAR(G.step(1.0f), 0.09867421021567828f, 1e-6);
@@ -250,6 +257,8 @@ TEST(FilterSS2Test, SecondOrderLP00) {
     G.resetInput(0.0f);
 
     EXPECT_EQ(G.errorCode(), 0);
+
+    EXPECT_EQ(G.order(), 2);
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);

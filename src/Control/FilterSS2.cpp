@@ -22,6 +22,8 @@ void FilterSS2::copy(FilterSS2 &filt)
     _x << filt.x();
 
     _errorCode = filt.errorCode();
+    
+    _order = filt.order();
 }
 
 void FilterSS2::setLowPassFirstIIR(float dt, float tau)
@@ -53,6 +55,8 @@ void FilterSS2::setLowPassFirstIIR(float dt, float tau)
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
+    _order = 1;
+
 }
 
 void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero)
@@ -73,6 +77,8 @@ void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float ta
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
+
+    _order = 2;
 }
 
 void FilterSS2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num)
@@ -93,6 +99,8 @@ void FilterSS2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float 
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
+
+    _order = 2;
 }
 
 void FilterSS2::setHighPassFirstIIR(float dt, float tau)
@@ -113,6 +121,8 @@ void FilterSS2::setHighPassFirstIIR(float dt, float tau)
     _errorCode = tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
+
+    _order = 1;
 }
 
 void FilterSS2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero)
@@ -133,6 +143,8 @@ void FilterSS2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
+
+    _order = 2;
 }
 
 void FilterSS2::setDerivIIR(float dt, float tau)
@@ -153,6 +165,8 @@ void FilterSS2::setDerivIIR(float dt, float tau)
     _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
+
+    _order = 1;
 }
 
 void FilterSS2::resetInput(float in)
