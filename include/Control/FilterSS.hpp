@@ -18,7 +18,15 @@ class FilterSS : public Filter
 {
 
 public:
-    FilterSS() { }
+    FilterSS()
+    {
+        _Phi.resize(0,0);
+        _Gamma.resize(0,1);
+        _H.resize(1,0);
+        _J.setOnes();
+        _x.resize(0,1);
+    }
+
 
     FilterSS(FilterSS &filt)
     {

@@ -183,7 +183,7 @@ FilterError tf2ss( const FiltVectorXf &num,
     C.setZero();
     D.setZero();
 
-    A << Eigen::MatrixXf::Zero(n-1,1),  Eigen::MatrixXf::Identity(n-1,n-1), den(Eigen::seq(Eigen::last,1,-1));
+    A << Eigen::MatrixXf::Zero(n-1,1),  Eigen::MatrixXf::Identity(n-1,n-1), -den(Eigen::seq(Eigen::last,1,-1));
     B(n-1) = 1;
     C << tmp_num(Eigen::seq(Eigen::last,1,-1));
     D << Ginf;
@@ -199,29 +199,51 @@ FilterError tf2ss(const Eigen::Vector3f &num,
                   Mat11 &D)
 {
 
-    if (num.size() == 0 || den.size() < 2) {
-        return FilterError::INVALID_DIMENSION; // invalid vector dimension
-    }
-
-    char n = den.size() - 1;
-
-     // left pad or left truncate the numerator if num.size() != 3
-    FiltVectorXf tmp_num = left_resize(num, n+1);
-
     // s->inf initial value subtracted out so that remaining num is relative degree one or greater
-    float Ginf = tmp_num(0)/den(0);
+    float Ginf = num(0)/den(0);
 
-    tmp_num -= Ginf*den;
+    Eigen::Vector3f tmp_num = num - Ginf*den;
 
     A.setZero();
     B.setZero();
     C.setZero();
     D.setZero();
 
-    A << Eigen::MatrixXf::Zero(n-1,1),  Eigen::MatrixXf::Identity(n-1,n-1), den(Eigen::seq(Eigen::last,1,-1));
-    B(n-1) = 1;
-    C << tmp_num(Eigen::seq(Eigen::last,1,-1));
+    A << 0.0f, 1.0f, -den(2), -den(1);
+    B(1) = 1.0f;
+    C << tmp_num(2), tmp_num(1);
     D << Ginf;
+
+    return FilterError::NONE;
+}
+
+FilterError tustin_1_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, float dt, Eigen::Vector3f &numz, Eigen::Vector3f &denz)
+{
+    const float tol = 1.0e-6;
+
+    numz << 1.0f, 0.0f, 0.0f;
+    denz << 1.0f, 0.0f, 0.0f;
+
+    if (dt < tol) {
+        return FilterError::INVALID_TIMESTEP;
+    }
+
+    float K = 2.0f / dt;
+
+    float coeff_denom = den(1) * K + den(2);
+
+    // printf("tustin_1: den->k[0] = %0.3f, den->k[1] = %0.3f, K = %0.3f\n", den->k[0], den->k[1], K);
+
+    if (fabs(coeff_denom) < tol)
+    {
+        return FilterError::UNSTABLE;
+    }
+
+    numz(0) = (num(1) * K + num(2)) / coeff_denom;
+    numz(1) = (-num(1) * K + num(2)) / coeff_denom;
+
+    denz(0) = 1.0f;
+    denz(1) = (-den(1) * K + den(2)) / coeff_denom;
 
     return FilterError::NONE;
 }
@@ -245,7 +267,6 @@ FilterError tustin_2_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, 
         return FilterError::UNSTABLE;
     }
 
-     // left pad or left truncate the numerator if num.size() != 3
     numz(0) = (num(0)*K*K + num(1)*K + num(2)) / coeff_denom;
     numz(1) = (-2.0*num(0)*K*K       + 2.0*num(2)) / coeff_denom;
     numz(2) = (num(0)*K*K - num(1)*K + num(2)) / coeff_denom;

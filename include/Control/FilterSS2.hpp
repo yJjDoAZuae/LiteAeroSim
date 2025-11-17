@@ -19,7 +19,7 @@ public:
         _Phi.setZero();
         _Gamma.setZero();
         _H.setZero();
-        _J.setZero();
+        _J.setOnes();
         _x.setZero();
     }
 

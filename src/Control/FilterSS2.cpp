@@ -49,7 +49,7 @@ void FilterSS2::setLowPassFirstIIR(float dt, float tau)
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode += tustin_1_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
@@ -70,7 +70,7 @@ void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float ta
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, num_z);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 }
