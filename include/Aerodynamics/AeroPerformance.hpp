@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Airframe/AirframePerformance.hpp"
+#include "airframe/AirframePerformance.hpp"
 
 // Aerodynamic performance model for the aircraft
 // determines load factor and roll rate capabilities at each iteration

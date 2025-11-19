@@ -1,6 +1,6 @@
 #define _USE_MATH_DEFINES
-#include "Navigation/WGS84.hpp"
-#include "Math/math_util.hpp"
+#include "navigation/WGS84.hpp"
+#include "math/math_util.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 

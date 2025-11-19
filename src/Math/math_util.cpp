@@ -1,6 +1,6 @@
 #define _USE_MATH_DEFINES
 
-#include "Math/math_util.hpp"
+#include "math/math_util.hpp"
 #include <cmath>
 
 using namespace MathUtil;

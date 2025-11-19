@@ -1,8 +1,8 @@
 #define _USE_MATH_DEFINES
 
-#include "Aerodynamics/AeroPerformance.hpp"
+#include "aerodynamics/AeroPerformance.hpp"
+#include "math/math_util.hpp"
 #include <cmath>
-#include "Math/math_util.hpp"
 
 const float AeroPerformance::rhoSL = 1.225f; // sea level standard density in kg/m^3
 const float AeroPerformance::a_Mach = 340.29f; // speed of sound at sea level in m/s

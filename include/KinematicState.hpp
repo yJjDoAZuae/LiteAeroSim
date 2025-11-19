@@ -2,8 +2,8 @@
 
 // Jerk and angular accelerations are not included, so trajectory torsion will not be calculated
 
+#include "navigation/WGS84.hpp"
 #include <Eigen/Dense>
-#include "Navigation/WGS84.hpp"
 
 class PlaneOfMotion {
 

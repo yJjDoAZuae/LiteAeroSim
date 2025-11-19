@@ -1,7 +1,7 @@
 
 #define _USE_MATH_DEFINES
-#include "Navigation/WGS84.hpp"
-#include "Math/math_util.hpp"
+#include "navigation/WGS84.hpp"
+#include "math/math_util.hpp"
 #include <math.h>
 
 const double WGS84_Datum::a = 6378137.0; // m, major axis
