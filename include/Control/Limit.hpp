@@ -6,11 +6,11 @@
 
 namespace Control {
 
-class SISOLimit : public SISOBlock {
+class Limit : public SISOBlock {
 
     public:
 
-        SISOLimit() : 
+        Limit() : 
             _lowerLimit(0), 
             _upperLimit(0), 
             _limitedLower(false),

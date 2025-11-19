@@ -1,8 +1,8 @@
-#include "control/SISOLimit.hpp"
+#include "control/Limit.hpp"
 
 using namespace Control;
 
-// void SISOLimit::copy(const SISOLimit& lim) 
+// void Limit::copy(const SISOLimit& lim) 
 // {
 //     // this is just a plain copy, so probably not necessary
 //     _in = lim._in;
@@ -15,7 +15,7 @@ using namespace Control;
 //     _out = lim._out;
 // }
 
-float SISOLimit::step(float u)
+float Limit::step(float u)
 {
     _in = u;
 
@@ -38,7 +38,7 @@ float SISOLimit::step(float u)
     return _out;
 }
 
-void SISOLimit::setLower(float lim)
+void Limit::setLower(float lim)
 {
     _lowerLimit = lim;
 
@@ -48,7 +48,7 @@ void SISOLimit::setLower(float lim)
     step(_in); // reevaluate the previous input with the new limits
 }
 
-void SISOLimit::setUpper(float lim)
+void Limit::setUpper(float lim)
 {
     _upperLimit = lim;
 
