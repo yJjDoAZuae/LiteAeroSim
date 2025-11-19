@@ -1,7 +1,7 @@
 #define _USE_MATH_DEFINES
-#include "Control/FilterSS.hpp"
+#include "control/FilterSS.hpp"
+#include "control/filter_realizations.hpp"
 #include <gtest/gtest.h>
-#include "Control/filter_realizations.hpp"
 
 using namespace Control;
 

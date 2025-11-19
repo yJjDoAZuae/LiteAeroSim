@@ -1,8 +1,8 @@
 
 #pragma once
 
-#include "Control/SISOBlock.hpp"
-#include "Control/control.hpp"
+#include "control/SISOBlock.hpp"
+#include "control/control.hpp"
 #include <Eigen/Dense>
 
 

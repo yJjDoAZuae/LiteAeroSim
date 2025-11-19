@@ -3,9 +3,9 @@
 // #include <stdio.h>
 // #include <string.h>
 
-#include "Control/control.hpp"
-#include "Control/filter_realizations.hpp"
-#include "Control/FilterSS.hpp"
+#include "control/control.hpp"
+#include "control/filter_realizations.hpp"
+#include "control/FilterSS.hpp"
 
 static float dcTol = 1e-6;
 

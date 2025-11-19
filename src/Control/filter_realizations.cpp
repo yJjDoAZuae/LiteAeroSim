@@ -1,6 +1,6 @@
 
-#include "Control/control.hpp"
-#include "Control/filter_realizations.hpp"
+#include "control/control.hpp"
+#include "control/filter_realizations.hpp"
 
 using namespace Control;
 

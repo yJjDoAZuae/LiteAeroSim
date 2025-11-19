@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "Control/SISOBlock.hpp"
+#include "control/SISOBlock.hpp"
 
 namespace Control {
 

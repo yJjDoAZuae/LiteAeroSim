@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
-#include "Control/control.hpp"
+#include "control/control.hpp"
 
 namespace Control {
 

@@ -1,4 +1,4 @@
-#include "Control/FilterFIR.hpp"
+#include "control/FilterFIR.hpp"
 
 static float dcTol = 1e-6;
 

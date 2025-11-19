@@ -2,9 +2,9 @@
 // #include <stdio.h>
 // #include <string.h>
 
-#include "Control/control.hpp"
-#include "Control/filter_realizations.hpp"
-#include "Control/FilterSS2.hpp"
+#include "control/control.hpp"
+#include "control/filter_realizations.hpp"
+#include "control/FilterSS2.hpp"
 
 static float dcTol = 1e-6;
 

@@ -1,10 +1,10 @@
 
 #pragma once
 
-#include "Control/control.hpp"
-#include "Control/SISOBlock.hpp"
-#include "Control/Filter.hpp"
-#include "Control/FilterSS2.hpp"
+#include "control/control.hpp"
+#include "control/SISOBlock.hpp"
+#include "control/Filter.hpp"
+#include "control/FilterSS2.hpp"
 #include <Eigen/Dense>
 #include <unsupported/Eigen/MatrixFunctions>  // for Matrix::pow()
 
