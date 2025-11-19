@@ -64,7 +64,7 @@ public:
     Mat22 controlGrammian() const;
     Mat22 observeGrammian() const;
 
-private:
+protected:
 
     // 2nd order state space realization matrices
     Mat22 _Phi;

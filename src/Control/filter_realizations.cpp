@@ -6,10 +6,70 @@ using namespace Control;
 
 namespace Control {
 
+// https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
+FilterError butter(char order, float dt, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
+{
+    if (order < 1 || order > 10 || order > NUM_STATES) {
+        return FilterError::INVALID_DIMENSION;
+    }
+
+    num_s.resize(1);
+    den_s.resize(order+1);
+
+    num_s << 1;
+    float a = 1/wn_rps;
+    switch (order) {
+        case 0:
+            // DC pass through
+            den_s << 1;
+            break;
+
+        case 1:
+            den_s << 1, 1;
+            break;
+        case 2:
+            den_s << 1, 2.0/sqrt(2.0), 1;
+            break;
+        case 3:
+            den_s << 1, 2, 2, 1;
+            break;
+        case 4:
+            den_s << 1, 2.6131, 3.4142, 2.6131, 1;
+            break;
+        case 5:
+            den_s << 1, 3.2361, 5.2361, 5.2361, 3.2361, 1;
+            break;
+        case 6:
+            den_s << 1, 3.8637, 7.4641, 9.1416, 7.4641, 3.8637, 1;
+            break;
+        case 7:
+            den_s << 1, 4.4940, 10.0978, 14.5918, 14.5918, 10.0978, 4.4940, 1;
+            break;
+        case 8:
+            den_s << 1, 5.1258, 13.1371, 21.8462, 25.6884, 21.8462, 13.1371, 5.1258, 1;
+            break;
+        case 9:
+            den_s << 1, 5.7588, 16.5817, 31.1634, 41.9864, 41.9864, 31.1634, 16.5817, 5.7588, 1;
+            break;
+        case 10:
+            den_s << 1, 6.3925, 20.4317, 42.8021, 64.8824, 74.2334, 64.8824, 42.8021, 20.4317, 6.3925, 1;
+            break;
+    }
+
+    // update the coefficients for wn_rps
+    for (int k = 0; k < den_s.size(); k++) {
+        den_s(k) *= 1/pow(wn_rps, order-k);
+    }
+
+    return FilterError::NONE;
+}
+
 FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
 
+    numz.resize(1);
+    denz.resize(1);
     numz << 1.0f;
     denz << 1.0f;
 
@@ -51,6 +111,8 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 {
     const float tol = 1.0e-6;
 
+    numz.resize(1);
+    denz.resize(1);
     numz << 1.0f;
     denz << 1.0f;
 
@@ -88,6 +150,8 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
+    numz.resize(1);
+    denz.resize(1);
     numz << 1.0f;
     denz << 1.0f;
 
@@ -151,42 +215,108 @@ FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     return FilterError::NONE;
 }
 
+FilterError tustin_n_ss(const MatNN &A,
+                        const MatN1 &B,
+                        const Mat1N &C,
+                        const Mat11 &D,
+                        float dt,
+                        MatNN &Phi,
+                        MatN1 &Gamma,
+                        Mat1N &H,
+                        Mat11 &J )
+{
+    const float tol = 1.0e-6;
+
+    if (A.size() == 0 || B.size() == 0 || C.size() == 0 || D.size() == 0) {
+        return FilterError::INVALID_DIMENSION;
+    }
+
+    if (dt < tol) {
+        return FilterError::INVALID_TIMESTEP;
+    }
+
+    char n = A.rows();
+
+    Phi.resize(n,n);
+    Gamma.resize(n,1);
+    H.resize(1,n);
+    J.resize(1,1);
+
+    Phi.setZero();
+    Gamma.setZero();
+    H.setZero();
+    J.setZero();
+
+    // https://ocw.mit.edu/courses/6-245-multivariable-control-systems-spring-2004/e7aeed6b7a0d508ad3632c9a46b9a21d_lec11_6245_2004.pdf
+    float w0 = 2.0f/dt;  // Nyquist frequency
+
+    // (I - A/w0)^-1 // from FPW p. 200
+    Eigen::MatrixXf invw0ImA = Eigen::Inverse(Eigen::MatrixXf::Identity(n,n) - A/w0);
+
+    // using FPW's notation here
+    Phi = (Eigen::MatrixXf::Identity(n,n) + A/w0)*invw0ImA;
+    Gamma =invw0ImA*B*sqrt(dt);
+    H = sqrt(dt)*C*invw0ImA;
+    J = D + C*invw0ImA*B/w0;
+
+    return FilterError::NONE;
+}
+
 FilterError tf2ss( const FiltVectorXf &num, 
             const FiltVectorXf &den, 
-            Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, 0, NUM_STATES, NUM_STATES> &A, 
-            Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES, 1> &B, 
-            Eigen::Matrix<float, 1, Eigen::Dynamic, Eigen::RowMajor, 1, NUM_STATES> &C, 
-            Eigen::Matrix<float, 1, 1, 0, 1, 1> &D)
+            MatNN &A, 
+            MatN1 &B, 
+            Mat1N &C, 
+            Mat11 &D)
 {
+
+    static const float tol = 1e-9;
 
     if (num.size() == 0 || den.size() < 2) {
         return FilterError::INVALID_DIMENSION; // invalid vector dimension
     }
 
+    float d0 = den(0);
+    if (fabs(d0) < tol) {
+        return FilterError::INVALID_POLYNOMIAL;
+    }
+
     char n = den.size() - 1;
 
-     // left pad or left truncate the numerator if num.size() != 3
-    FiltVectorXf tmp_num = left_resize(num, n+1);
+     // left pad or left truncate the numerator if num.size() < den.size()
+     // normalize both num and den so that den(0) = 1
+    FiltVectorXf tmp_num = left_resize(num/d0, n+1);
+    FiltVectorXf tmp_den = den/d0;
 
     // s->inf initial value subtracted out so that remaining num is relative degree one or greater
-    float Ginf = tmp_num(0)/den(0);
+    float Ginf = tmp_num(0);
+    tmp_num -= Ginf * tmp_den; // tmp_num(0) = 0 after this
 
-    tmp_num -= Ginf*den;
-
-    A.resize(n,n);
-    B.resize(n,1);
-    C.resize(1,n);
-    D.resize(1,1);
+    A.resize(n, n);
+    B.resize(n, 1);
+    C.resize(1, n);
+    D.resize(1, 1);
 
     A.setZero();
     B.setZero();
     C.setZero();
     D.setZero();
 
-    A << Eigen::MatrixXf::Zero(n-1,1),  Eigen::MatrixXf::Identity(n-1,n-1), -den(Eigen::seq(Eigen::last,1,-1));
-    B(n-1) = 1;
-    C << tmp_num(Eigen::seq(Eigen::last,1,-1));
-    D << Ginf;
+    if (n > 1) {
+
+        A.block(0,0,n-1,1).setZero();
+        A.block(0,1,n-1,n-1) << MatNN::Identity(n-1,n-1);
+        A.block(n-1,0,1,n) = Mat1N(-tmp_den(Eigen::seqN(n,n,Eigen::fix<-1>)));
+
+        B(n - 1) = 1;
+        C = Mat1N(tmp_num(Eigen::seqN(n, n, Eigen::fix<-1>)));
+        D << Ginf;
+    } else {
+        A << -tmp_den(Eigen::last);
+        B << 1;
+        C << tmp_num(Eigen::last);
+        D << Ginf;
+    }
 
     return FilterError::NONE;
 }
@@ -277,5 +407,43 @@ FilterError tustin_2_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, 
 
     return FilterError::NONE;
 }
+
+
+FilterError tustin_2_ss(const Mat22 &A,
+                        const Mat21 &B,
+                        const Mat12 &C,
+                        const Mat11 &D,
+                        float dt,
+                        Mat22 &Phi,
+                        Mat21 &Gamma,
+                        Mat12 &H,
+                        Mat11 &J )
+{
+    const float tol = 1.0e-6;
+
+    if (dt < tol) {
+        return FilterError::INVALID_TIMESTEP;
+    }
+
+    Phi.setZero();
+    Gamma.setZero();
+    H.setZero();
+    J.setZero();
+
+    // https://ocw.mit.edu/courses/6-245-multivariable-control-systems-spring-2004/e7aeed6b7a0d508ad3632c9a46b9a21d_lec11_6245_2004.pdf
+    float w0 = 2.0f/dt;  // Nyquist frequency
+
+    // (I - A/w0)^-1 // from FPW p. 200
+    Mat22 invw0ImA = Eigen::Inverse(Mat22::Identity(2,2) - A/w0);
+
+    // using FPW's notation here
+    Phi = (Mat22::Identity(2,2) + A/w0)*invw0ImA;
+    Gamma =invw0ImA*B*sqrt(dt);
+    H = sqrt(dt)*C*invw0ImA;
+    J = D + C*invw0ImA*B/w0;
+
+    return FilterError::NONE;
+}
+
 
 }

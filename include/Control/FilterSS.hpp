@@ -39,7 +39,7 @@ public:
     // IIR filter design
     void setButterworthIIR(char order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
 
-    char order();
+    Eigen::size_t order() const;
 
     // step the filter
     float step(float in);
@@ -61,12 +61,12 @@ public:
     Mat11 J() const {return _J;}
     MatN1 x() const {return _x;}
 
-    Eigen::size_t order() const {return _Phi.rows();}
-
     MatNN controlGrammian() const;
     MatNN observeGrammian() const;
 
-private:
+protected:
+
+    void setDimension(char dim);
 
     // state space realization matrices
     MatNN _Phi;

@@ -33,7 +33,8 @@ typedef enum {
     INVALID_TIMESTEP = 2, // invalid timestep
     UNSTABLE = 4, // invalid denominator coefficients
     INFINITE_DC_GAIN = 8, // non-finite dc gain
-    ZERO_DC_GAIN = 16 // attempt to perform output initialization with zero dc gain
+    ZERO_DC_GAIN = 16, // attempt to perform output initialization with zero dc gain
+    INVALID_POLYNOMIAL = 32
 
 } FilterError;
 
