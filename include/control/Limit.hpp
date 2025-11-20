@@ -22,12 +22,12 @@ class Limit : public SISOBlock {
         // SISOLimit(const SISOLimit &lim) { copy(lim); }
         // void copy(const SISOLimit &lim);
 
-        void disable() { _enableLowerLimit=false; _enableUpperLimit = false; }
-        void enable() { _enableLowerLimit=true; _enableUpperLimit = true; }
-        void disableLower() { _enableLowerLimit = false; }
-        void disableUpper() { _enableUpperLimit = false; }
-        void enableLower() { _enableLowerLimit = true; }
-        void enableUpper() { _enableUpperLimit = true; }
+        void disable() { disableLower(); disableUpper(); }
+        void enable() { enableLower(); enableUpper(); }
+        void disableLower() { _enableLowerLimit = false; step(_in); }
+        void disableUpper() { _enableUpperLimit = false; step(_in); }
+        void enableLower() { _enableLowerLimit = true; step(_in); }
+        void enableUpper() { _enableUpperLimit = true; step(_in); }
         void setLower(float lim);
         void setUpper(float lim);
         void set(float lowerLim, float upperLim) { setLower(lowerLim); setUpper(upperLim); }
@@ -36,8 +36,8 @@ class Limit : public SISOBlock {
         float upperLimit() const { return _upperLimit; };
         bool isLimitedLower() const { return _limitedLower; };
         bool isLimitedUpper() const { return _limitedUpper; };
-        bool lowerEnabled() const { return _enableLowerLimit; }
-        bool upperEnabled() const { return _enableUpperLimit; }
+        bool isLowerEnabled() const { return _enableLowerLimit; }
+        bool isUpperEnabled() const { return _enableUpperLimit; }
 
         float step(float u);
 

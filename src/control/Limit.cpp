@@ -23,13 +23,13 @@ float Limit::step(float u)
     _limitedLower = false;
     _limitedUpper = false;
 
-    if (lowerEnabled() && _out < lowerLimit())
+    if (isLowerEnabled() && _out < lowerLimit())
     {
         _out = lowerLimit();
         _limitedLower = true;
     }
 
-    if (upperEnabled() && _out > upperLimit())
+    if (isUpperEnabled() && _out > upperLimit())
     {
         _out = upperLimit();
         _limitedUpper = true;
