@@ -36,7 +36,6 @@ void FilterTF::copy(FilterTF &filt)
     _errorCode += filt.errorCode();
 }
 
-// https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
 void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
 {
 
@@ -47,52 +46,10 @@ void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
-    num_s.resize(order+1);
-    den_s.resize(order+1);
+    _errorCode += butter(order, dt, wn_rps, num_s, den_s);
 
-    num_s << 1;
-    float a = 1/wn_rps;
-    switch (order) {
-        case 0:
-            // DC pass through
-            den_s << 1;
-            break;
-
-        case 1:
-            den_s << 1, 1;
-            break;
-        case 2:
-            den_s << 1, 1.4142, 1;
-            break;
-        case 3:
-            den_s << 1, 2, 2, 1;
-            break;
-        case 4:
-            den_s << 1, 2.6131, 3.4142, 2.6131, 1;
-            break;
-        case 5:
-            den_s << 1, 3.2361, 5.2361, 5.2361, 3.2361, 1;
-            break;
-        case 6:
-            den_s << 1, 3.8637, 7.4641, 9.1416, 7.4641, 3.8637, 1;
-            break;
-        case 7:
-            den_s << 1, 4.4940, 10.0978, 14.5918, 14.5918, 10.0978, 4.4940, 1;
-            break;
-        case 8:
-            den_s << 1, 5.1258, 13.1371, 21.8462, 25.6884, 21.8462, 13.1371, 5.1258, 1;
-            break;
-        case 9:
-            den_s << 1, 5.7588, 16.5817, 31.1634, 41.9864, 41.9864, 31.1634, 16.5817, 5.7588, 1;
-            break;
-        case 10:
-            den_s << 1, 6.3925, 20.4317, 42.8021, 64.8824, 74.2334, 64.8824, 42.8021, 20.4317, 6.3925, 1;
-            break;
-    }
-
-    // update the coefficients for wn_rps
-    for (int k = 0; k < den_s.size(); k++) {
-        den_s(k) *= 1/pow(wn_rps, order-k);
+    if (_errorCode != 0) {
+        return;
     }
 
     _errorCode += tustin_n_tf(num_s, den_s, dt, num, den);

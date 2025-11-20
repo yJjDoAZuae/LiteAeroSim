@@ -34,8 +34,6 @@ void FilterSS::copy(FilterSS2 &filt)
     _errorCode = filt.errorCode();
 }
 
-
-// https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
 void FilterSS::setButterworthIIR(char order, float dt, float wn_rps)
 {
 
