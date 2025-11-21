@@ -27,17 +27,17 @@ FilterError tf2ss(const FiltVectorXf &num,
                   Mat1N &C,
                   Mat11 &D);
 
-FilterError tustin_1_tf(const Eigen::Vector3f &num, 
-                        const Eigen::Vector3f &den, 
+FilterError tustin_1_tf(const Vec3 &num, 
+                        const Vec3 &den, 
                         float dt, 
-                        Eigen::Vector3f &numz, 
-                        Eigen::Vector3f &denz);
+                        Vec3 &numz, 
+                        Vec3 &denz);
 
-FilterError tustin_2_tf(const Eigen::Vector3f &num, 
-                        const Eigen::Vector3f &den, 
+FilterError tustin_2_tf(const Vec3 &num, 
+                        const Vec3 &den, 
                         float dt, 
-                        Eigen::Vector3f &numz, 
-                        Eigen::Vector3f &denz);
+                        Vec3 &numz, 
+                        Vec3 &denz);
 
 FilterError tustin_2_ss(const Mat22 &A,
                         const Mat21 &B,
@@ -49,8 +49,8 @@ FilterError tustin_2_ss(const Mat22 &A,
                         Mat12 &H,
                         Mat11 &J );
 
-FilterError tf2ss(const Eigen::Vector3f &num, 
-                  const Eigen::Vector3f &den, 
+FilterError tf2ss(const Vec3 &num, 
+                  const Vec3 &den, 
                   Mat22 &A, 
                   Mat21 &B, 
                   Mat12 &C, 

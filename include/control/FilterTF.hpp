@@ -20,23 +20,24 @@ class FilterTF : public Filter
 public:
     FilterTF()
     {
-        num << 1;
-        den << 1;
+        _num << 1;
+        _den << 1;
         uBuff << 0;
         yBuff << 0;
+        _order = 0;
     }
 
-    FilterTF(FilterTF &filt)
+    FilterTF(const FilterTF &filt)
     {
         copy(filt);
     }
 
-    void copy(FilterTF &filt);
+    void copy(const FilterTF &filt);
 
     // IIR filter design
     void setButterworthIIR(char order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
 
-    Eigen::size_t order() { return den.rows() - 1; }
+    Eigen::size_t order() const { return _den.rows() - 1; }
 
     // step the filter
     float step(float in);
@@ -50,15 +51,21 @@ public:
     void resetOutput(float out);
 
     // dc gain value of the filter
-    float dcGain();
+    float dcGain() const;
+
+    Vec3 num() const {return _num;}
+    Vec3 den() const {return _den;}
 
 private:
 
-    FiltVectorXf num;
-    FiltVectorXf den;
+    FiltVectorXf _num;
+    FiltVectorXf _den;
 
     FiltVectorXf uBuff;
     FiltVectorXf yBuff;
+
+    Eigen::size_t _order;
+
 };
 
 }

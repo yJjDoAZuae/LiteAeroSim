@@ -21,17 +21,17 @@ using namespace Control;
 // copy implementation
 // template <char NUM_STATES=FILTER_MAX_STATES>
 // void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
-void FilterTF::copy(FilterTF &filt)
+void FilterTF::copy(const FilterTF &filt)
 {
     char n = (maxNumStates >= filt.order()) ? filt.order() : maxNumStates;
 
-    den = filt.den.head(n + 1);
-    num = filt.num.head(n + 1);
+    _den = filt._den.head(n + 1);
+    _num = filt._num.head(n + 1);
     uBuff = filt.uBuff.head(n + 1);
     yBuff = filt.yBuff.head(n + 1);
 
     // we ignore the first entry in den and set it to 1 in all cases
-    den(0) = 1.0f;
+    _den(0) = 1.0f;
 
     _errorCode += filt.errorCode();
 }
@@ -52,7 +52,7 @@ void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
         return;
     }
 
-    _errorCode += tustin_n_tf(num_s, den_s, dt, num, den);
+    _errorCode += tustin_n_tf(num_s, den_s, dt, _num, _den);
 
 }
 
@@ -98,14 +98,14 @@ void FilterTF::resetOutput(float out)
     _out = yBuff(0);
 }
 
-float FilterTF::dcGain()
+float FilterTF::dcGain() const
 {
     const float tol = 1e-6;
 
     // float dcGain = 1.0f;
 
-    float numSum = num.sum();
-    float denSum = den.sum();
+    float numSum = _num.sum();
+    float denSum = _den.sum();
 
     // We need an arbitrary finite DC gain to accommodate
     // band pass, high pass, and lead/lag filters filters
@@ -128,19 +128,19 @@ float FilterTF::step(float in)
 {
 
     this->_in = in;
-    this->_out = num(0) * in;
+    this->_out = _num(0) * in;
 
     // NOTE: implicit state->a.k[0] == 1 because
     // we're assigning state->y.k[0] without a coefficient
 
     // update the output
-    for (int k = 1; k < order() + 1; k++)
+    for (int k = 1; k < order() + 1 && k < NUM_STATES+1; k++)
     {
         // TRICKY: because we haven't rolled the buffers yet
         // the input and output buffer indices are one less
         // than the coefficient indices
-        this->_out += num(k) * uBuff(k - 1);
-        this->_out -= den(k) * yBuff(k - 1);
+        this->_out += _num(k) * uBuff(k - 1);
+        this->_out -= _den(k) * yBuff(k - 1);
     }
 
     roll_buffer(yBuff, this->out());

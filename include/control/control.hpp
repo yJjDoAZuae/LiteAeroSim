@@ -9,6 +9,7 @@ namespace Control {
 
 // template <char NUM_STATES=FILTER_MAX_STATES>
 typedef Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> FiltVectorXf;
+typedef Eigen::Matrix<float, 3, 1> Vec3;
 
 typedef Eigen::Matrix<float, 2, 2> Mat22;
 typedef Eigen::Matrix<float, 2, 1> Mat21;
@@ -23,6 +24,7 @@ typedef Eigen::Matrix<float,              1,              1, 0,          1,     
 FiltVectorXf left_resize(const FiltVectorXf &in, char len);
 FiltVectorXf right_resize(const FiltVectorXf &in, char len);
 void roll_buffer(FiltVectorXf &buff, float u);
+void roll_buffer(Vec3 &buff, float u);
 
 
 typedef enum {

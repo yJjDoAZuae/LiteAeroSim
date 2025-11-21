@@ -147,6 +147,8 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     return FilterError::NONE;
 }
 
+// TODO: unimplemented
+// https://www.researchgate.net/publication/358716710_The_Transfer_Function_of_the_nth-Order_Digital_Butterworth_Low_Pass_Filter
 FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
@@ -167,42 +169,6 @@ FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 
      // left pad or left truncate the numerator if num.size() != 3
     FiltVectorXf tmp_num = left_resize(num, n+1);
-
-    Eigen::MatrixXf A(n,n);
-    Eigen::MatrixXf B(n,1);
-    Eigen::MatrixXf C(1,n);
-    Eigen::MatrixXf D(1,1);
-
-    A.setZero();
-    B.setZero();
-    C.setZero();
-    D.setZero();
-
-    // this presumes the continuous transfer function is relative degree 1 or greater
-    A << Eigen::MatrixXf::Zero(n-1,1),  Eigen::MatrixXf::Identity(n-1,n-1), den(Eigen::seq(Eigen::last,1,-1));
-    B(n-1) = 1;
-    C << tmp_num(Eigen::seq(Eigen::last,1,-1));
-    // D = 0;
-
-    // float K = 2.0f / dt;
-    // float coeff_denom = den(0) * K * K + den(1) * K + den(2);
-
-    // if (fabs(coeff_denom) < tol)
-    // {
-    //     return 3;
-    // }
-
-    // https://ocw.mit.edu/courses/6-245-multivariable-control-systems-spring-2004/e7aeed6b7a0d508ad3632c9a46b9a21d_lec11_6245_2004.pdf
-    float w0 = 2.0f/dt;  // Nyquist frequency
-
-    // (w0*I - A)^-1
-    Eigen::MatrixXf invw0ImA = Eigen::Inverse(w0*Eigen::MatrixXf::Identity(n,n) - A);
-
-    // using FPW's notation here
-    Eigen::MatrixXf Phi = (w0*Eigen::MatrixXf::Identity(n,n) + A)*invw0ImA;
-    Eigen::MatrixXf Gamma = sqrt(2*w0)*invw0ImA*B;
-    Eigen::MatrixXf H = sqrt(2*w0)*C*invw0ImA;
-    Eigen::MatrixXf J = D - C*invw0ImA*B;
 
     numz.resize(n+1);
     denz.resize(n+1);
@@ -261,6 +227,41 @@ FilterError tustin_n_ss(const MatNN &A,
 
     return FilterError::NONE;
 }
+
+// Forward Euler discrete transform -- only use when poles are << than nyquist
+// TODO: unimplemented
+FilterError forward_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
+{
+    const float tol = 1.0e-6;
+    numz.resize(1);
+    denz.resize(1);
+    numz << 1.0f;
+    denz << 1.0f;
+
+    if (num.size() == 0 || den.size() < 2) {
+        return FilterError::INVALID_DIMENSION;
+    }
+
+    if (dt < tol) {
+        return FilterError::INVALID_TIMESTEP;
+    }
+
+    char n = den.size() - 1;
+
+     // left pad or left truncate the numerator if num.size() != 3
+    FiltVectorXf tmp_num = left_resize(num, n+1);
+
+    numz.resize(n+1);
+    denz.resize(n+1);
+
+    // TODO: convert from state space realization to discrete transfer function
+    // this will require factorizing into a polynomial form
+    // probably need to solve for the generalized eigenvalues/eigenvectors,
+    // convert to Jordan form and then to a second order sections form
+
+    return FilterError::NONE;
+}
+
 
 FilterError tf2ss( const FiltVectorXf &num, 
             const FiltVectorXf &den, 
@@ -321,8 +322,8 @@ FilterError tf2ss( const FiltVectorXf &num,
     return FilterError::NONE;
 }
 
-FilterError tf2ss(const Eigen::Vector3f &num, 
-                  const Eigen::Vector3f &den,
+FilterError tf2ss(const Vec3 &num, 
+                  const Vec3 &den,
                   Mat22 &A,
                   Mat21 &B,
                   Mat12 &C,
@@ -332,7 +333,7 @@ FilterError tf2ss(const Eigen::Vector3f &num,
     // s->inf initial value subtracted out so that remaining num is relative degree one or greater
     float Ginf = num(0)/den(0);
 
-    Eigen::Vector3f tmp_num = num - Ginf*den;
+    Vec3 tmp_num = num - Ginf*den;
 
     A.setZero();
     B.setZero();
@@ -347,7 +348,7 @@ FilterError tf2ss(const Eigen::Vector3f &num,
     return FilterError::NONE;
 }
 
-FilterError tustin_1_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, float dt, Eigen::Vector3f &numz, Eigen::Vector3f &denz)
+FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, Vec3 &denz)
 {
     const float tol = 1.0e-6;
 
@@ -378,7 +379,7 @@ FilterError tustin_1_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, 
     return FilterError::NONE;
 }
 
-FilterError tustin_2_tf(const Eigen::Vector3f &num, const Eigen::Vector3f &den, float dt, Eigen::Vector3f &numz, Eigen::Vector3f &denz)
+FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, Vec3 &denz)
 {
     const float tol = 1.0e-6;
 

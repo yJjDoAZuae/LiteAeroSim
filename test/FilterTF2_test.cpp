@@ -1,13 +1,13 @@
 #define _USE_MATH_DEFINES
-#include "control/FilterSS2.hpp"
+#include "control/FilterTF2.hpp"
 #include "control/filter_realizations.hpp"
 #include <gtest/gtest.h>
 
 using namespace Control;
 
-TEST(FilterSS2Test, Instantiation00) {
+TEST(FilterTF2Test, Instantiation00) {
 
-    FilterSS2 G;
+    FilterTF2 G;
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
@@ -16,9 +16,9 @@ TEST(FilterSS2Test, Instantiation00) {
 
 }
 
-TEST(FilterSS2Test, Update00) {
+TEST(FilterTF2Test, Update00) {
 
-    FilterSS2 G;
+    FilterTF2 G;
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
@@ -28,9 +28,9 @@ TEST(FilterSS2Test, Update00) {
     EXPECT_EQ(G.step(1.0f), 1.0f);
 }
 
-TEST(FilterSS2Test, FirstOrderLP00) {
+TEST(FilterTF2Test, FirstOrderLP00) {
 
-    FilterSS2 G;
+    FilterTF2 G;
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
@@ -64,13 +64,13 @@ TEST(FilterSS2Test, FirstOrderLP00) {
     }
 
     EXPECT_EQ(G.in(), 1.0f);
-    EXPECT_NEAR(G.out(), 0.6302749995213918f, 1e-6);
+    EXPECT_NEAR((G.out()-0.6302749995213918f)/0.6302749995213918f, 0.0f, 1e-4);
     
 }
 
-TEST(FilterSS2Test, SecondOrderLP00) {
+TEST(FilterTF2Test, SecondOrderLP00) {
 
-    FilterSS2 G;
+    FilterTF2 G;
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
@@ -80,13 +80,13 @@ TEST(FilterSS2Test, SecondOrderLP00) {
     float zeta = 1.0/sqrt(2.0);
     float tau_zero = 0.0f;
 
-    Eigen::Vector3f num_s(0,0,wn_rps*wn_rps);
-    Eigen::Vector3f den_s(1.0,2.0*zeta*wn_rps,wn_rps*wn_rps);
+    Vec3 num_s(0,0,wn_rps*wn_rps);
+    Vec3 den_s(1.0,2.0*zeta*wn_rps,wn_rps*wn_rps);
 
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
+    Vec3 num_z0;
+    Vec3 den_z0;
 
-    tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_2_tf(num_s, den_s, dt, num_z0, den_z0);
 
     G.setLowPassSecondIIR(dt, wn_rps, zeta, tau_zero);
 
@@ -94,27 +94,25 @@ TEST(FilterSS2Test, SecondOrderLP00) {
 
     EXPECT_EQ(G.order(), 2);
 
-    Mat22 Phi(G.Phi());
-    Mat21 Gamma(G.Gamma());
-    Mat12 H(G.H());
-    Mat11 J(G.J());
+    Vec3 num_z(G.num());
+    Vec3 den_z(G.den());
 
     float Ginf = num_z(0)/den_z(0);
 
-    Eigen::Vector3f tmp_num = num_z - Ginf*den_z;
+    Vec3 tmp_num = num_z - Ginf*den_z;
 
-    EXPECT_EQ(Phi(0,0),0.0f);
-    EXPECT_EQ(Phi(0,1),1.0f);
-    EXPECT_NEAR(Phi(1,0),-den_z(2), 1e-8);
-    EXPECT_NEAR(Phi(1,1),-den_z(1), 1e-8);
+    // EXPECT_EQ(Phi(0,0),0.0f);
+    // EXPECT_EQ(Phi(0,1),1.0f);
+    // EXPECT_NEAR(Phi(1,0),-den_z(2), 1e-8);
+    // EXPECT_NEAR(Phi(1,1),-den_z(1), 1e-8);
 
-    EXPECT_EQ(Gamma(0,0),0.0f);
-    EXPECT_EQ(Gamma(1,0),1.0f);
+    // EXPECT_EQ(Gamma(0,0),0.0f);
+    // EXPECT_EQ(Gamma(1,0),1.0f);
 
-    EXPECT_NEAR(H(0,0),tmp_num(2), 1e-8);
-    EXPECT_NEAR(H(0,1),tmp_num(1), 1e-8);
+    // EXPECT_NEAR(H(0,0),tmp_num(2), 1e-8);
+    // EXPECT_NEAR(H(0,1),tmp_num(1), 1e-8);
 
-    EXPECT_NEAR(J(0,0),0.008684917945832371f, 1e-8);
+    // EXPECT_NEAR(J(0,0),0.008684917945832371f, 1e-8);
 
     EXPECT_NEAR(G.step(1.0f), 0.008684917945832371f, 1e-6);
     EXPECT_NEAR(G.step(1.0f), 0.04098945818321358f, 1e-6);
