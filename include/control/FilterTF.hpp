@@ -20,6 +20,10 @@ class FilterTF : public Filter
 public:
     FilterTF()
     {
+        _num.resize(1);
+        _den.resize(1);
+        uBuff.resize(1);
+        yBuff.resize(1);
         _num << 1;
         _den << 1;
         uBuff << 0;

@@ -172,6 +172,10 @@ FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 
     numz.resize(n+1);
     denz.resize(n+1);
+    numz.setZero();
+    denz.setZero();
+    numz(0) = 1.0f;
+    denz(0) = 1.0f;
 
     // TODO: convert from state space realization to discrete transfer function
     // this will require factorizing into a polynomial form
