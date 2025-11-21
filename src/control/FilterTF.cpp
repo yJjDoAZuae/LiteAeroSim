@@ -46,7 +46,7 @@ void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
-    _errorCode += butter(order, dt, wn_rps, num_s, den_s);
+    _errorCode += butter(order, wn_rps, num_s, den_s);
 
     if (_errorCode != 0) {
         return;

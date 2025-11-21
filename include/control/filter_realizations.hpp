@@ -5,7 +5,7 @@
 
 namespace Control {
 
-FilterError butter(char order, float dt, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s);
+FilterError butter(char order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s);
 FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz);
 FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz);
 FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz);

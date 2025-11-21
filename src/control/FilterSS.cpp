@@ -40,7 +40,7 @@ void FilterSS::setButterworthIIR(char order, float dt, float wn_rps)
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
-    FilterError rc = butter(order, dt, wn_rps, num_s, den_s);
+    FilterError rc = butter(order, wn_rps, num_s, den_s);
 
     if (rc != FilterError::NONE) {
         _errorCode += rc;

@@ -7,7 +7,7 @@ using namespace Control;
 namespace Control {
 
 // https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
-FilterError butter(char order, float dt, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
+FilterError butter(char order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
 {
     if (order < 1 || order > 10 || order > NUM_STATES) {
         return FilterError::INVALID_DIMENSION;
