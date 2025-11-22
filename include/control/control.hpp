@@ -4,7 +4,8 @@
 
 namespace Control {
 
-#define FILTER_MAX_STATES 31
+// NOTE: excessive state dimension in a single transfer function can lead to numerical problems
+#define FILTER_MAX_STATES 8
 #define NUM_STATES FILTER_MAX_STATES
 
 // template <char NUM_STATES=FILTER_MAX_STATES>
