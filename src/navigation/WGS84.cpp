@@ -2,7 +2,7 @@
 #define _USE_MATH_DEFINES
 #include "navigation/WGS84.hpp"
 #include "math/math_util.hpp"
-#include <math.h>
+#include <cmath>
 
 const double WGS84_Datum::a = 6378137.0; // m, major axis
 const double WGS84_Datum::finv = 298.257223563; // inverse of flattening

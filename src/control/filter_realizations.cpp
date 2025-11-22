@@ -1,6 +1,8 @@
+#define _USE_MATH_DEFINES
 
 #include "control/control.hpp"
 #include "control/filter_realizations.hpp"
+#include <cmath>
 
 using namespace Control;
 
