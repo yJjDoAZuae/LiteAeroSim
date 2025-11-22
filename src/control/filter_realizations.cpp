@@ -9,7 +9,7 @@ using namespace Control;
 namespace Control {
 
 // https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
-FilterError butter(char order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
+FilterError butter(uint8_t order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
 {
     if (order < 1 || order > 10 || order > NUM_STATES) {
         return FilterError::INVALID_DIMENSION;
@@ -61,6 +61,63 @@ FilterError butter(char order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& 
     // update the coefficients for wn_rps
     for (int k = 0; k < den_s.size(); k++) {
         den_s(k) *= 1/pow(wn_rps, order-k);
+    }
+
+    return FilterError::NONE;
+}
+
+void butterz_pzk(uint8_t order, uint8_t k, float dt, float wn_rps, float& pz_Re, float& pz_Im, float& zz_Re, float& zz_Im, bool& is_conjugate)
+{
+
+    float f_c = wn_rps/(2.0f*M_PI);
+    float f_s = 1.0f/dt;
+
+    float theta_c = 2.0f*M_PI*(f_c/f_s);
+
+    // prewarping parameter
+    float c = 1.0f/std::tan(theta_c/2.0f);
+
+    // If the filter has an odd number of poles, then 
+    // there will be a single real axis pole
+    // and all the others will be complex conjugate pairs.
+    // With the pole indexing in Nguyen's paper this real pole will be
+    // at k = (n-1)/2
+    // If the filter has an even number of poles, then
+    // the last pole we need to define (given that they are all conjugate pairs)
+    // is k = n/2 - 1
+    // With either even or odd pole count, there will be
+    // n/2 conjugate pairs (with integer division) and n%2 real poles.
+    bool isOdd = order % 2 > 0;
+
+    // number of conjugate pairs
+    uint8_t n_conj = order/2;
+
+    is_conjugate = (k == n_conj + 1 && isOdd);
+
+    // k = 0...n-1 for stable poles
+    float theta_k = M_PI/2.0f + M_PI/(2.0*order) + k*M_PI/order;
+
+    // continuous time pole locations (no continuous time zeros)
+    float s_k_Re = cos(theta_k);
+    float s_k_Im = sin(theta_k);
+
+    // kth pole locations in the z domain
+    pz_Re = cos(theta_c) / (1-cos(theta_k) * sin(theta_c));
+    pz_Im = sin(theta_k)*sin(theta_c) / (1-cos(theta_k) * sin(theta_c));
+
+    // kth zero location in the z domain
+    zz_Re = -1;
+    zz_Im = 0;
+
+}
+
+// https://en.wikipedia.org/wiki/Butterworth_filter#Normalized_Butterworth_polynomials
+// https://www.researchgate.net/publication/358716710_The_Transfer_Function_of_the_nth-Order_Digital_Butterworth_Low_Pass_Filter
+// NOTE: excessive state dimension in a single transfer function can lead to numerical problems
+FilterError butterz(uint8_t order, float dt, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
+{
+    if (order < 1 || order > NUM_STATES) {
+        return FilterError::INVALID_DIMENSION;
     }
 
     return FilterError::NONE;

@@ -5,7 +5,9 @@
 
 namespace Control {
 
-FilterError butter(char order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s);
+FilterError butter(uint8_t order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s);
+void butterz_pzk(uint8_t order, uint8_t k, float dt, float wn_rps, float& pz_Re, float& pz_Im, float& zz_Re, float& zz_Im, bool& is_conjugate);
+FilterError butterz(uint8_t order, float dt, float wn_rps, FiltVectorXf& num_z, FiltVectorXf& den_z);
 FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz);
 FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz);
 FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz);
