@@ -10,7 +10,8 @@ namespace Control {
 
 // template <char NUM_STATES=FILTER_MAX_STATES>
 typedef Eigen::Matrix<float, Eigen::Dynamic, 1, 0, NUM_STATES + 1, 1> FiltVectorXf;
-typedef Eigen::Matrix<float, 3, 1> Vec3;
+typedef Eigen::Vector3f Vec3;
+typedef Eigen::Vector2cf Vec2c;
 
 typedef Eigen::Matrix<float, 2, 2> Mat22;
 typedef Eigen::Matrix<float, 2, 1> Mat21;

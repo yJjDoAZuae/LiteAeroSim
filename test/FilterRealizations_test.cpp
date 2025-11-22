@@ -14,7 +14,7 @@ TEST(FilterRealizationsTest, Tustin2TF200) {
 
     float dt = 0.1;
 
-    tustin_1_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_1_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     // values from python control toolbox
     EXPECT_NEAR(num_z(0),0.00497512437810943f, 1e-8);
@@ -36,7 +36,7 @@ TEST(FilterRealizationsTest, Tustin2TF201) {
 
     float dt = 0.1;
 
-    tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_2_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     // values from python control toolbox
     EXPECT_NEAR(num_z(0),0.008684917945832371f, 1e-8);
@@ -45,6 +45,49 @@ TEST(FilterRealizationsTest, Tustin2TF201) {
     EXPECT_EQ(den_z(0),1.0f);
     EXPECT_NEAR(den_z(1),-1.7196137532748001f, 1e-8);
     EXPECT_NEAR(den_z(2),0.7543534250581294f, 1e-8);
+
+} 
+TEST(FilterRealizationsTest, Tustin2TF202) {
+
+    Vec3 num_s(0,0,1);
+    Vec3 den_s(0,10,1);
+
+    Vec3 num_z;
+    Vec3 den_z;
+
+    float dt = 0.1;
+
+    tustin_1_tf(num_s, den_s, dt, 2*M_PI/10.0f, num_z, den_z);
+
+    // values from python control toolbox
+    EXPECT_NEAR(num_z(0),0.004976753625925978, 1e-8);
+    EXPECT_NEAR(num_z(1),0.004976753625925978, 1e-8);
+    EXPECT_EQ(num_z(2),0.0f);
+    EXPECT_EQ(den_z(0),1.0f);
+    EXPECT_NEAR(den_z(1),-0.9900464927481482, 1e-6);
+    EXPECT_EQ(den_z(2),0.0f);
+
+}
+
+TEST(FilterRealizationsTest, Tustin2TF203) {
+
+    Vec3 num_s(0,0,4.0);
+    Vec3 den_s(1.0,2*1.0/sqrt(2)*2.0,4.0);
+
+    Vec3 num_z;
+    Vec3 den_z;
+
+    float dt = 0.1;
+
+    tustin_2_tf(num_s, den_s, dt, 2.0f, num_z, den_z);
+
+    // values from python control toolbox
+    EXPECT_NEAR(num_z(0),0.008739046114517035, 1e-8);
+    EXPECT_NEAR(num_z(1),0.017478092229033848, 1e-8);
+    EXPECT_NEAR(num_z(2),0.00873904611451748, 1e-8);
+    EXPECT_EQ(den_z(0),1.0f);
+    EXPECT_NEAR(den_z(1),-1.7186907397711062, 1e-6);
+    EXPECT_NEAR(den_z(2),0.7536469242291746, 1e-6);
 
 }
 
@@ -62,7 +105,7 @@ TEST(FilterRealizationsTest, Tustin2TF00) {
 
     float dt = 0.1;
 
-    tustin_1_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_1_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     EXPECT_EQ(num_z.size(),2);
     EXPECT_EQ(den_z.size(),2);
@@ -88,7 +131,7 @@ TEST(FilterRealizationsTest, Tustin2TF01) {
 
     float dt = 0.1;
 
-    tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_2_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     // values from python control toolbox
     EXPECT_NEAR(num_z(0),0.008684917945832371f, 1e-8);
@@ -110,7 +153,7 @@ TEST(FilterRealizationsTest, TF2SS200) {
 
     float dt = 0.1;
 
-    tustin_1_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_1_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     // values from python control toolbox
     EXPECT_NEAR(num_z(0),0.00497512437810943f, 1e-8);
@@ -152,7 +195,7 @@ TEST(FilterRealizationsTest, TF2SS201) {
 
     float dt = 0.1;
 
-    tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_2_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     // values from python control toolbox
     EXPECT_NEAR(num_z(0),0.008684917945832371f, 1e-8);
@@ -202,7 +245,7 @@ TEST(FilterRealizationsTest, TF2SS00) {
 
     float dt = 0.1;
 
-    tustin_1_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_1_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     EXPECT_EQ(num_z.size(),2);
     EXPECT_EQ(den_z.size(),2);
@@ -256,7 +299,7 @@ TEST(FilterRealizationsTest, TF2SS01) {
 
     float dt = 0.1;
 
-    tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_2_tf(num_s, den_s, dt, 0.0f, num_z, den_z);
 
     EXPECT_EQ(num_z.size(),3);
     EXPECT_EQ(den_z.size(),3);

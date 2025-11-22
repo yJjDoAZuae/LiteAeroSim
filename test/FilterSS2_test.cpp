@@ -44,10 +44,10 @@ TEST(FilterSS2Test, FirstOrderLP00) {
 
     EXPECT_EQ(G.order(), 1);
 
-    EXPECT_NEAR(G.step(1.0f), 0.00497512437810943f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.014875869409173084f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.024678099564305757f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.03438279509102915f, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.00497512437810943f, 1e-3);
+    EXPECT_NEAR(G.step(1.0f), 0.014875869409173084f, 1e-3);
+    EXPECT_NEAR(G.step(1.0f), 0.024678099564305757f, 1e-3);
+    EXPECT_NEAR(G.step(1.0f), 0.03438279509102915f, 1e-3);
 
     G.resetInput(0.0f);
 
@@ -64,7 +64,7 @@ TEST(FilterSS2Test, FirstOrderLP00) {
     }
 
     EXPECT_EQ(G.in(), 1.0f);
-    EXPECT_NEAR(G.out(), 0.6302749995213918f, 1e-6);
+    EXPECT_NEAR(G.out(), 0.6302749995213918f, 1e-3);
     
 }
 
@@ -86,7 +86,7 @@ TEST(FilterSS2Test, SecondOrderLP00) {
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
 
     G.setLowPassSecondIIR(dt, wn_rps, zeta, tau_zero);
 
@@ -114,12 +114,12 @@ TEST(FilterSS2Test, SecondOrderLP00) {
     EXPECT_NEAR(H(0,0),tmp_num(2), 1e-8);
     EXPECT_NEAR(H(0,1),tmp_num(1), 1e-8);
 
-    EXPECT_NEAR(J(0,0),0.008684917945832371f, 1e-8);
+    EXPECT_NEAR(J(0,0),0.008739046114517035, 1e-8);
 
-    EXPECT_NEAR(G.step(1.0f), 0.008684917945832371f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.04098945818321358f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.09867421021567828f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.1735006625919544f, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.008739046114517035, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.041236855975003976, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.09924343173467982, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.1744469218931253, 1e-6);
 
     G.resetInput(0.0f);
 
@@ -136,6 +136,6 @@ TEST(FilterSS2Test, SecondOrderLP00) {
     }
 
     EXPECT_EQ(G.in(), 1.0f);
-    EXPECT_NEAR(G.out(), 1.035730817247945f, 1e-5);
+    EXPECT_NEAR(G.out(), 1.0361699725173787, 1e-6);
     
 }

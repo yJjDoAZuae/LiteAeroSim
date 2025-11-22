@@ -123,7 +123,7 @@ FilterError butterz(uint8_t order, float dt, float wn_rps, FiltVectorXf& num_s, 
     return FilterError::NONE;
 }
 
-FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
+FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, float wc_rad, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
 
@@ -141,6 +141,9 @@ FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     }
 
     float K = 2.0f / dt;
+    if (wc_rad > 0.0f) {
+        K = wc_rad/std::tan(wc_rad*dt/2.0f);
+    }
 
     float coeff_denom = 1.0f;
     coeff_denom = den(0) * K + den(1);
@@ -166,7 +169,7 @@ FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     return FilterError::NONE;
 }
 
-FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
+FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, float wc_rad, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
 
@@ -184,6 +187,9 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     }
 
     float K = 2.0f / dt;
+    if (wc_rad > 0.0f) {
+        K = wc_rad/std::tan(wc_rad*dt/2.0f);
+    }
     float coeff_denom = den(0) * K * K + den(1) * K + den(2);
 
     if (coeff_denom < tol)
@@ -208,7 +214,7 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 
 // TODO: unimplemented
 // https://www.researchgate.net/publication/358716710_The_Transfer_Function_of_the_nth-Order_Digital_Butterworth_Low_Pass_Filter
-FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, FiltVectorXf &numz, FiltVectorXf &denz)
+FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, float wc_rad, FiltVectorXf &numz, FiltVectorXf &denz)
 {
     const float tol = 1.0e-6;
     numz.resize(1);
@@ -249,6 +255,7 @@ FilterError tustin_n_ss(const MatNN &A,
                         const Mat1N &C,
                         const Mat11 &D,
                         float dt,
+                        float wc_rad,
                         MatNN &Phi,
                         MatN1 &Gamma,
                         Mat1N &H,
@@ -277,7 +284,10 @@ FilterError tustin_n_ss(const MatNN &A,
     J.setZero();
 
     // https://ocw.mit.edu/courses/6-245-multivariable-control-systems-spring-2004/e7aeed6b7a0d508ad3632c9a46b9a21d_lec11_6245_2004.pdf
-    float w0 = 2.0f/dt;  // Nyquist frequency
+    float w0 = 2.0f / dt;
+    if (wc_rad > 0.0f) {
+        w0 = wc_rad/std::tan(wc_rad*dt/2.0f);
+    }
 
     // (I - A/w0)^-1 // from FPW p. 200
     Eigen::MatrixXf invw0ImA = Eigen::Inverse(Eigen::MatrixXf::Identity(n,n) - A/w0);
@@ -411,7 +421,7 @@ FilterError tf2ss(const Vec3 &num,
     return FilterError::NONE;
 }
 
-FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, Vec3 &denz)
+FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad, Vec3 &numz, Vec3 &denz)
 {
     const float tol = 1.0e-6;
 
@@ -423,6 +433,9 @@ FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, 
     }
 
     float K = 2.0f / dt;
+    if (wc_rad > 0.0f) {
+        K = wc_rad/std::tan(wc_rad*dt/2.0f);
+    }
 
     float coeff_denom = den(1) * K + den(2);
 
@@ -442,7 +455,7 @@ FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, 
     return FilterError::NONE;
 }
 
-FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, Vec3 &denz)
+FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad, Vec3 &numz, Vec3 &denz)
 {
     const float tol = 1.0e-6;
 
@@ -454,6 +467,9 @@ FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, Vec3 &numz, 
     }
 
     float K = 2.0f / dt;
+    if (wc_rad > 0.0f) {
+        K = wc_rad/std::tan(wc_rad*dt/2.0f);
+    }
     float coeff_denom = den(0) * K * K + den(1) * K + den(2);
 
     if (fabs(coeff_denom) < tol)
@@ -478,6 +494,7 @@ FilterError tustin_2_ss(const Mat22 &A,
                         const Mat12 &C,
                         const Mat11 &D,
                         float dt,
+                        float wc_rad,
                         Mat22 &Phi,
                         Mat21 &Gamma,
                         Mat12 &H,
@@ -495,7 +512,10 @@ FilterError tustin_2_ss(const Mat22 &A,
     J.setZero();
 
     // https://ocw.mit.edu/courses/6-245-multivariable-control-systems-spring-2004/e7aeed6b7a0d508ad3632c9a46b9a21d_lec11_6245_2004.pdf
-    float w0 = 2.0f/dt;  // Nyquist frequency
+    float w0 = 2.0f / dt;
+    if (wc_rad > 0.0f) {
+        w0 = wc_rad/std::tan(wc_rad*dt/2.0f);
+    }
 
     // (I - A/w0)^-1 // from FPW p. 200
     Mat22 invw0ImA = Eigen::Inverse(Mat22::Identity(2,2) - A/w0);
@@ -509,5 +529,15 @@ FilterError tustin_2_ss(const Mat22 &A,
     return FilterError::NONE;
 }
 
+FilterError zpk2tf2(Vec2c zeros, Vec2c poles, float K, uint8_t nz, uint8_t np, Vec3 &num, Vec3 &den)
+{
+    if (nz > 2 || np > 2 || nz > np) {
+        return FilterError::INVALID_DIMENSION;
+    }
+
+    den(0) = 1.0f;
+
+    return FilterError::NONE;
+}
 
 }

@@ -1,4 +1,4 @@
-
+#define _USE_MATH_DEFINES
 #include <cmath>
 // #include <stdio.h>
 // #include <string.h>
@@ -56,7 +56,7 @@ void FilterSS::setButterworthIIR(char order, float dt, float wn_rps)
 
     setDimension(order);
 
-    _errorCode += tustin_n_ss(A,B,C,D, dt, _Phi, _Gamma, _H, _J);
+    _errorCode += tustin_n_ss(A,B,C,D, dt, wn_rps, _Phi, _Gamma, _H, _J);
 
     resetInput(0.0f);
 

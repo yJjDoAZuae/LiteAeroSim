@@ -73,7 +73,7 @@ TEST(FilterSSTest, SecondOrderLP00) {
     Mat1N H0;
     Mat11 J0;
 
-    tustin_n_ss(A, B, C, D, dt, Phi0, Gamma0, H0, J0);
+    tustin_n_ss(A, B, C, D, dt, wn_rps, Phi0, Gamma0, H0, J0);
 
     G.setButterworthIIR(2, dt, wn_rps);
 
@@ -113,12 +113,12 @@ TEST(FilterSSTest, SecondOrderLP00) {
     EXPECT_NEAR(H(0,0),H0(0,0), 1e-6);
     EXPECT_NEAR(H(0,1),H0(0,1), 1e-6);
 
-    EXPECT_NEAR(J(0,0),0.008684917945832371f, 1e-6);
+    EXPECT_NEAR(J(0,0),0.008739046114517035, 1e-6);
 
-    EXPECT_NEAR(G.step(1.0f), 0.008684917945832371f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.04098945818321358f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.09867421021567828f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.1735006625919544f, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.008739046114517035, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.041236855975003976, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.09924343173467982, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.1744469218931253, 1e-6);
 
     G.resetInput(0.0f);
 
@@ -135,6 +135,6 @@ TEST(FilterSSTest, SecondOrderLP00) {
     }
 
     EXPECT_EQ(G.in(), 1.0f);
-    EXPECT_NEAR(G.out(), 1.035730817247945f, 1e-5);
+    EXPECT_NEAR(G.out(), 1.0361699725173787, 1e-6);
     
 }

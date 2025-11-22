@@ -52,7 +52,7 @@ void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
         return;
     }
 
-    _errorCode += tustin_n_tf(num_s, den_s, dt, _num, _den);
+    _errorCode += tustin_n_tf(num_s, den_s, dt, wn_rps, _num, _den);
 
     uBuff.resize(order+1);
     yBuff.resize(order+1);

@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES
 #include <cmath>
 // #include <stdio.h>
 // #include <string.h>
@@ -51,7 +52,7 @@ void FilterSS2::setLowPassFirstIIR(float dt, float tau)
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_1_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode += tustin_1_tf(num_s, den_s, dt, 2.0f*M_PI / tau, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
@@ -74,7 +75,7 @@ void FilterSS2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float ta
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
@@ -96,7 +97,7 @@ void FilterSS2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float 
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
@@ -118,7 +119,7 @@ void FilterSS2::setHighPassFirstIIR(float dt, float tau)
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode = tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode = tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
@@ -140,7 +141,7 @@ void FilterSS2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 
@@ -162,7 +163,7 @@ void FilterSS2::setDerivIIR(float dt, float tau)
     Eigen::Vector3f num_z;
     Eigen::Vector3f den_z;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, num_z, den_z);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, num_z, den_z);
 
     tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
 

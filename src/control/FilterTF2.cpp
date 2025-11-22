@@ -1,3 +1,5 @@
+#define _USE_MATH_DEFINES
+
 #include <cmath>
 // #include <stdio.h>
 // #include <string.h>
@@ -47,7 +49,7 @@ void FilterTF2::setLowPassFirstIIR(float dt, float tau)
     den_s(1) = 1.0f;
     den_s(2) = 1.0f / tau;
 
-    _errorCode += tustin_1_tf(num_s, den_s, dt, _num, _den);
+    _errorCode += tustin_1_tf(num_s, den_s, dt, 2.0f*M_PI / tau, _num, _den);
 
     _order = 1;
 
@@ -65,7 +67,7 @@ void FilterTF2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float ta
     den_s(1) = 2.0f * zeta * wn_rps;  // s
     den_s(2) = wn_rps * wn_rps;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, _num, _den);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, _num, _den);
 
     _order = 2;
 }
@@ -82,7 +84,7 @@ void FilterTF2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float 
     den_s(1) = 2.0f * zeta_den * wn_rps;
     den_s(2) = wn_rps * wn_rps;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, _num, _den);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, _num, _den);
 
     _order = 2;
 }
@@ -99,7 +101,7 @@ void FilterTF2::setHighPassFirstIIR(float dt, float tau)
     den_s(1) = 1.0f;
     den_s(2) = 1.0f / tau;
 
-    _errorCode = tustin_2_tf(num_s, den_s, dt, _num, _den);
+    _errorCode = tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, _num, _den);
 
     _order = 1;
 }
@@ -116,7 +118,7 @@ void FilterTF2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c
     den_s(1) = 2.0f * zeta * wn_rps;  // s
     den_s(2) = wn_rps * wn_rps;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, _num, _den);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, _num, _den);
 
     _order = 2;
 }
@@ -133,7 +135,7 @@ void FilterTF2::setDerivIIR(float dt, float tau)
     den_s(1) = 1.0f;
     den_s(2) = 1.0f / tau;
 
-    _errorCode += tustin_2_tf(num_s, den_s, dt, _num, _den);
+    _errorCode += tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, _num, _den);
 
     _order = 1;
 }

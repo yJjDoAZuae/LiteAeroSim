@@ -88,7 +88,7 @@ TEST(FilterTFTest, SecondOrderLP00) {
     FiltVectorXf num_z0;
     FiltVectorXf den_z0;
 
-    tustin_2_tf(num_s, den_s, dt, num_z0, den_z0);
+    tustin_2_tf(num_s, den_s, dt, 0.0f, num_z0, den_z0);
 
     G.setButterworthIIR(2, dt, wn_rps);
 
@@ -103,7 +103,7 @@ TEST(FilterTFTest, SecondOrderLP00) {
 
     FiltVectorXf tmp_num = num_z - Ginf*den_z;
 
-    // EXPECT_EQ(Phi(0,0),0.0f);
+    // EXPECT_NEAR(num_z(0),0.008739046114517035, 1e-6);
     // EXPECT_EQ(Phi(0,1),1.0f);
     // EXPECT_NEAR(Phi(1,0),-den_z(2), 1e-8);
     // EXPECT_NEAR(Phi(1,1),-den_z(1), 1e-8);
@@ -116,10 +116,10 @@ TEST(FilterTFTest, SecondOrderLP00) {
 
     // EXPECT_NEAR(J(0,0),0.008684917945832371f, 1e-8);
 
-    EXPECT_NEAR(G.step(1.0f), 0.008684917945832371f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.04098945818321358f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.09867421021567828f, 1e-6);
-    EXPECT_NEAR(G.step(1.0f), 0.1735006625919544f, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.008739046114517035, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.041236855975003976, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.09924343173467982, 1e-6);
+    EXPECT_NEAR(G.step(1.0f), 0.1744469218931253, 1e-6);
 
     G.resetInput(0.0f);
 
@@ -136,6 +136,6 @@ TEST(FilterTFTest, SecondOrderLP00) {
     }
 
     EXPECT_EQ(G.in(), 1.0f);
-    EXPECT_NEAR(G.out(), 1.035730817247945f, 1e-5);
+    EXPECT_NEAR(G.out(), 1.0361699725173787, 1e-6);
     
 }
