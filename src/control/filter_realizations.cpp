@@ -289,14 +289,14 @@ FilterError tustin_n_ss(const MatNN &A,
         w0 = wc_rad/std::tan(wc_rad*dt/2.0f);
     }
 
-    // (I - A/w0)^-1 // from FPW p. 200
-    Eigen::MatrixXf invw0ImA = Eigen::Inverse(Eigen::MatrixXf::Identity(n,n) - A/w0);
+    // (I*w0 - A)^-1 // from MIT 6-245 notes
+    MatNN invIw0mA = Eigen::Inverse(MatNN::Identity(n,n)*w0 - A);
 
     // using FPW's notation here
-    Phi = (Eigen::MatrixXf::Identity(n,n) + A/w0)*invw0ImA;
-    Gamma =invw0ImA*B*sqrt(dt);
-    H = sqrt(dt)*C*invw0ImA;
-    J = D + C*invw0ImA*B/w0;
+    Phi = (MatNN::Identity(n,n)*w0 + A)*invIw0mA;
+    Gamma =invIw0mA*B*2.0f;
+    H = w0*C*invIw0mA;
+    J = D + C*invIw0mA*B;
 
     return FilterError::NONE;
 }
@@ -517,14 +517,14 @@ FilterError tustin_2_ss(const Mat22 &A,
         w0 = wc_rad/std::tan(wc_rad*dt/2.0f);
     }
 
-    // (I - A/w0)^-1 // from FPW p. 200
-    Mat22 invw0ImA = Eigen::Inverse(Mat22::Identity(2,2) - A/w0);
+    // (I*w0 - A)^-1 // from MIT 6-245 notes
+    Mat22 invIw0mA = Eigen::Inverse(Mat22::Identity(2,2)*w0 - A);
 
     // using FPW's notation here
-    Phi = (Mat22::Identity(2,2) + A/w0)*invw0ImA;
-    Gamma =invw0ImA*B*sqrt(dt);
-    H = sqrt(dt)*C*invw0ImA;
-    J = D + C*invw0ImA*B/w0;
+    Phi = (Mat22::Identity(2,2)*w0 + A)*invIw0mA;
+    Gamma =invIw0mA*B*2.0f;
+    H = w0*C*invIw0mA;
+    J = D + C*invIw0mA*B;
 
     return FilterError::NONE;
 }

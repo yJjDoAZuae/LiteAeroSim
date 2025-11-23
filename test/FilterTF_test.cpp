@@ -64,7 +64,7 @@ TEST(FilterTFTest, FirstOrderLP00) {
     }
 
     EXPECT_EQ(G.in(), 1.0f);
-    EXPECT_NEAR((G.out()-0.6302749995213918f)/0.6302749995213918f, 0.0f, 1e-4);
+    EXPECT_NEAR(G.out(), 0.6302749995213918f, 1e-6);
     
 }
 

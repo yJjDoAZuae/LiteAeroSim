@@ -421,3 +421,121 @@ TEST(FilterRealizationsTest, TF2SS01) {
 //     EXPECT_NEAR(G.out(), 1.035730817247945f, 1e-5);
     
 // }
+
+TEST(FilterRealizationsTest, TustinNSS00) {
+
+    float dt = 0.1;
+    float wn_rps = 2.0;
+    float zeta = 1.0/sqrt(2.0);
+    float tau_zero = 0.0f;
+
+    FiltVectorXf num_s;
+    FiltVectorXf den_s;
+    num_s.resize(1);
+    den_s.resize(3);
+    num_s << wn_rps*wn_rps;
+    den_s << 1.0,2.0*zeta*wn_rps,wn_rps*wn_rps;
+
+    MatNN A;
+    MatN1 B;
+    Mat1N C;
+    Mat11 D;
+
+    tf2ss(num_s, den_s, A, B, C, D);
+
+    MatNN Phi;
+    MatN1 Gamma;
+    Mat1N H;
+    Mat11 J;
+
+    tustin_n_ss(A, B, C, D, dt, wn_rps, Phi, Gamma, H, J);
+
+    EXPECT_EQ(Phi.rows(),2);
+    EXPECT_EQ(Phi.cols(),2);
+
+    EXPECT_EQ(Gamma.rows(),2);
+    EXPECT_EQ(Gamma.cols(),1);
+
+    EXPECT_EQ(H.rows(),1);
+    EXPECT_EQ(H.cols(),2);
+
+    EXPECT_EQ(J.rows(),1);
+    EXPECT_EQ(J.cols(),1);
+
+    EXPECT_NEAR(Phi(0,0),0.982521907770966, 1e-6);
+    EXPECT_NEAR(Phi(0,1),0.087098965221857, 1e-6);
+    EXPECT_NEAR(Phi(1,0),-0.348395860887428, 1e-6);
+    EXPECT_NEAR(Phi(1,1),0.736168832000141, 1e-6);
+
+    EXPECT_NEAR(Gamma(0,0),0.004369523057259, 1e-8);
+    EXPECT_NEAR(Gamma(1,0),0.087098965221857, 1e-8);
+
+    EXPECT_NEAR(H(0,0),3.965043815541932, 1e-6);
+    EXPECT_NEAR(H(0,1),0.174197930443714, 1e-8);
+
+    MatNN ImPhi = MatNN::Identity(2,2)-Phi;
+    MatNN ImPhiInv = ImPhi.inverse();
+ 
+    EXPECT_NEAR(ImPhiInv(0,0),7.547481857361692, 1e-5);
+    EXPECT_NEAR(ImPhiInv(0,1),2.491661105814809, 1e-5);
+    EXPECT_NEAR(ImPhiInv(1,0),-9.966644423259234, 1e-5);
+    EXPECT_NEAR(ImPhiInv(1,1),0.500000000000001, 1e-5);
+ 
+    EXPECT_NEAR(H.norm() * Gamma.norm(),0.3461190709161926, 1e-5);
+
+    EXPECT_NEAR(J(0,0),0.008739046114517035, 1e-6);
+
+    EXPECT_NEAR((H*ImPhiInv*Gamma).value(),0.991260953885483, 1e-6);
+
+    EXPECT_NEAR(J(0,0),0.008739046114517, 1e-6);
+    
+}
+
+TEST(FilterRealizationsTest, Tustin2SS00) {
+
+    float dt = 0.1;
+    float wn_rps = 2.0;
+    float zeta = 1.0/sqrt(2.0);
+    float tau_zero = 0.0f;
+
+    Vec3 num_s;
+    Vec3 den_s;
+    num_s << 0,0,wn_rps*wn_rps;
+    den_s << 1.0,2.0*zeta*wn_rps,wn_rps*wn_rps;
+
+    Mat22 A;
+    Mat21 B;
+    Mat12 C;
+    Mat11 D;
+
+    tf2ss(num_s, den_s, A, B, C, D);
+
+    Mat22 Phi;
+    Mat21 Gamma;
+    Mat12 H;
+    Mat11 J;
+
+    tustin_2_ss(A, B, C, D, dt, wn_rps, Phi, Gamma, H, J);
+
+    EXPECT_NEAR(Phi(0,0),0.982521907770966, 1e-6);
+    EXPECT_NEAR(Phi(0,1),0.087098965221857, 1e-6);
+    EXPECT_NEAR(Phi(1,0),-0.348395860887428, 1e-6);
+    EXPECT_NEAR(Phi(1,1),0.736168832000141, 1e-6);
+
+    MatNN ImPhi = MatNN::Identity(2,2)-Phi;
+    MatNN ImPhiInv = ImPhi.inverse();
+ 
+    EXPECT_NEAR(ImPhiInv(0,0),7.547481857361692, 1e-5);
+    EXPECT_NEAR(ImPhiInv(0,1),2.491661105814809, 1e-5);
+    EXPECT_NEAR(ImPhiInv(1,0),-9.966644423259234, 1e-5);
+    EXPECT_NEAR(ImPhiInv(1,1),0.500000000000001, 1e-5);
+ 
+    EXPECT_NEAR(H.norm() * Gamma.norm(),0.3461190709161926, 1e-5);
+
+    EXPECT_NEAR(J(0,0),0.008739046114517035, 1e-6);
+
+    EXPECT_NEAR((H*ImPhiInv*Gamma).value(),0.991260953885483, 1e-6);
+
+    EXPECT_NEAR(J(0,0),0.008739046114517, 1e-6);
+    
+}
