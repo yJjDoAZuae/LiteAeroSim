@@ -22,7 +22,7 @@ public:
 
     // virtual void copy(Filter &filt);
 
-    virtual Eigen::size_t order() const=0;
+    virtual uint8_t order() const=0;
 
     // step the filter
     virtual float step(float in)=0;

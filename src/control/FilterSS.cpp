@@ -34,7 +34,7 @@ void FilterSS::copy(FilterSS2 &filt)
     _errorCode = filt.errorCode();
 }
 
-void FilterSS::setButterworthIIR(char order, float dt, float wn_rps)
+void FilterSS::setButterworthIIR(uint8_t order, float dt, float wn_rps)
 {
 
     FiltVectorXf num_s;
@@ -72,7 +72,7 @@ void FilterSS::resetInput(float in)
     if (errorCode() == 0)
     {
 
-        char n = order();
+        char n = _Phi.rows();
 
         MatNN ImPhiInv(MatNN::Zero(n,n));
         bool invertible = false;
@@ -108,7 +108,7 @@ void FilterSS::resetOutput(float out)
     if (errorCode() == 0)
     {
 
-        char n = order();
+        uint8_t n = _Phi.rows();
 
         MatNN ImPhiInv(MatNN::Zero(n,n));
         bool invertible = false;
@@ -144,7 +144,7 @@ float FilterSS::dcGain() const
     // Pure integrators should not be implemented
     // using an ARMA filter.
 
-    char n = order();
+    uint8_t n = _Phi.rows();
 
     MatNN ImPhiInv(MatNN::Zero(n,n));
     bool invertible = false;
@@ -167,11 +167,11 @@ float FilterSS::dcGain() const
 MatNN FilterSS::controlGrammian() const
 {
 
-    int n = _Phi.rows();
+    uint8_t n = _Phi.rows();
 
     MatNN C(MatNN::Zero(n,n));
 
-    for (int k = 0; k<n; k++) {
+    for (uint8_t k = 0; k<n; k++) {
         C(Eigen::all, k) = MatN1(_Phi.pow(k) * _Gamma);
     }
 
@@ -180,20 +180,20 @@ MatNN FilterSS::controlGrammian() const
 
 MatNN FilterSS::observeGrammian() const
 {
-    int n = _Phi.rows();
+    uint8_t n = _Phi.rows();
 
     MatNN C(MatNN::Zero(n,n));
 
-    for (int k = 0; k<n; k++) {
+    for (uint8_t k = 0; k<n; k++) {
         C(k, Eigen::all) = Mat1N(_H * _Phi.pow(k));
     }
 
     return C;
 }
 
-Eigen::size_t FilterSS::order() const
+uint8_t FilterSS::order() const
 {
-    Eigen::size_t order = _Phi.rows();
+    uint8_t order = _Phi.rows();
 
     if (order > 0) {
         Eigen::JacobiSVD<MatNN> ControlSVD;
@@ -205,16 +205,16 @@ Eigen::size_t FilterSS::order() const
         ControlSVD.compute(CC);
         ObserveSVD.compute(CO);
 
-        Eigen::size_t crank = ControlSVD.rank();
+        uint8_t crank = ControlSVD.rank();
         order = (crank < order) ? crank : order;
-        Eigen::size_t orank = ObserveSVD.rank();
+        uint8_t orank = ObserveSVD.rank();
         order = (orank < order) ? orank : order;
     }
 
     return order;
 }
 
-void FilterSS::setDimension(char dim)
+void FilterSS::setDimension(uint8_t dim)
 {
     _Phi.resize(dim,dim);
     _Gamma.resize(dim,1);

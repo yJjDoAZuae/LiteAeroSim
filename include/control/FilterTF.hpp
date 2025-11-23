@@ -28,7 +28,6 @@ public:
         _den << 1;
         uBuff << 0;
         yBuff << 0;
-        _order = 0;
     }
 
     FilterTF(const FilterTF &filt)
@@ -41,7 +40,7 @@ public:
     // IIR filter design
     void setButterworthIIR(char order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
 
-    Eigen::size_t order() const { return _den.rows() - 1; }
+    uint8_t order() const { return _den.rows() - 1; }
 
     // step the filter
     float step(float in);
@@ -67,8 +66,6 @@ private:
 
     FiltVectorXf uBuff;
     FiltVectorXf yBuff;
-
-    Eigen::size_t _order;
 
 };
 

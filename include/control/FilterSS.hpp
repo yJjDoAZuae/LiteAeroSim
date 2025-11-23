@@ -37,9 +37,9 @@ public:
     void copy(FilterSS2 &filt);
 
     // IIR filter design
-    void setButterworthIIR(char order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
+    void setButterworthIIR(uint8_t order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
 
-    Eigen::size_t order() const;
+    uint8_t order() const;
 
     // step the filter
     float step(float in);
@@ -66,7 +66,7 @@ public:
 
 protected:
 
-    void setDimension(char dim);
+    void setDimension(uint8_t dim);
 
     // state space realization matrices
     MatNN _Phi;

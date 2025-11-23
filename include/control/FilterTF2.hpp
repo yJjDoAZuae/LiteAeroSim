@@ -57,7 +57,7 @@ public:
     Vec3 num() const {return _num;}
     Vec3 den() const {return _den;}
 
-    Eigen::size_t order() const {return _order;}
+    uint8_t order() const {return _order;}
 
 protected:
 
@@ -69,7 +69,7 @@ protected:
     Vec3 uBuff;
     Vec3 yBuff;
 
-    Eigen::size_t _order;
+    uint8_t _order;
 
 };
 

@@ -59,7 +59,7 @@ public:
     Mat11 J() const {return _J;}
     Mat21 x() const {return _x;}
 
-    Eigen::size_t order() const {return _order;}
+    uint8_t order() const {return _order;}
 
     Mat22 controlGrammian() const;
     Mat22 observeGrammian() const;
@@ -75,7 +75,7 @@ protected:
     // 2nd order state vector
     Mat21 _x;
 
-    Eigen::size_t _order;
+    uint8_t _order;
 
 };
 
