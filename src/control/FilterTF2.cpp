@@ -195,7 +195,7 @@ float FilterTF2::dcGain() const
     // Test for infinite DC gain.
     // Pure integrators should not be implemented
     // using an ARMA filter.
-    if (denSum < tol)
+    if (fabs(denSum) < tol)
     {
         // non-finite DC gain
         // errorCode = 4;
