@@ -20,18 +20,6 @@ public:
     Limit valLimit;
     Limit rateLimit;
 
-    FilterSS2Clip()
-    { 
-        FilterSS2::FilterSS2();
-    }
-
-    FilterSS2Clip(FilterSS2Clip &filt)
-    {
-        copy(filt);
-    }
-
-    void copy(FilterSS2Clip &filt);
-
     // step the filter
     float step(float in);
 
@@ -42,19 +30,6 @@ public:
     // If dc gain is zero, then the filter is
     // reset to zero regardless of argument value
     void resetOutput(float out);
-
-protected:
-
-    // 2nd order state space realization matrices
-    Mat22 _Phi;
-    Mat21 _Gamma;
-    Mat12 _H;
-    Mat11 _J;
-
-    // 2nd order state vector
-    Mat21 _x;
-
-    uint8_t _order;
 
 };
 
