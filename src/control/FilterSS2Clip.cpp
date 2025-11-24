@@ -123,14 +123,19 @@ float FilterSS2Clip::step(float in)
     _Phi.computeInverseWithCheck(PhiInv, invertible, absDeterminantThreshold);
 
     if (invertible) {
+
+        // y_k = H Phi^-1 (x_k - Gamma u_k-1) + J u_k-1
+        // y_k+1 = H x_k + J u_k
         Mat22 A;
-        A << _H, _H*_Phi.inverse();
+        A << _H*PhiInv,
+             _H;
 
         Mat22 AInv;
         A.computeInverseWithCheck(AInv, invertible, absDeterminantThreshold);
 
         Mat21 b;
-        b << _out - (_J * in).value(), outPrev + (_H * PhiInv * _Gamma * inPrev).value() - (_J * inPrev).value();
+        b << outPrev + (_H * PhiInv * _Gamma * inPrev).value() - (_J * inPrev).value(), 
+            _out - (_J * in).value();
 
         if (invertible) {
             _x = AInv * b;
