@@ -32,6 +32,8 @@ void FilterSS2Clip::copy(FilterSS2Clip &filt)
 
 void FilterSS2Clip::resetInput(float in)
 {
+    const float tol = 1e-6;
+
     _x.setZero();
     _out = 0.0f;
     _in = 0.0f;
@@ -52,7 +54,11 @@ void FilterSS2Clip::resetInput(float in)
         }
 
         _in = in;
-        _out = dcGain * in;
+        _out = valLimit.step(dcGain * in);
+
+        if (fabs(dcGain) > tol) {
+            _in = _out/dcGain;
+        }
 
         _x << ImPhiInv * _Gamma * _in;
     } else {
@@ -62,10 +68,17 @@ void FilterSS2Clip::resetInput(float in)
 
 void FilterSS2Clip::resetOutput(float out)
 {
+    const float tol = 1e-6;
+
     _x.setZero();
     _out = 0.0f;
     _in = 0.0f;
     float dcGain = this->dcGain();
+
+    if (fabs(dcGain) < tol) {
+        _errorCode += FilterError::ZERO_DC_GAIN;
+        return;
+    }
 
     if (errorCode() == 0)
     {
@@ -81,7 +94,10 @@ void FilterSS2Clip::resetOutput(float out)
             return;
         }
 
-        _out = out;
+        // Assumption that rateLimit limits interval includes 0
+        // otherwise we would need to do a ramp reset rather than DC
+        rateLimit.step(0.0f);
+        _out = valLimit.step(out);
         _in = out/dcGain;
 
         _x << ImPhiInv * _Gamma * _in;
@@ -102,14 +118,13 @@ float FilterSS2Clip::step(float in)
     float outPrev = _out;
 
     // TRICKY: update the output first
-    _out = valLimit.step((_H*_x + _J*in).value());
+    _out = (_H*_x + _J*in).value();
 
     // Euler derivative computation with derivative
     float outDot = rateLimit.step((_out - outPrev)/_dt);
 
     // Apply the rate limit to the output but also reimpose the value limit
-    Limit valLimit2 = valLimit;
-    _out = valLimit2.step(outPrev + outDot*_dt);
+    _out = valLimit.step(outPrev + outDot*_dt);
 
     // Backsolve to correct the state based on the limited values.
     // We are correcting the *previous* iteration's state here

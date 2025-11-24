@@ -16,6 +16,10 @@ namespace Control {
 class FilterSS2Clip : public FilterSS2 {
 
 public:
+
+    Limit valLimit;
+    Limit rateLimit;
+
     FilterSS2Clip()
     { 
         FilterSS2::FilterSS2();
@@ -49,9 +53,6 @@ protected:
 
     // 2nd order state vector
     Mat21 _x;
-
-    Limit valLimit;
-    Limit rateLimit;
 
     uint8_t _order;
 

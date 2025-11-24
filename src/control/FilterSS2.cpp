@@ -208,10 +208,17 @@ void FilterSS2::resetInput(float in)
 
 void FilterSS2::resetOutput(float out)
 {
+    const float tol = 1e-6;
+
     _x.setZero();
     _out = 0.0f;
     _in = 0.0f;
     float dcGain = this->dcGain();
+
+    if (fabs(dcGain) < tol) {
+        _errorCode += FilterError::ZERO_DC_GAIN;
+        return;
+    }
 
     if (errorCode() == 0)
     {
