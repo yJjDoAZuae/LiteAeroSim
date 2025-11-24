@@ -135,11 +135,15 @@ float FilterSS2Clip::step(float in)
         if (invertible) {
             _x = AInv * b;
         } else {
-            // A is uninvertible, use the psuedoinverse instead
+            // A is uninvertible, try the psuedoinverse instead
             Mat22 ApInv;
-            ApInv = (A.transpose()*A).inverse() * A.transpose();
-            
-            _x = ApInv * b;
+            Mat22 ATAInv;
+            (A.transpose()*A).computeInverseWithCheck(ATAInv, invertible, absDeterminantThreshold);
+
+            if (invertible) {
+                ApInv = ATAInv * A.transpose();
+                _x = ApInv * b;
+            }
         }
     }
 
