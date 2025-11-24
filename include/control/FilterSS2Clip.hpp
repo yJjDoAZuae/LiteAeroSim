@@ -31,6 +31,10 @@ public:
     // reset to zero regardless of argument value
     void resetOutput(float out);
 
+protected:
+
+    void backsolve(float inPrev, float outPrev);
+
 };
 
 }

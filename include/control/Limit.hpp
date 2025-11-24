@@ -36,6 +36,7 @@ class Limit : public SISOBlock {
         float upperLimit() const { return _upperLimit; };
         bool isLimitedLower() const { return _limitedLower; };
         bool isLimitedUpper() const { return _limitedUpper; };
+        bool isLimited() const { return isLimitedLower() || isLimitedUpper(); };
         bool isLowerEnabled() const { return _enableLowerLimit; }
         bool isUpperEnabled() const { return _enableUpperLimit; }
 

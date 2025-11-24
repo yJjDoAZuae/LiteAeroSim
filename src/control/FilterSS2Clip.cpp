@@ -11,25 +11,6 @@ static float dcTol = 1e-6;
 
 using namespace Control;
 
-// copy implementation
-// template <char NUM_STATES=FILTER_MAX_STATES>
-// void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
-void FilterSS2Clip::copy(FilterSS2Clip &filt)
-{
-    _Phi << filt.Phi();
-    _Gamma << filt.Gamma();
-    _H << filt.H();
-    _J << filt.J();
-    _x << filt.x();
-
-    _errorCode = filt.errorCode();
-    
-    _order = filt.order();
-
-    valLimit = filt.valLimit;
-    rateLimit = filt.rateLimit;
-}
-
 void FilterSS2Clip::resetInput(float in)
 {
     const float tol = 1e-6;
@@ -107,25 +88,8 @@ void FilterSS2Clip::resetOutput(float out)
 
 }
 
-float FilterSS2Clip::step(float in)
+void FilterSS2Clip::backsolve(float inPrev, float outPrev)
 {
-
-    float inPrev = _in;
-    this->_in = in;
-
-    float delU = in - inPrev;
-
-    float outPrev = _out;
-
-    // TRICKY: update the output first
-    _out = (_H*_x + _J*in).value();
-
-    // Euler derivative computation with derivative
-    float outDot = rateLimit.step((_out - outPrev)/_dt);
-
-    // Apply the rate limit to the output but also reimpose the value limit
-    _out = valLimit.step(outPrev + outDot*_dt);
-
     // Backsolve to correct the state based on the limited values.
     // We are correcting the *previous* iteration's state here
     // to make it consistent with the output value we just calculated.
@@ -143,14 +107,14 @@ float FilterSS2Clip::step(float in)
         // y_k+1 = H x_k + J u_k
         Mat22 A;
         A << _H*PhiInv,
-             _H;
+            _H;
 
         Mat22 AInv;
         A.computeInverseWithCheck(AInv, invertible, absDeterminantThreshold);
 
         Mat21 b;
         b << outPrev + (_H * PhiInv * _Gamma * inPrev).value() - (_J * inPrev).value(), 
-            _out - (_J * in).value();
+            _out - (_J * _in).value();
 
         if (invertible) {
             _x = AInv * b;
@@ -166,9 +130,34 @@ float FilterSS2Clip::step(float in)
             }
         }
     }
+}
+
+float FilterSS2Clip::step(float in)
+{
+
+    float inPrev = _in;
+    _in = in;
+
+    float delU = in - inPrev;
+
+    float outPrev = _out;
+
+    // TRICKY: update the output first
+    _out = (_H*_x + _J*_in).value();
+
+    // Euler derivative computation with derivative
+    // TODO: use a tustin derivative here?
+    float outDot = rateLimit.step((_out - outPrev)/_dt);
+
+    // Apply the rate limit to the output but also reimpose the value limit
+    _out = valLimit.step(outPrev + outDot*_dt);
+
+    if (valLimit.isLimited() || rateLimit.isLimited()) {
+        backsolve(inPrev, outPrev);
+    }
 
     // state update
-    _x = _Phi*_x + _Gamma*in;
+    _x = _Phi*_x + _Gamma*_in;
 
     return this->out();
 }
