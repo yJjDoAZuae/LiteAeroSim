@@ -22,6 +22,7 @@ public:
         _J.setOnes();
         _x.setZero();
         _order = 0;
+        _dt = 1.0f;
     }
 
     FilterSS2(FilterSS2 &filt)
@@ -60,6 +61,7 @@ public:
     Mat21 x() const {return _x;}
 
     uint8_t order() const {return _order;}
+    float dt() const {return _dt;}
 
     Mat22 controlGrammian() const;
     Mat22 observeGrammian() const;
@@ -76,6 +78,7 @@ protected:
     Mat21 _x;
 
     uint8_t _order;
+    float _dt;
 
 };
 
