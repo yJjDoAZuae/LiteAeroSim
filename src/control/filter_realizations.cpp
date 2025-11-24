@@ -531,11 +531,52 @@ FilterError tustin_2_ss(const Mat22 &A,
 
 FilterError zpk2tf2(Vec2c zeros, Vec2c poles, float K, uint8_t nz, uint8_t np, Vec3 &num, Vec3 &den)
 {
+
+    const float tol = 1e-6;
+
+    num << K, 0, 0;
+    den << 1, 0, 0;
+
     if (nz > 2 || np > 2 || nz > np) {
         return FilterError::INVALID_DIMENSION;
     }
 
-    den(0) = 1.0f;
+    if (np == 0) {
+        return FilterError::NONE;
+    }
+
+    if (np == 1) {
+        den << 1, -poles(0).real(), 0;
+        if (nz == 1) {
+            num << 1, -zeros(0).real(), 0;
+        }
+    } else {
+        den << 1, -(poles(0).real() + poles(1).real()), (poles(0)*poles(1)).real();
+        if (nz == 1) {
+            num << 0, 1, -zeros(0).real();
+        } else if (nz == 2) {
+            num << 1, -(zeros(0).real() + zeros(1).real()), (zeros(0)*zeros(1)).real();
+        }
+    }
+
+    // TODO: handle zero den sum (integrator case)
+    // This assumes a discrete filter?
+
+    // forward euler integrator example
+    // y_k+1 = y_k + u_k
+    // H(z) = 1/(z - 1) <-- den.sum() == 0
+
+    float dcGain=1.0f;
+    if (fabs(den.sum()) > tol) {
+        dcGain = num.sum()/den.sum();
+    } else {
+        // TODO: how to set gain for a filter with a pure integrator pole?
+    }
+
+    
+
+    // TODO: handle zero dcgain (derivative case)
+    num = num*K/dcGain;
 
     return FilterError::NONE;
 }
