@@ -19,9 +19,6 @@ class Limit : public SISOBlock {
             _enableUpperLimit(false) 
             {}
 
-        // SISOLimit(const SISOLimit &lim) { copy(lim); }
-        // void copy(const SISOLimit &lim);
-
         void disable() { disableLower(); disableUpper(); }
         void enable() { enableLower(); enableUpper(); }
         void disableLower() { _enableLowerLimit = false; step(_in); }
