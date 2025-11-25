@@ -88,14 +88,47 @@ void FilterSS2Clip::resetOutput(float out)
 
 }
 
-void FilterSS2Clip::backsolve(float inPrev, float outPrev)
+void FilterSS2Clip::backsolve1(float inPrev, float outPrev)
+{
+    // Backsolve to correct the state based on the limited values.
+    // We are correcting the *previous* iteration's state here
+    // to make it consistent with the output value we just calculated.
+    bool invertible = false;
+    const float absDeterminantThreshold = 1e-12;
+
+    // y_k+1 = H x_k + J u_k
+    Mat12 A;
+    Mat11 b;
+
+    // Ax = b
+    // A will be column rank deficient, use the right pseudoinverse
+    // A^+ = A^T (A A^T)^-1
+
+    A << _H;
+    b << _out - (_J * _in).value();
+
+    Mat21 ApInv;
+    Mat11 AATInv;
+
+    Mat11 AAT;
+    AAT = A*A.transpose();
+
+    AAT.computeInverseWithCheck(AATInv, invertible, absDeterminantThreshold);
+
+    if (invertible) {
+        ApInv = A.transpose() * AATInv;
+        _x = ApInv * b;
+    }
+}
+
+void FilterSS2Clip::backsolve2(float inPrev, float outPrev)
 {
     // Backsolve to correct the state based on the limited values.
     // We are correcting the *previous* iteration's state here
     // to make it consistent with the output value we just calculated.
     Mat22 PhiInv;
     bool invertible = false;
-    const float absDeterminantThreshold = 1e-4;
+    const float absDeterminantThreshold = 1e-12;
 
     // _Phi should be invertible for a stable filter, but if it's not
     // we'll just skip backsolving
@@ -106,20 +139,21 @@ void FilterSS2Clip::backsolve(float inPrev, float outPrev)
         // y_k = H Phi^-1 (x_k - Gamma u_k-1) + J u_k-1
         // y_k+1 = H x_k + J u_k
         Mat22 A;
+        Mat21 b;
+
         A << _H*PhiInv,
             _H;
+        b << outPrev + (_H * PhiInv * _Gamma * inPrev).value() - (_J * inPrev).value(), 
+            _out - (_J * _in).value();
 
         Mat22 AInv;
         A.computeInverseWithCheck(AInv, invertible, absDeterminantThreshold);
 
-        Mat21 b;
-        b << outPrev + (_H * PhiInv * _Gamma * inPrev).value() - (_J * inPrev).value(), 
-            _out - (_J * _in).value();
-
         if (invertible) {
             _x = AInv * b;
         } else {
-            // A is uninvertible, try the psuedoinverse instead
+            // A is uninvertible, try the left psuedoinverse instead
+            // A^+ = (A^T A)^-1 A^T
             Mat22 ApInv;
             Mat22 ATAInv;
             (A.transpose()*A).computeInverseWithCheck(ATAInv, invertible, absDeterminantThreshold);
@@ -129,6 +163,19 @@ void FilterSS2Clip::backsolve(float inPrev, float outPrev)
                 _x = ApInv * b;
             }
         }
+    }
+}
+
+void FilterSS2Clip::backsolve(float inPrev, float outPrev)
+{
+    // Backsolve to correct the state based on the limited values.
+    // We are correcting the *previous* iteration's state here
+    // to make it consistent with the output value we just calculated.
+
+    if (_order == 1) {
+        backsolve1(inPrev, outPrev);
+    } else if (_order == 2) {
+        backsolve2(inPrev, outPrev);
     }
 }
 

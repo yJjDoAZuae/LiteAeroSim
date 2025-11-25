@@ -33,6 +33,8 @@ public:
 
 protected:
 
+    void backsolve1(float inPrev, float outPrev);
+    void backsolve2(float inPrev, float outPrev);
     void backsolve(float inPrev, float outPrev);
 
 };
