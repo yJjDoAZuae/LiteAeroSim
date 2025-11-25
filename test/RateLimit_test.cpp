@@ -94,6 +94,10 @@ TEST(RateLimitTest, Step01) {
     EXPECT_EQ(L.in(), 0.0f);
     EXPECT_EQ(L.out(), 0.0f);
 
+    L.setDt(0.1);
+    L.setLower(-1.0f);
+    L.setUpper(1.0f);
+
     EXPECT_EQ(L.isLowerEnabled(), false);
     EXPECT_EQ(L.isUpperEnabled(), false);
 
@@ -147,6 +151,10 @@ TEST(RateLimitTest, Step02) {
 
     EXPECT_EQ(L.in(), 0.0f);
     EXPECT_EQ(L.out(), 0.0f);
+
+    L.setDt(0.1);
+    L.setLower(-1.0f);
+    L.setUpper(1.0f);
 
     EXPECT_EQ(L.isLowerEnabled(), false);
     EXPECT_EQ(L.isUpperEnabled(), false);
@@ -202,6 +210,10 @@ TEST(RateLimitTest, Step03) {
     EXPECT_EQ(L.in(), 0.0f);
     EXPECT_EQ(L.out(), 0.0f);
 
+    L.setDt(0.1);
+    L.setLower(-1.0f);
+    L.setUpper(1.0f);
+
     EXPECT_EQ(L.isLowerEnabled(), false);
     EXPECT_EQ(L.isUpperEnabled(), false);
 
@@ -209,7 +221,7 @@ TEST(RateLimitTest, Step03) {
     EXPECT_EQ(L.isLowerEnabled(), true);
     EXPECT_EQ(L.isUpperEnabled(), true);
 
-    EXPECT_EQ(L.step(1.0f), 0.0f);
+    EXPECT_EQ(L.step(1.0f), 0.1f);
 
     EXPECT_EQ(L.isLimitedLower(), false);
     EXPECT_EQ(L.isLimitedUpper(), true);

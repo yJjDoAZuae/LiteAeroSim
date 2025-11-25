@@ -46,13 +46,13 @@ float RateLimit::step(float u)
 
     if (isLowerEnabled() && delUnlim < _dt*lowerLimit())
     {
-        delLim = lowerLimit();
+        delLim = _dt*lowerLimit();
         _limitedLower = true;
     }
 
     if (isUpperEnabled() && delUnlim > _dt*upperLimit())
     {
-        delLim = upperLimit();
+        delLim = _dt*upperLimit();
         _limitedUpper = true;
     }
 
