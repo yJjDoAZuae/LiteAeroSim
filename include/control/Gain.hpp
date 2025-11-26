@@ -15,6 +15,7 @@ class Gain {
     public:
 
         Gain() : _K(0) {}
+        Gain(T K) { _K = K; }
 
         void schedule(std::array<T, NumAxes> u);
         int readJSON(std::stringstream& ss);
@@ -22,6 +23,8 @@ class Gain {
 
         T K() const { return _K; }
         void operator=(T K) { _K = K; }
+        // void operator=(double K) { _K = T(K); }
+        operator double() const { return _K; }
 
     protected:
 
@@ -61,51 +64,51 @@ int Gain<T,NumAxes>::readFile(std::string filepath)
     return 0;
 }
 
-template <typename T, uint32_t NumAxes>
-T operator* (const Gain<T,NumAxes>& y, double x)
-{
-    return T(y.K() * x);
-}
+// template <typename T, uint32_t NumAxes>
+// T operator* (const Gain<T,NumAxes>& y, double x)
+// {
+//     return T(y.K() * x);
+// }
 
-template <typename T, uint32_t NumAxes>
-T operator* (double x, const Gain<T,NumAxes>& y)
-{
-    return T(x * y.K());
-}
+// template <typename T, uint32_t NumAxes>
+// T operator* (double x, const Gain<T,NumAxes>& y)
+// {
+//     return T(x * y.K());
+// }
 
-template <typename T, uint32_t NumAxes>
-T operator/ (const Gain<T,NumAxes>& y, double x)
-{
-    return T(y.K() / x);
-}
+// template <typename T, uint32_t NumAxes>
+// T operator/ (const Gain<T,NumAxes>& y, double x)
+// {
+//     return T(y.K() / x);
+// }
 
-template <typename T, uint32_t NumAxes>
-T operator/ (double x, const Gain<T,NumAxes>& y)
-{
-    return T(x / y.K());
-}
-template <typename T, uint32_t NumAxes>
-T operator+ (const Gain<T,NumAxes>& y, double x)
-{
-    return T(y.K() + x);
-}
+// template <typename T, uint32_t NumAxes>
+// T operator/ (double x, const Gain<T,NumAxes>& y)
+// {
+//     return T(x / y.K());
+// }
+// template <typename T, uint32_t NumAxes>
+// T operator+ (const Gain<T,NumAxes>& y, double x)
+// {
+//     return T(y.K() + x);
+// }
 
-template <typename T, uint32_t NumAxes>
-T operator+ (double x, const Gain<T,NumAxes>& y)
-{
-    return T(x + y.K());
-}
+// template <typename T, uint32_t NumAxes>
+// T operator+ (double x, const Gain<T,NumAxes>& y)
+// {
+//     return T(x + y.K());
+// }
 
-template <typename T, uint32_t NumAxes>
-T operator- (const Gain<T,NumAxes>& y, double x)
-{
-    return T(y.K() - x);
-}
+// template <typename T, uint32_t NumAxes>
+// T operator- (const Gain<T,NumAxes>& y, double x)
+// {
+//     return T(y.K() - x);
+// }
 
-template <typename T, uint32_t NumAxes>
-T operator- (double x, const Gain<T,NumAxes>& y)
-{
-    return T(x - y.K());
-}
+// template <typename T, uint32_t NumAxes>
+// T operator- (double x, const Gain<T,NumAxes>& y)
+// {
+//     return T(x - y.K());
+// }
 
 }
