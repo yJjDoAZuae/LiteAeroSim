@@ -10,18 +10,18 @@
 namespace Control {
 
 template <typename T, uint32_t NumAxes>    
-class Gain : public SISOBlock {
+class Gain {
 
     public:
 
         Gain() : _K(0) {}
 
-        float step(float u) { _in = u; _out = K()*u; return out(); };
         void schedule(std::array<T, NumAxes> u);
-        T K() const {return _K;}
-        void reset(float u) { _in = u; _out = u; };
         int readJSON(std::stringstream& ss);
         int readFile(std::string filepath);
+
+        T K() const { return _K; }
+        void operator=(T K) { _K = K; }
 
     protected:
 
@@ -31,6 +31,7 @@ class Gain : public SISOBlock {
 };
 
 
+// TODO: implement this
 template <typename T, uint32_t NumAxes>
 int Gain<T,NumAxes>::readJSON(std::stringstream& ss)
 {
@@ -54,12 +55,57 @@ int Gain<T,NumAxes>::readFile(std::string filepath)
     if (fs) {
         ss << fs.rdbuf();
         fs.close();
-        // tab.readJSON(ss);
         readJSON(ss);
     }
 
     return 0;
+}
 
+template <typename T, uint32_t NumAxes>
+T operator* (const Gain<T,NumAxes>& y, double x)
+{
+    return T(y.K() * x);
+}
+
+template <typename T, uint32_t NumAxes>
+T operator* (double x, const Gain<T,NumAxes>& y)
+{
+    return T(x * y.K());
+}
+
+template <typename T, uint32_t NumAxes>
+T operator/ (const Gain<T,NumAxes>& y, double x)
+{
+    return T(y.K() / x);
+}
+
+template <typename T, uint32_t NumAxes>
+T operator/ (double x, const Gain<T,NumAxes>& y)
+{
+    return T(x / y.K());
+}
+template <typename T, uint32_t NumAxes>
+T operator+ (const Gain<T,NumAxes>& y, double x)
+{
+    return T(y.K() + x);
+}
+
+template <typename T, uint32_t NumAxes>
+T operator+ (double x, const Gain<T,NumAxes>& y)
+{
+    return T(x + y.K());
+}
+
+template <typename T, uint32_t NumAxes>
+T operator- (const Gain<T,NumAxes>& y, double x)
+{
+    return T(y.K() - x);
+}
+
+template <typename T, uint32_t NumAxes>
+T operator- (double x, const Gain<T,NumAxes>& y)
+{
+    return T(x - y.K());
 }
 
 }
