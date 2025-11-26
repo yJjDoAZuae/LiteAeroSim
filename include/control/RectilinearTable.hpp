@@ -1,34 +1,13 @@
 #pragma once
 
 #include "control/SISOBlock.hpp"
+#include "control/TableAxis.hpp"
 
 #include <string>
 #include <sstream>
 #include <vector>
 
 namespace Control {
-
-template <typename Ta>
-class TableAxis {
-
-    public:
-
-        std::string name;
-        std::vector<Ta> domain;
-
-        int read(std::string filePath);
-
-        int readJSON(std::stringstream& ss);
-
-};
-
-template <typename Ta>
-int TableAxis<Ta>::readJSON(std::stringstream& ss) 
-{
-    json data = json::parse(ss);
-
-    return 0;
-}
 
 template <typename Tv, typename Ta, uint32_t NumAxes>
 class RectilinearTable {
@@ -48,7 +27,8 @@ class RectilinearTable {
 
         Tv lookup(std::array<Ta, NumAxes> u); // index of lower corner of the grid cell that contains lookup
 
-        int read(std::string filePath);
+        int readJSON(std::stringstream& ss);
+        int readFile(std::string filepath);
 
     protected:
 
@@ -68,11 +48,21 @@ class RectilinearTable {
 };
 
 template <typename Tv, typename Ta, uint32_t NumAxes>
-int RectilinearTable<Tv,Ta,NumAxes>::read(std::string filePath)
+int RectilinearTable<Tv,Ta,NumAxes>::readJSON(std::stringstream& ss)
+{
+    json data;
+    data = json::parse(ss);
+
+    return 0;
+
+}
+
+template <typename Tv, typename Ta, uint32_t NumAxes>
+int RectilinearTable<Tv,Ta,NumAxes>::readFile(std::string filepath)
 {
     std::ifstream fs;
 
-    fs.open(filePath);
+    fs.open(filepath);
 
     std::stringstream ss;
 
@@ -81,7 +71,7 @@ int RectilinearTable<Tv,Ta,NumAxes>::read(std::string filePath)
         ss << fs.rdbuf();
         fs.close();
         // tab.readJSON(ss);
-        data = json::parse(ss);
+        readJSON(ss);
     }
 
     return 0;
