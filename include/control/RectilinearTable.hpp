@@ -1,6 +1,5 @@
 #pragma once
 
-#include "control/SISOBlock.hpp"
 #include "control/TableAxis.hpp"
 
 #include <string>

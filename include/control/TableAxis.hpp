@@ -1,7 +1,5 @@
 #pragma once
 
-#include "control/SISOBlock.hpp"
-
 #include <string>
 #include <sstream>
 #include <vector>
