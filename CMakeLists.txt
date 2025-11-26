@@ -14,13 +14,15 @@ add_subdirectory(src)
 # add test subdirectory (will configure an executable and unit tests)
 add_subdirectory(test)
 
-set(EIGEN3_ROOT_DIR "$ENV{EIGEN3_INCLUDE_DIR}")
-if(EIGEN3_ROOT_DIR)
-    list(APPEND CMAKE_PREFIX_PATH "${EIGEN3_ROOT_DIR}")
-endif()
+# set(EIGEN3_ROOT_DIR "$ENV{EIGEN3_INCLUDE_DIR}")
+# if(EIGEN3_ROOT_DIR)
+#     list(APPEND CMAKE_PREFIX_PATH "${EIGEN3_ROOT_DIR}")
+# endif()
 
-find_package(Eigen3 3.4 REQUIRED NO_MODULE)
+# find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 
-# Link Eigen to targets
-target_link_libraries(liteaerosim PRIVATE Eigen3::Eigen)
-
+# # Link Eigen to targets
+# target_link_libraries(liteaerosim 
+#     PRIVATE 
+#         Eigen3::Eigen
+# )

@@ -18,6 +18,21 @@ endif()
 
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 
+include(FetchContent)
+find_package(nlohmann_json QUIET)
+
+# https://github.com/nlohmann/json/tree/v3.12.0?tab=readme-ov-file#cmake
+# https://json.nlohmann.me/integration/cmake/#fetchcontent
+# https://deepwiki.com/nlohmann/json/5.3-cmake-integration
+if(NOT json_FOUND)
+    FetchContent_Declare(
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    )
+
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
 # Library target (honors BUILD_SHARED_LIBS)
 add_library(liteaerosim ${LITEAEROSIM_SOURCES})
 
@@ -31,19 +46,19 @@ target_include_directories(liteaerosim
 )
 
 # Link Eigen to targets
-target_link_libraries(liteaerosim PRIVATE Eigen3::Eigen)
+target_link_libraries(liteaerosim PRIVATE Eigen3::Eigen nlohmann_json::nlohmann_json)
 
 target_compile_features(liteaerosim PUBLIC cxx_std_17)
 set_target_properties(liteaerosim PROPERTIES POSITION_INDEPENDENT_CODE ${CMAKE_POSITION_INDEPENDENT_CODE})
 
-# Optional: install rules for packaging
-install(TARGETS liteaerosim
-    EXPORT liteaerosimTargets
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
-)
+# # Optional: install rules for packaging
+# install(TARGETS liteaerosim
+#     EXPORT liteaerosimTargets
+#     ARCHIVE DESTINATION lib
+#     LIBRARY DESTINATION lib
+#     RUNTIME DESTINATION bin
+# )
 
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/include/" DESTINATION include)
+# install(DIRECTORY "${CMAKE_SOURCE_DIR}/include/" DESTINATION include)
 
-install(EXPORT liteaerosimTargets FILE liteaerosimTargets.cmake NAMESPACE liteaerosim:: DESTINATION lib/cmake/liteaerosim)
+# install(EXPORT liteaerosimTargets FILE liteaerosimTargets.cmake NAMESPACE liteaerosim:: DESTINATION lib/cmake/liteaerosim)

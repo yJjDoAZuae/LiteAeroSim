@@ -5,8 +5,20 @@ enable_testing()
 # Require Eigen for tests that may use it
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 
-# Prefer an installed GTest, otherwise fetch it
 include(FetchContent)
+
+find_package(nlohmann_json QUIET)
+if(NOT json_FOUND)
+    FetchContent_Declare(
+        nlohmann_json
+        URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    )
+
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
+
+# Prefer an installed GTest, otherwise fetch it
 find_package(GTest QUIET)
 
 if(NOT GTest_FOUND)
@@ -41,6 +53,7 @@ if(TEST_SOURCES)
             liteaerosim
             GTest::gtest_main
             Eigen3::Eigen
+            nlohmann_json::nlohmann_json
     )
 
     # Register with CTest and enable test discovery
