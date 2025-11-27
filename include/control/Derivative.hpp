@@ -16,7 +16,10 @@ class Derivative : public SISOBlock {
 
         Limit limit;
 
-        void reset(float u);
+        void reset(float u, float uDot) {
+            _out = limit.step(uDot);
+            _in = u;
+        }
 
         float step(float u);
         void setDt(float dt) { _dt = (dt>1e-6) ? dt : 1.0f; };

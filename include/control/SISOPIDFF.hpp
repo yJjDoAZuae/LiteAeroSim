@@ -27,60 +27,52 @@ public:
     Integrator I;
     Derivative D;
 
-    bool useInternalMeasDot;
+    SISOPIDFF() : _useInternalMeasDot(false) {}
 
-    SISOPIDFF() : useInternalMeasDot(false) {}
-
-    SISOPIDFF(const SISOPIDFF &pid)
+    SISOPIDFF(const SISOPIDFF &pid);
     {
         copy(pid);
     }
 
     void copy(const SISOPIDFF &pid);
 
-    // step the PIDFF
+    // step the PIDFF with internally calculated measurement derivative
+    float step(float cmdIn, float measIn);
+
+    // step the PIDFF with externally provided measurement derivative
     float step(float cmdIn, float measIn, float measDotIn);
 
     // reset the PIDFF based on cmd, meas, and output
     void reset(float cmdIn, float measIn, float outIn);
 
-    float cmd() const
-    {
-        return cmd.in();
-    }
+    // reset the PIDFF based on cmd, meas, measDot, and output
+    void reset(float cmdIn, float measIn, float measDotIn, float outIn);
 
-    float meas() const
-    {
-        return meas.in();
-    }
+    float cmd() const { return cmd.in(); }
 
-    float out() const
-    {
-        return out.out();
-    }
+    float meas() const { return meas.in(); }
 
-    float err() const
-    {
-        return err.in();
-    }
+    float out() const { return out.out(); }
 
-    //
-    float feedfwd() const
-    {
-        return ffwd.out();
-    }
+    float err() const { return err.in(); }
+
+    // return the feedforward term
+    float feedfwd() const { return Kff * ffwd.out(); }
 
     // return the proportional term
-    float prop() const
-    {
-        return Kp * err.out();
-    }
+    float prop() const { return Kp * err.out(); }
 
-    //
-    float deriv() const {}
+    // return the derivative term
+    float deriv() const { return Kd * D.out(); }
 
-    //
-    float integ() const {}
+    // return the integrator state (gain is upstream of the integrator)
+    float integ() const {return I.out();}
+
+protected:
+
+    bool _useInternalMeasDot; // TODO: is this needed?
+
 };
 
 }
+
