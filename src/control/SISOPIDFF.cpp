@@ -39,3 +39,40 @@ float SISOPIDFF::step(float cmdIn, float measIn)
 
     return out();
 }
+
+void SISOPIDFF::reset(float cmdIn, float measIn, float measDotIn, float outIn)
+{
+    // TODO: optional cmd/meas unwrapping
+
+    cmdSignal.resetInput(cmdIn);
+    measSignal.resetInput(measIn);
+    errSignal.resetInput(cmdSignal.out() - measSignal.out());
+    ffwdSignal.resetInput(cmdIn);
+
+    D.reset(measIn, measDotIn);
+
+    measDotSignal.resetInput(D.out());
+
+    outSignal.resetOutput( outIn );
+
+    I.reset(outIn - (feedfwd() + prop() + deriv()));
+
+}
+
+void SISOPIDFF::reset(float cmdIn, float measIn, float outIn)
+{
+    // TODO: optional cmd/meas unwrapping
+
+    cmdSignal.resetInput(cmdIn);
+    measSignal.resetInput(measIn);
+    errSignal.resetInput(cmdSignal.out() - measSignal.out());
+    ffwdSignal.resetInput(cmdIn);
+
+    D.reset(measIn, 0.0f);
+
+    measDotSignal.resetInput(D.out());
+
+    outSignal.resetOutput( outIn );
+
+    I.reset(outIn - (feedfwd() + prop() + deriv()));
+}
