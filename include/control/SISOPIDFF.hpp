@@ -13,23 +13,23 @@ class SISOPIDFF
 {
 
 public:
-    FilterSS2Clip cmd;
-    FilterSS2Clip ffwd;
-    FilterSS2Clip meas;
-    FilterSS2Clip err;
-    FilterSS2Clip out;
+    FilterSS2Clip cmdSignal;
+    FilterSS2Clip ffwdSignal;
+    FilterSS2Clip measSignal;
+    FilterSS2Clip errSignal;
+    FilterSS2Clip outSignal;
 
-    Gain Kp;
-    Gain Ki;
-    Gain Kd;
-    Gain Kff;
+    Gain<float,3> Kp;
+    Gain<float,3> Ki;
+    Gain<float,3> Kd;
+    Gain<float,3> Kff;
 
     Integrator I;
     Derivative D;
 
     SISOPIDFF() : _useInternalMeasDot(false) {}
 
-    SISOPIDFF(const SISOPIDFF &pid);
+    SISOPIDFF(const SISOPIDFF &pid)
     {
         copy(pid);
     }
@@ -48,19 +48,19 @@ public:
     // reset the PIDFF based on cmd, meas, measDot, and output
     void reset(float cmdIn, float measIn, float measDotIn, float outIn);
 
-    float cmd() const { return cmd.in(); }
+    float cmd() const { return cmdSignal.in(); }
 
-    float meas() const { return meas.in(); }
+    float meas() const { return measSignal.in(); }
 
-    float out() const { return out.out(); }
+    float out() const { return outSignal.out(); }
 
-    float err() const { return err.in(); }
+    float err() const { return errSignal.in(); }
 
     // return the feedforward term
-    float feedfwd() const { return Kff * ffwd.out(); }
+    float feedfwd() const { return Kff * ffwdSignal.out(); }
 
     // return the proportional term
-    float prop() const { return Kp * err.out(); }
+    float prop() const { return Kp * errSignal.out(); }
 
     // return the derivative term
     float deriv() const { return Kd * D.out(); }
