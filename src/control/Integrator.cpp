@@ -34,17 +34,17 @@ float Integrator::step(float in)
 
         switch (_method) {
 
-        case IntegMethod::BackEuler:
+        case DiscretizationMethod::BackEuler:
             // Backward Euler
             _out = limit.step(_out + in * _dt);
             break;
 
-        case IntegMethod::FwdEuler:
+        case DiscretizationMethod::FwdEuler:
             // Forward Euler
             _out = limit.step(_out + _in * _dt);
             break;
 
-        case IntegMethod::Bilinear:
+        case DiscretizationMethod::Bilinear:
             // Bilinear (Tustin)
             _out = limit.step(_out + 0.5*(in + _in) * _dt);
             break;

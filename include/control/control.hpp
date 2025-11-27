@@ -42,4 +42,12 @@ typedef enum {
 
 } FilterError;
 
+typedef enum {
+    FwdEuler = 0,
+    BackEuler = 1,
+    Bilinear = 2,
+    Prewarp = 3,
+    PZMatch = 4
+} DiscretizationMethod;
+
 }
