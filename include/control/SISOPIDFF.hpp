@@ -16,6 +16,7 @@ public:
     FilterSS2Clip cmdSignal;
     FilterSS2Clip ffwdSignal;
     FilterSS2Clip measSignal;
+    FilterSS2Clip measDotSignal;
     FilterSS2Clip errSignal;
     FilterSS2Clip outSignal;
 
@@ -52,6 +53,8 @@ public:
 
     float meas() const { return measSignal.in(); }
 
+    float measDot() const { return measDotSignal.in(); }
+
     float out() const { return outSignal.out(); }
 
     float err() const { return errSignal.in(); }
@@ -63,7 +66,7 @@ public:
     float prop() const { return Kp * errSignal.out(); }
 
     // return the derivative term
-    float deriv() const { return Kd * D.out(); }
+    float deriv() const { return Kd * measDotSignal.out(); }
 
     // return the integrator state (gain is upstream of the integrator)
     float integ() const {return I.out();}
