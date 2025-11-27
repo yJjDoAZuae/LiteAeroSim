@@ -4,11 +4,11 @@ class SISOBlock {
 
     public:
 
-        float in() {
+        float in() const {
             return _in;
         }
 
-        float out() {
+        float out() const {
             return _out;
         }
 
