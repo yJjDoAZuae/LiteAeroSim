@@ -5,16 +5,13 @@ using namespace Control;
 
 float Unwrap::step(float u) 
 {
-    _in = u;
-    _out += MathUtil::wrapToPi(_in - _out);;
-
-    return _out;
+    return step(u, _out);
 }
 
 float Unwrap::step(float u, float ref) 
 {
     _in = u;
-    _out += MathUtil::wrapToPi(_in - ref);;
+    _out = ref + MathUtil::wrapToPi(_in - ref);;
 
     return _out;
 }

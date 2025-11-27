@@ -4,17 +4,23 @@ using namespace Control;
 
 float SISOPIDFF::step(float cmdIn, float measIn, float measDotIn)
 {
-    // TODO: optional cmd/meas unwrapping
+    // optional cmd/meas unwrapping
+    if (unwrapInputs) {
+        measUnwrap.step(measIn);
+        cmdUnwrap.step(cmdIn, measUnwrap.out());
+    } else {
+        measUnwrap.reset(measIn);
+        cmdUnwrap.reset(cmdIn);
+    }
 
-    cmdSignal.step(cmdIn);
-    measSignal.step(measIn);
+    cmdSignal.step(cmdUnwrap.out());
+    measSignal.step(measUnwrap.out());
     errSignal.step(cmdSignal.out() - measSignal.out());
-    ffwdSignal.step(cmdIn);
+    ffwdSignal.step(cmdUnwrap.out());
 
-    D.reset(measIn, measDotIn);
     I.step(Ki*errSignal.out());
 
-    measDotSignal.step(D.out());
+    measDotSignal.step(measDotIn);
 
     outSignal.step( feedfwd() + prop() + integ() + deriv() );
 
@@ -23,31 +29,24 @@ float SISOPIDFF::step(float cmdIn, float measIn, float measDotIn)
 
 float SISOPIDFF::step(float cmdIn, float measIn)
 {
-    // TODO: optional cmd/meas unwrapping
-
-    cmdSignal.step(cmdIn);
-    measSignal.step(measIn);
-    errSignal.step(cmdSignal.out() - measSignal.out());
-    ffwdSignal.step(cmdIn);
-
-    D.step(measIn);
-    I.step(Ki*errSignal.out());
-
-    measDotSignal.step(D.out());
-
-    outSignal.step( feedfwd() + prop() + integ() + deriv() );
-
-    return out();
+    return step(cmdIn, measIn, D.step(measIn));
 }
 
 void SISOPIDFF::reset(float cmdIn, float measIn, float measDotIn, float outIn)
 {
-    // TODO: optional cmd/meas unwrapping
+    // optional cmd/meas unwrapping
+    if (unwrapInputs) {
+        measUnwrap.step(measIn);
+        cmdUnwrap.step(cmdIn, measUnwrap.out());
+    } else {
+        measUnwrap.reset(measIn);
+        cmdUnwrap.reset(cmdIn);
+    }
 
-    cmdSignal.resetInput(cmdIn);
-    measSignal.resetInput(measIn);
+    cmdSignal.resetInput(cmdUnwrap.out());
+    measSignal.resetInput(measUnwrap.out());
     errSignal.resetInput(cmdSignal.out() - measSignal.out());
-    ffwdSignal.resetInput(cmdIn);
+    ffwdSignal.resetInput(cmdUnwrap.out());
 
     D.reset(measIn, measDotIn);
 
@@ -61,18 +60,5 @@ void SISOPIDFF::reset(float cmdIn, float measIn, float measDotIn, float outIn)
 
 void SISOPIDFF::reset(float cmdIn, float measIn, float outIn)
 {
-    // TODO: optional cmd/meas unwrapping
-
-    cmdSignal.resetInput(cmdIn);
-    measSignal.resetInput(measIn);
-    errSignal.resetInput(cmdSignal.out() - measSignal.out());
-    ffwdSignal.resetInput(cmdIn);
-
-    D.reset(measIn, 0.0f);
-
-    measDotSignal.resetInput(D.out());
-
-    outSignal.resetOutput( outIn );
-
-    I.reset(outIn - (feedfwd() + prop() + deriv()));
+    reset(cmdIn, measIn, outIn, 0.0f);
 }

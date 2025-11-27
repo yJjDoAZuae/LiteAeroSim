@@ -6,6 +6,7 @@
 #include "control/FilterSS2Clip.hpp"
 #include "control/Integrator.hpp"
 #include "control/Derivative.hpp"
+#include "control/Unwrap.hpp"
 
 namespace Control {
 
@@ -20,6 +21,9 @@ public:
     FilterSS2Clip errSignal;
     FilterSS2Clip outSignal;
 
+    Unwrap cmdUnwrap;
+    Unwrap measUnwrap;
+
     Gain<float,3> Kp;
     Gain<float,3> Ki;
     Gain<float,3> Kd;
@@ -28,7 +32,9 @@ public:
     Integrator I;
     Derivative D;
 
-    SISOPIDFF() : _useInternalMeasDot(false) {}
+    bool unwrapInputs;
+
+    SISOPIDFF() : unwrapInputs(false) {}
 
     SISOPIDFF(const SISOPIDFF &pid)
     {
@@ -70,10 +76,6 @@ public:
 
     // return the integrator state (gain is upstream of the integrator)
     float integ() const {return I.out();}
-
-protected:
-
-    bool _useInternalMeasDot; // TODO: is this needed?
 
 };
 
