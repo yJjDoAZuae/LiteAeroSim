@@ -18,7 +18,7 @@ public:
     FilterSS2Clip ffwdSignal;
     FilterSS2Clip measSignal;
     FilterSS2Clip measDotSignal;
-    FilterSS2Clip errSignal;
+    FilterSS2Clip errSignal; // for angular coordinates the errSignal.valLimit limits must be opposite sign if enabled
     FilterSS2Clip outSignal;
 
     Unwrap cmdUnwrap;
