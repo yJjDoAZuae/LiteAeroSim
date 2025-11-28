@@ -1,3 +1,5 @@
+#pragma once
+
 // Kinematic/temporal state and all quantities derived from kinematics
 
 // Jerk and angular accelerations are not included, so trajectory torsion will not be calculated
@@ -7,12 +9,14 @@
 
 class PlaneOfMotion {
 
+public:
     Eigen::Quaternionf q_np; // POM to NED rotation
     
 };
 
 class TurnCircle {
 
+public:
     PlaneOfMotion pom;
 
     Eigen::Vector3f turnCenter_deltaNED_m;
@@ -21,6 +25,7 @@ class TurnCircle {
 
 class KinematicState {
 
+public:
     // time
     double time_sec;
 
@@ -40,12 +45,18 @@ class KinematicState {
     Eigen::Vector3f bodyRates_rps;
 
     // derived quantity getters
-    double latitude_rate_rps();
-    double longitude_rate_rps();
-    Eigen::Vector3f velocity_Wind_mps();
-    Eigen::Vector3f velocity_Body_mps();
-    Eigen::Vector3f acceleration_Wind_mps();
-    Eigen::Vector3f acceleration_Body_mps();
+    double latitude_rate_rps() const;
+    double longitude_rate_rps() const;
+    Eigen::Vector3f velocity_Wind_mps() const;
+    Eigen::Vector3f velocity_Body_mps() const;
+    Eigen::Vector3f acceleration_Wind_mps() const;
+    Eigen::Vector3f acceleration_Body_mps() const;
+
+    Eigen::Vector3f eulers() const;
+
+    float roll() const;
+    float pitch() const;
+    float heading() const;
 
     KinematicState();
     ~KinematicState() {};
