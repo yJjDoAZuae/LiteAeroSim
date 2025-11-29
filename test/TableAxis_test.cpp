@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -32,7 +33,10 @@ TEST(TableAxisTest, Read00) {
     EXPECT_EQ(axis.name.size(), 0);
     EXPECT_EQ(axis.domain.size(), 0);
 
-    EXPECT_EQ(axis.readJSON(std::stringstream("{\"hello\": \"world\"}")), 0);
+    std::stringstream ss1;
+    ss1 << "{\"hello\": \"world\"}";
+
+    EXPECT_EQ(axis.readJSON(ss1), 0);
 
     std::stringstream ss;
     if (fs) {

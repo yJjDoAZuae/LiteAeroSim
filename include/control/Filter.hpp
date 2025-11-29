@@ -18,7 +18,7 @@ class Filter : public SISOBlock
 
 public:
 
-    Filter::Filter() : _errorCode(0) {}
+    Filter() : _errorCode(0) {}
 
     // virtual void copy(Filter &filt);
 
