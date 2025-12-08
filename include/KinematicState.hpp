@@ -50,18 +50,35 @@ public:
           _q_nb(Eigen::Quaternionf::Identity()),
           _rates_Body_rps(Eigen::Vector3f::Zero())
     {
+
+        const float smallV(0.1);
+
         Eigen::Quaternionf local_q_nv = this->q_nv();
         stepQnv(_velocity_NED_mps, local_q_nv);
 
-        Eigen::Quaternionf q_wb;
-        // TODO: alpha, beta -> q_wb, 
+        // alpha, beta -> q_wb
+        Eigen::Quaternionf q_wb(Eigen::AngleAxisf(alpha, Eigen::Vector3f(0,1,0)) * Eigen::AngleAxisf(beta, Eigen::Vector3f(0,0,1)));
+
         _q_nb = q_nw*q_wb;
 
         // TODO: alphaDot, betaDot -> omega_bw_w
         Eigen::Vector3f omega_bw_w;  // rotation rate of Body w.r.t. Wind expressed in the Wind frame
+        // TODO: implement Euler rate to body rate matrix
 
-        // TODO: accel, vel, -> omega_wn_n
-        Eigen::Vector3f omega_wn_n;  // rotation rate of Wind w.r.t. NED expressed in the NED frame
+        // accel, vel, -> omega_wn_n
+        // this is path curvature induced rotation in the POM
+        Eigen::Vector3f omega_wn_n(Eigen::Vector3f::Zero());  // rotation rate of Wind w.r.t. NED expressed in the NED frame
+
+        float normV = _velocity_NED_mps.norm();
+        if (normV > smallV) {
+            // omega = V/R = kappa*V
+            // ay = V^2/R = V^2 * kappa = V*omega
+
+            // path curvature
+            Eigen::Vector3f kappa(_velocity_NED_mps.cross(_acceleration_NED_mps)/(normV*normV*normV));
+
+            omega_wn_n = kappa*normV;
+        }
 
         // sum angular rate contributions
         _rates_Body_rps = q_wb.toRotationMatrix().transpose() * (q_nw.toRotationMatrix().transpose()*omega_wn_n + omega_bw_w);
