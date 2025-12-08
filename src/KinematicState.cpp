@@ -1,15 +1,14 @@
 
 #include "KinematicState.hpp"
 
-void stepQnv(const Eigen::Vector3f& velocity_NED_mps, Eigen::Quaternionf& q_nv );
 
-double KinematicState::latitude_rate_rps() const
+double KinematicState::latitudeRate_rps() const
 {
     // Placeholder implementation
     return 0.0;
 }
 
-double KinematicState::longitude_rate_rps() const
+double KinematicState::longitudeRate_rps() const
 {
     // Placeholder implementation
     return 0.0;
@@ -62,7 +61,7 @@ float KinematicState::heading() const
     return eulers(2);
 }
 
-Eigen::Quaternionf KinematicState::q_nb() const
+Eigen::Quaternionf KinematicState::q_nv() const
 {
     return Eigen::Quaternionf::Identity();
 }
@@ -73,7 +72,7 @@ Eigen::Quaternionf KinematicState::q_nb() const
 // first axis aligned with the velocity vector
 // second axis right perp in the local level frame
 // third axis to complete the triad
-void stepQnv(const Eigen::Vector3f& velocity_NED_mps, Eigen::Quaternionf& q_nv )
+void KinematicState::stepQnv(const Eigen::Vector3f& velocity_NED_mps, Eigen::Quaternionf& q_nv )
 {
     const float tol = 1e-6;
 
@@ -120,7 +119,7 @@ void KinematicState::step(double time_sec,
     _time_sec = time_sec;
 
     // get accelerations in the NED frame
-    Eigen::Vector3f accel_NED = _q_nw.toRotationMatrix()*acceleration_Wind_mps;
+    Eigen::Vector3f accel_NED = q_nw().toRotationMatrix()*acceleration_Wind_mps;
 
     // update the velocity vector based on acceleration
     Eigen::Vector3f velocity_NED_mps_prev = _velocity_NED_mps; // we need to save this to determine the rotations
@@ -128,7 +127,8 @@ void KinematicState::step(double time_sec,
     _acceleration_NED_mps = accel_NED;
 
     // update the velocity frame to align with the new velocity vector
-    stepQnv(_velocity_NED_mps, _q_nv);
+    Eigen::Quaternionf local_q_nv = this->q_nv();
+    stepQnv(_velocity_NED_mps, local_q_nv);
 
     // TODO: update the Wind frame based on acceleration-induced 
     // velocity vector rotation in Wind Y and Z axes
