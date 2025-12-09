@@ -1,6 +1,55 @@
 
 #include "KinematicState.hpp"
 
+KinematicState::KinematicState(double time_sec,
+               const WGS84_Datum &position_datum,
+               const Eigen::Vector3f &velocity_NED_mps,
+               const Eigen::Vector3f &acceleration_Wind_mps,
+               const Eigen::Quaternionf &q_nw,
+               float alpha,
+               float beta,
+               float alphaDot,
+               float betaDot)
+    : _time_sec(time_sec),
+      _positionDatum(position_datum),
+      _velocity_NED_mps(velocity_NED_mps),
+      _acceleration_NED_mps(q_nw.toRotationMatrix() * acceleration_Wind_mps),
+      _q_nb(Eigen::Quaternionf::Identity()),
+      _rates_Body_rps(Eigen::Vector3f::Zero())
+{
+    const float smallV(0.1);
+
+    Eigen::Quaternionf local_q_nv = this->q_nv();
+    stepQnv(_velocity_NED_mps, local_q_nv);
+
+    // alpha, beta -> q_wb
+    Eigen::Quaternionf q_wb(Eigen::AngleAxisf(alpha, Eigen::Vector3f(0, 1, 0)) * Eigen::AngleAxisf(-beta, Eigen::Vector3f(0, 0, 1)));
+
+    _q_nb = q_nw * q_wb;
+
+    // alphaDot, betaDot -> omega_bw_b
+    Eigen::Vector3f omega_bw_b; // rotation rate of Body w.r.t. Wind expressed in the Body frame
+    omega_bw_b << sin(alpha)*betaDot, alphaDot, -cos(alpha)*betaDot;
+
+    // accel, vel, -> omega_wn_n
+    // this is path curvature induced rotation in the POM
+    Eigen::Vector3f omega_wn_n(Eigen::Vector3f::Zero()); // rotation rate of Wind w.r.t. NED expressed in the NED frame
+
+    float normV = _velocity_NED_mps.norm();
+    if (normV > smallV)
+    {
+        // omega = V/R = kappa*V
+        // ay = V^2/R = V^2 * kappa = V*omega
+
+        // path curvature
+        Eigen::Vector3f kappa(_velocity_NED_mps.cross(_acceleration_NED_mps) / (normV * normV * normV));
+
+        omega_wn_n = kappa * normV;
+    }
+
+    // sum angular rate contributions
+    _rates_Body_rps = omega_bw_b + q_wb.toRotationMatrix().transpose() * (q_nw.toRotationMatrix().transpose() * omega_wn_n);
+}
 
 double KinematicState::latitudeRate_rps() const
 {
@@ -140,4 +189,38 @@ void KinematicState::step(double time_sec,
 
     // TODO: get angular rates based on acceleration, rollRate_Wind_rps, alphaDot, and betaDot
 
+}
+
+// https://stengel.mycpanel.princeton.edu/Quaternions.pdf
+Eigen::Vector3f KinematicState::EulerRatesToBodyRates(const EulerAngles& ang, const EulerRates& ratesEuler)
+{
+    float sphi = sin(ang(0));
+    float cphi = cos(ang(0));
+    float stht = sin(ang(1));
+    float ctht = cos(ang(1));
+
+    Eigen::Matrix3f C;
+    C << 1, 0, -stht, 0, cphi, sphi*ctht, 0, -sphi, cphi*ctht;
+
+    return C*ratesEuler;
+}
+
+// https://stengel.mycpanel.princeton.edu/Quaternions.pdf
+EulerRates KinematicState::BodyRatesToEulerRates(const EulerAngles& ang, const Eigen::Vector3f& ratesBody)
+{
+    const float tol = 1e-6;
+
+    float sphi = sin(ang(0));
+    float cphi = cos(ang(0));
+    float stht = sin(ang(1));
+    float ctht = cos(ang(1));
+
+    // check for gimbal lock
+    if (fabs(ctht) > tol) {
+        Eigen::Matrix3f C;
+        C << 1, sphi*stht/ctht, cphi*stht/ctht, 0, cphi, -sphi, 0, sphi/ctht, cphi/ctht;
+        return EulerRates(C*ratesBody);
+    }
+
+    return EulerRates::Zero();
 }
