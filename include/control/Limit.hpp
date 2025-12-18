@@ -2,15 +2,18 @@
 
 #pragma once
 
+#include "control/LimitBase.hpp"
 #include "control/SISOBlock.hpp"
 
 namespace Control {
 
-class Limit : public SISOBlock {
+class Limit : public LimitBase {
 
     public:
 
         Limit() : 
+            _in(0),
+            _out(0),
             _lowerLimit(0), 
             _upperLimit(0), 
             _limitedLower(false),
@@ -19,27 +22,33 @@ class Limit : public SISOBlock {
             _enableUpperLimit(false) 
             {}
 
-        void disable() { disableLower(); disableUpper(); }
-        void enable() { enableLower(); enableUpper(); }
-        void disableLower() { _enableLowerLimit = false; step(_in); }
-        void disableUpper() { _enableUpperLimit = false; step(_in); }
-        void enableLower() { _enableLowerLimit = true; step(_in); }
-        void enableUpper() { _enableUpperLimit = true; step(_in); }
-        void setLower(float lim);
-        void setUpper(float lim);
-        void set(float lowerLim, float upperLim) { setLower(lowerLim); setUpper(upperLim); }
+        ~Limit() override {}
 
-        float lowerLimit() const { return _lowerLimit; };
-        float upperLimit() const { return _upperLimit; };
-        bool isLimitedLower() const { return _limitedLower; };
-        bool isLimitedUpper() const { return _limitedUpper; };
-        bool isLimited() const { return isLimitedLower() || isLimitedUpper(); };
-        bool isLowerEnabled() const { return _enableLowerLimit; }
-        bool isUpperEnabled() const { return _enableUpperLimit; }
+        float in() const override { return _in; }
+        float out() const override { return _out; }
+        operator float() const override { return out(); }
 
-        float step(float u);
+        // void disable() override { disableLower(); disableUpper(); }
+        // void enable() override { enableLower(); enableUpper(); }
+        void disableLower() override { _enableLowerLimit = false; step(_in); }
+        void disableUpper() override { _enableUpperLimit = false; step(_in); }
+        void enableLower() override { _enableLowerLimit = true; step(_in); }
+        void enableUpper() override { _enableUpperLimit = true; step(_in); }
+        void setLower(float lim) override;
+        void setUpper(float lim) override;
+        // void set(float lowerLim, float upperLim) { setLower(lowerLim); setUpper(upperLim); }
 
-    protected:
+        float lowerLimit() const override { return _lowerLimit; };
+        float upperLimit() const override { return _upperLimit; };
+        bool isLimitedLower() const override { return _limitedLower; };
+        bool isLimitedUpper() const override { return _limitedUpper; };
+        // bool isLimited() const { return isLimitedLower() || isLimitedUpper(); };
+        bool isLowerEnabled() const override { return _enableLowerLimit; }
+        bool isUpperEnabled() const override { return _enableUpperLimit; }
+
+        float step(float u) override;
+
+    private:
 
         float _lowerLimit;
         float _upperLimit;
@@ -48,6 +57,8 @@ class Limit : public SISOBlock {
         bool _enableLowerLimit;
         bool _enableUpperLimit;
 
+        float _in;
+        float _out;
 };
 
 }

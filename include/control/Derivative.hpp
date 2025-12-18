@@ -14,6 +14,12 @@ class Derivative : public SISOBlock {
 
         Derivative() : _dt(1.0f), _Tau(0.0f), _method(DiscretizationMethod::FwdEuler) {}
 
+        ~Derivative() override {}
+
+        float in() const override { return _in; }
+        float out() const override { return _out; }
+        operator float() const override { return out(); }
+
         Limit limit;
 
         void reset(float u, float uDot) {
@@ -21,7 +27,7 @@ class Derivative : public SISOBlock {
             _in = u;
         }
 
-        float step(float u);
+        float step(float u) override;
         void setDt(float dt) { _dt = (dt>1e-6) ? dt : 1.0f; };
         void setTau(float Tau) { _Tau = Tau; };
         float dt() const {return _dt;}
@@ -33,6 +39,9 @@ class Derivative : public SISOBlock {
         float _dt;
         float _Tau;
         DiscretizationMethod _method;
+
+        float _in;
+        float _out;
 
 };
 

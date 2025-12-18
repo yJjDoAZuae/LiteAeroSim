@@ -14,21 +14,30 @@ namespace Control {
 class FilterSS2 : public Filter {
 
 public:
-    FilterSS2()
+    FilterSS2() :
+         _in(0), 
+        _out(0),
+        _errorCode(0),
+        _order(0),
+        _dt(1.0f)
     {
         _Phi.setZero();
         _Gamma.setZero();
         _H.setZero();
         _J.setOnes();
         _x.setZero();
-        _order = 0;
-        _dt = 1.0f;
     }
 
     FilterSS2(FilterSS2 &filt)
     {
         copy(filt);
     }
+
+    ~FilterSS2() override {}
+
+    float in() const override { return _in; }
+    float out() const override { return _out; }
+    operator float() const override { return out(); }
 
     void copy(FilterSS2 &filt);
 
@@ -41,7 +50,7 @@ public:
     void setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num);    // second order notch filter design
 
     // step the filter
-    float step(float in);
+    float step(float in) override;
 
     // reset the fiter based on inputs
     void resetInput(float in);
@@ -60,13 +69,15 @@ public:
     Mat11 J() const {return _J;}
     Mat21 x() const {return _x;}
 
-    uint8_t order() const {return _order;}
+    uint8_t order() const override {return _order;}
     float dt() const {return _dt;}
 
     Mat22 controlGrammian() const;
     Mat22 observeGrammian() const;
 
-protected:
+    uint16_t errorCode() const override { return _errorCode; }
+
+private:
 
     // 2nd order state space realization matrices
     Mat22 _Phi;
@@ -80,6 +91,10 @@ protected:
     uint8_t _order;
     float _dt;
 
+    float _in;
+    float _out;
+
+    uint16_t _errorCode;
 };
 
 }

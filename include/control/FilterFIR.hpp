@@ -17,7 +17,7 @@ class FilterFIR : public Filter
 {
 
 public:
-    FilterFIR()
+    FilterFIR() : _in(0), _out(0), _errorCode(0)
     {
         num << 1;
         uBuff << 0;
@@ -28,6 +28,12 @@ public:
         copy(filt);
     }
 
+    ~FilterFIR() override {}
+
+    float in() const override { return _in; }
+    float out() const override { return _out; }
+    operator float() const override { return out(); }
+
     void copy(FilterFIR &filt);
 
     uint8_t order() { return num.rows() - 1; }
@@ -37,7 +43,7 @@ public:
     void setExpFIR(char order, float dt, float tau); // exponential decaying weight moving average FIR filter design
 
     // step the filter
-    float step(float in);
+    float step(float in) override;
 
     // reset the fiter based on inputs
     void resetInput(float in);
@@ -50,10 +56,17 @@ public:
     // dc gain value of the filter
     float dcGain();
 
+    uint16_t errorCode() const override { return _errorCode; }
+
 private:
 
     FiltVectorXf num;
     FiltVectorXf uBuff;
+
+    float _in;
+    float _out;
+
+    uint16_t _errorCode;
 
 };
 

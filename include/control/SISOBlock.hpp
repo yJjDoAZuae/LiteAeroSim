@@ -4,22 +4,15 @@ class SISOBlock {
 
     public:
 
-        float in() const {
-            return _in;
-        }
+        virtual ~SISOBlock() {};
 
-        float out() const {
-            return _out;
-        }
+        virtual float in() const = 0;
+        virtual float out() const = 0;
+        virtual operator float() const = 0;
 
-        SISOBlock() : _in(0), _out(0) {}
+        SISOBlock() {}
 
         // iteration interface
         virtual float step(float u)=0;
-
-    protected:
-
-        float _in;
-        float _out;
 
 };

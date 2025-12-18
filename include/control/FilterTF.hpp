@@ -18,7 +18,10 @@ class FilterTF : public Filter
 {
 
 public:
-    FilterTF()
+    FilterTF() :
+         _in(0), 
+        _out(0),
+        _errorCode(0)
     {
         _num.resize(1);
         _den.resize(1);
@@ -35,6 +38,12 @@ public:
         copy(filt);
     }
 
+    ~FilterTF() override {}
+
+    float in() const override { return _in; }
+    float out() const override { return _out; }
+    operator float() const override { return out(); }
+
     void copy(const FilterTF &filt);
 
     // IIR filter design
@@ -43,7 +52,7 @@ public:
     uint8_t order() const { return _den.rows() - 1; }
 
     // step the filter
-    float step(float in);
+    float step(float in) override;
 
     // reset the fiter based on inputs
     void resetInput(float in);
@@ -59,6 +68,8 @@ public:
     Vec3 num() const {return _num;}
     Vec3 den() const {return _den;}
 
+    uint16_t errorCode() const override { return _errorCode; }
+
 private:
 
     FiltVectorXf _num;
@@ -67,6 +78,10 @@ private:
     FiltVectorXf uBuff;
     FiltVectorXf yBuff;
 
+    float _in;
+    float _out;
+
+    uint16_t _errorCode;
 };
 
 }

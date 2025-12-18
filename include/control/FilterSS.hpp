@@ -18,7 +18,10 @@ class FilterSS : public Filter
 {
 
 public:
-    FilterSS()
+    FilterSS() :
+         _in(0), 
+        _out(0),
+        _errorCode(0)
     {
         _Phi.resize(0,0);
         _Gamma.resize(0,1);
@@ -33,8 +36,14 @@ public:
         copy(filt);
     }
 
+    ~FilterSS() override {}
+
     void copy(FilterSS &filt);
     void copy(FilterSS2 &filt);
+
+    float in() const override { return _in; }
+    float out() const override { return _out; }
+    operator float() const override { return out(); }
 
     // IIR filter design
     void setButterworthIIR(uint8_t order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
@@ -42,7 +51,7 @@ public:
     uint8_t order() const;
 
     // step the filter
-    float step(float in);
+    float step(float in) override;
 
     // reset the fiter based on inputs
     void resetInput(float in);
@@ -64,7 +73,9 @@ public:
     MatNN controlGrammian() const;
     MatNN observeGrammian() const;
 
-protected:
+    uint16_t errorCode() const override { return _errorCode; }
+
+private:
 
     void setDimension(uint8_t dim);
 
@@ -76,6 +87,11 @@ protected:
 
     // state vector
     MatN1 _x;
+
+    float _in;
+    float _out;
+
+    uint16_t _errorCode;
 };
 
 }

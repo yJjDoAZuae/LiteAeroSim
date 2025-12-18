@@ -14,19 +14,28 @@ namespace Control {
 class FilterTF2 : public Filter {
 
 public:
-    FilterTF2()
+    FilterTF2() :
+         _in(0), 
+        _out(0),
+        _errorCode(0),
+        _order(0)
     {
         _num << 1, 0, 0;
         _den << 1, 0, 0;
         uBuff.setZero();
         yBuff.setZero();
-        _order = 0;
     }
 
     FilterTF2(const FilterTF2 &filt)
     {
         copy(filt);
     }
+
+    ~FilterTF2() override {}
+
+    float in() const override { return _in; }
+    float out() const override { return _out; }
+    operator float() const override { return out(); }
 
     void copy(const FilterTF2 &filt);
 
@@ -41,7 +50,7 @@ public:
     void setZPK(float dt, float z_re, float z_im, float p_re, float p_im, float K);
 
     // step the filter
-    float step(float in);
+    float step(float in) override;
 
     // reset the fiter based on inputs
     void resetInput(float in);
@@ -59,7 +68,9 @@ public:
 
     uint8_t order() const {return _order;}
 
-protected:
+    uint16_t errorCode() const override { return _errorCode; }
+
+private:
 
     // 2nd order ARMA numerator and denominator vectors
     Vec3 _num;
@@ -71,6 +82,10 @@ protected:
 
     uint8_t _order;
 
+    float _in;
+    float _out;
+
+    uint16_t _errorCode;
 };
 
 }

@@ -14,12 +14,18 @@ namespace Control {
 
         Integrator() : _dt(1.0f), _method(DiscretizationMethod::FwdEuler) {}
 
+        ~Integrator() override {}
+
+        float in() const override { return _in; }
+        float out() const override { return _out; }
+        operator float() const override { return out(); }
+
         Limit limit;
         std::vector<Antiwindup> aw;
 
         void reset(float u);
 
-        float step(float u);
+        float step(float u) override;
         void setDt(float dt) { _dt = (dt>1e-6) ? dt : 1.0f; };
         float dt() const {return _dt;}
         void setMethod(DiscretizationMethod method) {_method = method;}
@@ -28,6 +34,9 @@ namespace Control {
 
         float _dt;
         DiscretizationMethod _method;
+
+        float _in;
+        float _out;
 
 };
 

@@ -18,7 +18,10 @@ class Filter : public SISOBlock
 
 public:
 
-    Filter() : _errorCode(0) {}
+    constexpr static char maxNumStates = NUM_STATES;
+
+    Filter() {}
+    virtual ~Filter() override {}
 
     // virtual void copy(Filter &filt);
 
@@ -39,14 +42,7 @@ public:
     virtual float dcGain() const=0;
 
     // retrieve the errorCode bitmask
-    uint16_t errorCode() const {
-        return _errorCode;
-    };
-
-protected:
-
-    const char maxNumStates = NUM_STATES;
-    uint16_t _errorCode;
+    virtual uint16_t errorCode() const=0;
 
 };
 
