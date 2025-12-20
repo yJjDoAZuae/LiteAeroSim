@@ -12,7 +12,12 @@ namespace Control {
 
     public:
 
-        Integrator() : _dt(1.0f), _method(DiscretizationMethod::FwdEuler) {}
+        Integrator() : 
+                _in(0), 
+                _out(0), 
+                _dt(1.0f), 
+                _method(DiscretizationMethod::FwdEuler) 
+            {}
 
         ~Integrator() override {}
 

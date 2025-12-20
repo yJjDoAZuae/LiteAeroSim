@@ -12,7 +12,13 @@ class Derivative : public SISOBlock {
 
     public:
 
-        Derivative() : _dt(1.0f), _Tau(0.0f), _method(DiscretizationMethod::FwdEuler) {}
+        Derivative() : 
+                _in(0),
+                _out(0),
+                _dt(1.0f), 
+                _Tau(0.0f), 
+                _method(DiscretizationMethod::FwdEuler) 
+            {}
 
         ~Derivative() override {}
 
@@ -22,7 +28,13 @@ class Derivative : public SISOBlock {
 
         Limit limit;
 
-        void reset(float u, float uDot) {
+        void reset(float u) 
+        {
+            reset(u, 0.0f);
+        }
+        
+        void reset(float u, float uDot=0) 
+        {
             _out = limit.step(uDot);
             _in = u;
         }
