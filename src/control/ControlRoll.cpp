@@ -5,7 +5,7 @@ using namespace Control;
 float ControlRoll::step(float cmdIn, const KinematicState & state)
 {
     pid.unwrapInputs = true;
-    return pid.step(cmdIn, state.roll());
+    return pid.step(cmdIn, state.roll(), state.rollRate_rps());
 }
 
 void ControlRoll::reset(float cmdIn, const KinematicState & state)
