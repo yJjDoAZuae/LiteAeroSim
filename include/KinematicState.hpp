@@ -42,10 +42,13 @@ public:
                    const Eigen::Vector3f &velocity_NED_mps,
                    const Eigen::Vector3f &acceleration_Wind_mps,
                    const Eigen::Quaternionf &q_nw,
+                   float rollRate_Wind_rps,
                    float alpha,
                    float beta,
                    float alphaDot,
-                   float betaDot);
+                   float betaDot,
+                   float windSpeed_mps,
+                   float windDirFrom_rad);
 
     KinematicState(double time_sec,
                    const WGS84_Datum &position_datum,
@@ -67,10 +70,12 @@ public:
     void step(double time_sec,
               Eigen::Vector3f acceleration_Wind_mps,
               float rollRate_Wind_rps,
-              float alpha,
-              float beta,
-              float alphaDot,
-              float betaDot);
+              float alpha_rad,
+              float beta_rad,
+              float alphaDot_rps,
+              float betaDot_rps,
+              float windSpeed_mps,
+              float windDirFrom_rad);
 
     // getters
     double time_sec() const { return _time_sec; }
@@ -108,6 +113,8 @@ public:
     float rollRate_Wind_rps() const;
     float alphaDot() const;
     float betaDot() const;
+    float crab() const;
+    float crabRate() const;
 
     static Eigen::Vector3f EulerRatesToBodyRates(const EulerAngles& ang, const EulerRates& rates);
     static EulerRates BodyRatesToEulerRates(const EulerAngles& ang, const Eigen::Vector3f& rates);
@@ -131,6 +138,10 @@ protected:
 
     // Body rates
     Eigen::Vector3f _rates_Body_rps;
+
+    // Wind
+    float _windVelNorth;
+    float _windVelEast;
 
     static void stepQnv(const Eigen::Vector3f& velocity_NED_mps, Eigen::Quaternionf& q_nv );
 
