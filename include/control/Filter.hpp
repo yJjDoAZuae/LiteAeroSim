@@ -20,15 +20,7 @@ public:
 
     constexpr static char maxNumStates = NUM_STATES;
 
-    Filter() {}
-    virtual ~Filter() override {}
-
-    // virtual void copy(Filter &filt);
-
     virtual uint8_t order() const=0;
-
-    // step the filter
-    virtual float step(float in)=0;
 
     // reset the fiter based on inputs
     virtual void resetInput(float in)=0;
