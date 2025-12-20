@@ -1,0 +1,16 @@
+
+#include "control/ControlLoop.hpp"
+#include "KinematicState.hpp"
+
+namespace Control {
+
+class ControlVerticalSpeed : public ControlLoop {
+
+    void configure();
+    void configure(json jsonConfig);
+    float step(float verticalSpeedCmdIn, const KinematicState & state);
+    void reset(float verticalSpeedCmdIn, const KinematicState & state);
+
+};
+
+}
