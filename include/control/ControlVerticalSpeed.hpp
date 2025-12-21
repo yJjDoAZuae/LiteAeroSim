@@ -4,6 +4,8 @@
 
 namespace Control {
 
+// input is a vertical speed command (positive local level up)
+// output is a vertical acceleration command (positive local level up)
 class ControlVerticalSpeed : public ControlLoop {
 
     void configure();
