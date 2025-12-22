@@ -13,9 +13,17 @@ float velWind_horiz(const KinematicState & state)
 
 float ControlHeadingRate::step(float headingRateCmdIn, const KinematicState & state)
 {
-    static constexpr float g = 9.81;
-
     float ayCmd = velWind_horiz(state)*headingRateCmdIn;
+    float ayMeas = state.headingRate_rps() * velWind_horiz(state);
 
-    return ayCmd;
+    return pid.step(ayCmd, ayMeas);
+}
+
+void ControlHeadingRate::reset(float headingRateCmdIn, const KinematicState & state)
+{
+    float ayCmd = velWind_horiz(state)*headingRateCmdIn;
+    float ayMeas = state.headingRate_rps() * velWind_horiz(state);
+
+    pid.reset(ayCmd, ayMeas, 0.0f);
+    pid.I.reset(0.0f);
 }
