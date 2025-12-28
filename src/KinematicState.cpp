@@ -232,9 +232,21 @@ void KinematicState::step(double time_sec,
     // get accelerations in the NED frame
     Eigen::Vector3f accel_NED = q_nw().toRotationMatrix()*acceleration_Wind_mps;
 
-    // update the velocity vector based on acceleration
+    Eigen::Vector3f windVel_NED =  Eigen::Vector3f(_windVelNorth, _windVelEast, 0);
+
+    // previous wind-relative velocity expressed in NED
+    Eigen::Vector3f velocityWind_NED = _velocity_NED_mps - windVel_NED;
+
+    // apply the accelerations in the wind-relative NED frame so that we
+    // get the effects of heading rate in a steady wind
+    velocityWind_NED += 0.5*(_acceleration_NED_mps + accel_NED)*dt;
+
     Eigen::Vector3f velocity_NED_mps_prev = _velocity_NED_mps; // we need to save this to determine the rotations
-    _velocity_NED_mps += 0.5*(_acceleration_NED_mps + accel_NED)*dt;
+
+    // update the velocity vector based on acceleration
+    _velocity_NED_mps = velocityWind_NED + windVel_NED;
+
+    // save the accel state value
     _acceleration_NED_mps = accel_NED;
 
     // update the velocity frame to align with the new velocity vector
@@ -243,6 +255,10 @@ void KinematicState::step(double time_sec,
 
     // TODO: update the Wind frame based on acceleration-induced 
     // velocity vector rotation in Wind Y and Z axes
+    // obtain a differential rotation based on the cross product of the previous and updated velocity vectors
+    // remove the x component of the diffential rotation
+    // update q_nw using the differential rotation
+    // normalize q_nw to remove any residual error in velocity vector alignment
 
     // TODO: rotate the Wind frame based on rollRate_Wind_rps in
     // Wind X axis
@@ -250,7 +266,6 @@ void KinematicState::step(double time_sec,
     // TODO: update Body frame based on alpha and beta
 
     // TODO: get angular rates based on acceleration, rollRate_Wind_rps, alphaDot, and betaDot
-
 
     // alpha, beta -> q_wb
     Eigen::Quaternionf q_wb(Eigen::AngleAxisf(alpha, Eigen::Vector3f(0, 1, 0)) * Eigen::AngleAxisf(-beta, Eigen::Vector3f(0, 0, 1)));

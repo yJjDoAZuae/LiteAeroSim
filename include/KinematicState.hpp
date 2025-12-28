@@ -110,7 +110,7 @@ public:
     Eigen::Quaternionf q_nv() const; // Velocity to NED rotation
     float alpha() const;
     float beta() const;
-    float rollRate_Wind_rps() const;
+    float rollRate_Wind_rps() const; // roll rate of the Wind frame w.r.t. NED
     float alphaDot() const;
     float betaDot() const;
     float crab() const;
