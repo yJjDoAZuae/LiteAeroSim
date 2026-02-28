@@ -46,6 +46,25 @@ Every dynamic element implements: `initialize(config)` → `reset()` → `step(d
 
 ---
 
+## Project Documentation
+
+Full project documentation lives in [docs/](docs/README.md).
+
+| Document | Contents |
+|---|---|
+| [docs/architecture/overview.md](docs/architecture/overview.md) | Layer model, subsystem map, coordinate frames, data flow |
+| [docs/architecture/dynamic_block.md](docs/architecture/dynamic_block.md) | **Design authority** for all SISO dynamic elements — `DynamicBlock` NVI pattern, serialization contract, logging interface, migration strategy |
+| [docs/algorithms/filters.md](docs/algorithms/filters.md) | Filter discretization, Tustin bilinear prewarping, control algorithms |
+| [docs/dependencies/README.md](docs/dependencies/README.md) | License policy, dependency registry, FetchContent patterns |
+| [docs/installation/README.md](docs/installation/README.md) | Build from source, toolchain setup, first run |
+| [docs/testing/strategy.md](docs/testing/strategy.md) | TDD strategy, required test categories, coverage, known failures |
+| [docs/examples/siso_elements.md](docs/examples/siso_elements.md) | Usage examples for filters, integrators, PID, serialization, logging |
+| [docs/guidelines/](docs/guidelines/) | Coding standards — general, C++, Python |
+
+**Before implementing any new dynamic element**, read [docs/architecture/dynamic_block.md](docs/architecture/dynamic_block.md).
+
+---
+
 ## Project Structure
 
 ```
@@ -53,11 +72,16 @@ include/             C++ public headers (mirrored by subsystem)
 src/                 C++ implementation files
 test/                C++ unit tests (Google Test)
 extern/              Git submodules (source libraries without CMake support)
-libs/                Binary-only vendored libraries (last resort)
 python/              Python source and notebooks
 docs/
+  architecture/      System design documents
+  algorithms/        Algorithm design and math
   guidelines/        Coding standards (this project's law)
-cmake/               CMake helpers: Dependencies.cmake, ImportedLibs.cmake
+  examples/          Usage examples
+  dependencies/      External library registry
+  installation/      Build and setup instructions
+  testing/           Test strategy and coverage requirements
+cmake/               CMake helpers
 ```
 
 ---

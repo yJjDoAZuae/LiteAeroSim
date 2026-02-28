@@ -3,7 +3,13 @@
     "allow": [
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(gh api repos/castacks/trochoids/contents/src --jq '.[].name')"
+      "Bash(gh api repos/castacks/trochoids/contents/src --jq '.[].name')",
+      "Bash(cmake --build build)",
+      "Bash(ctest --test-dir build --output-on-failure)",
+      "Bash(gh --version)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth login)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth setup-git)",
+      "Bash(grep -r \"initialize\\\\|reset\\\\|step\\\\|serialize\\\\|deserialize\" /c/Users/Alex/avraero/LiteAeroSim/include/control/*.hpp --include=\"*.hpp\")"
     ]
   }
 }
