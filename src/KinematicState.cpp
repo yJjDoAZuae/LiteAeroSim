@@ -229,6 +229,11 @@ void KinematicState::step(double time_sec,
     float dt = float(time_sec - _time_sec);
     _time_sec = time_sec;
 
+    // save the previous frame rotations
+    Eigen::Quaternionf local_q_nv(this->q_nv());
+    Eigen::Quaternionf local_q_vw(this->q_nv().toRotationMatrix().transpose()*this->q_nw().toRotationMatrix());
+    Eigen::Quaternionf local_q_wb(this->q_nw().toRotationMatrix().transpose()*this->q_nb().toRotationMatrix());
+
     // get accelerations in the NED frame
     Eigen::Vector3f accel_NED = q_nw().toRotationMatrix()*acceleration_Wind_mps;
 
@@ -250,15 +255,23 @@ void KinematicState::step(double time_sec,
     _acceleration_NED_mps = accel_NED;
 
     // update the velocity frame to align with the new velocity vector
-    Eigen::Quaternionf local_q_nv = this->q_nv();
     stepQnv(_velocity_NED_mps, local_q_nv);
 
     // TODO: update the Wind frame based on acceleration-induced 
     // velocity vector rotation in Wind Y and Z axes
     // obtain a differential rotation based on the cross product of the previous and updated velocity vectors
-    // remove the x component of the diffential rotation
+    // remove the x component of the differential rotation
     // update q_nw using the differential rotation
     // normalize q_nw to remove any residual error in velocity vector alignment
+
+    // TODO: is this correct direction?
+    // TODO: do we want this rotation in NED?
+    Eigen::Quaternionf diff_rot_n;
+    diff_rot_n.setFromTwoVectors(velocity_NED_mps_prev, _velocity_NED_mps);
+
+    // apply diff_rot_n to q_nw
+    Eigen::Quaternionf local_q_nw(diff_rot_n.toRotationMatrix()*q_nw().toRotationMatrix());
+    // local_q_nw << diff_rot_n.toRotationMatrix()*q_nw().toRotationMatrix();
 
     // TODO: rotate the Wind frame based on rollRate_Wind_rps in
     // Wind X axis
