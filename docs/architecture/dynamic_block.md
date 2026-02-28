@@ -182,12 +182,46 @@ sequenceDiagram
 
 ---
 
+## Namespaces
+
+The project uses a single top-level namespace `liteaerosim` with subsystem sub-namespaces.
+
+```
+liteaerosim                  ← cross-subsystem types (DynamicBlock, SISOBlock, ILogger)
+liteaerosim::control         ← filters, integrators, limiters, PID, autopilot
+liteaerosim::physics         ← KinematicState, Atmosphere, Aerodynamics
+liteaerosim::propulsion      ← engine / motor models
+liteaerosim::sensor          ← SensorINS, SensorAirData, SensorRadAlt
+liteaerosim::guidance        ← PathGuidance, VerticalGuidance
+liteaerosim::path            ← Path, PathSegmentHelix, PathSegmentTrochoid
+liteaerosim::logger          ← CsvLogger and other ILogger implementations
+```
+
+The old `namespace Control` (Pascal-case) is replaced by `namespace liteaerosim::control`.
+
+---
+
+## Header Locations
+
+`DynamicBlock`, `SISOBlock`, and `ILogger` are cross-subsystem types. `SISOBlock` is the signal-topology base for any single-input single-output element, including propulsion and sensor elements — it is not exclusively a control concept.
+
+| Header | Location | Namespace |
+|---|---|---|
+| `SISOBlock.hpp` | `include/SISOBlock.hpp` | `liteaerosim` |
+| `DynamicBlock.hpp` | `include/DynamicBlock.hpp` | `liteaerosim` |
+| `ILogger.hpp` | `include/ILogger.hpp` | `liteaerosim` |
+| `DynamicFilterBlock.hpp` | `include/control/DynamicFilterBlock.hpp` | `liteaerosim::control` |
+| `DynamicLimitBlock.hpp` | `include/control/DynamicLimitBlock.hpp` | `liteaerosim::control` |
+| All other control headers | `include/control/` | `liteaerosim::control` |
+
+---
+
 ## Proposed Interface
 
 ### `SISOBlock` — unchanged
 
 ```cpp
-namespace las {
+namespace liteaerosim {
 
 /// Minimal composable SISO building block.
 /// Use as an embedded primitive inside a larger DynamicBlock.
@@ -203,13 +237,13 @@ public:
     virtual float step(float u) = 0;
 };
 
-} // namespace las
+} // namespace liteaerosim
 ```
 
 ### `DynamicBlock` — new
 
 ```cpp
-namespace las {
+namespace liteaerosim {
 
 /// Abstract base for all standalone SISO simulation elements.
 ///
@@ -278,13 +312,18 @@ protected:
     /// Schema version for this subclass. Increment when serialized fields change.
     virtual int schemaVersion() const = 0;
 
+    /// Human-readable type name injected into every serialized snapshot.
+    /// Used for diagnostics and future polymorphic factory support.
+    /// Example: return "FilterSS2";
+    virtual const char* typeName() const = 0;
+
 private:
     ILogger* logger_ = nullptr;
 
     void validateSchema(const nlohmann::json& state) const;
 };
 
-} // namespace las
+} // namespace liteaerosim
 ```
 
 ---
@@ -317,6 +356,7 @@ classDiagram
         #onDeserialize(state: json)*
         #onLog(logger: ILogger)
         #schemaVersion() int*
+        #typeName() const char**
     }
 
     class DynamicFilterBlock {
@@ -369,7 +409,9 @@ classDiagram
     DynamicLimitBlock <|-- RateLimit
 ```
 
-> **Note:** `SISOPIDFF`, `Gain`, and `ControlLoop` are **not** `DynamicBlock` subclasses. They aggregate `DynamicBlock`-derived elements via composition and implement their own lifecycle directly.
+> **Note:** `SISOPIDFF`, `Gain`, and `ControlLoop` are **not** `DynamicBlock` subclasses. They aggregate `DynamicBlock`-derived elements via composition and implement lifecycle methods (`initialize`, `reset`, `serialize`, `deserialize`) by convention, without a shared enforcing base.
+>
+> `Limit` and `RateLimit` derive from `DynamicLimitBlock` because they are used both as standalone simulation elements and embedded inside larger controllers. When embedded inside `SISOPIDFF`, they are serialized as part of their parent's `onSerialize()` — not independently.
 
 ---
 
@@ -404,6 +446,7 @@ Every `DynamicBlock` subclass serializes a complete, self-describing JSON snapsh
 | All values in SI units | `"wn_rad_s"` not `"wn_hz"`; `"dt_s"` not `"dt_ms"` |
 | Field names encode units | `"altitude_m"`, `"roll_rate_rad_s"`, `"thrust_n"` |
 | `schema_version` always present | Integer; base class injects it; `onSerialize()` must not duplicate it |
+| `type` always present | String from `typeName()`; base class injects it; `onSerialize()` must not duplicate it |
 | Round-trip lossless | `deserialize(serialize())` must yield identical state |
 | Schema version checked on load | Base class validates; throws `std::runtime_error` on mismatch |
 
@@ -415,6 +458,7 @@ The base `DynamicBlock::serialize()` wraps the subclass output:
 nlohmann::json DynamicBlock::serialize() const {
     nlohmann::json j = onSerialize();          // subclass provides element fields
     j["schema_version"] = schemaVersion();     // base injects version
+    j["type"]           = typeName();          // base injects type name
     j["in"]             = in_;
     j["out"]            = out_;
     return j;
@@ -435,7 +479,7 @@ void DynamicBlock::deserialize(const nlohmann::json& state) {
 Logging is injected via a pointer to `ILogger`. The base class calls `onLog()` at the end of every `step()` when a logger is attached. Elements are not required to implement `onLog()` — the default is a no-op.
 
 ```cpp
-namespace las {
+namespace liteaerosim {
 
 class ILogger {
 public:
@@ -444,14 +488,14 @@ public:
     virtual void log(std::string_view channel, const nlohmann::json& snapshot) = 0;
 };
 
-} // namespace las
+} // namespace liteaerosim
 ```
 
 Each element names its own logging channels:
 
 ```cpp
-// Example: FilterSS2::onLog()
-void FilterSS2::onLog(ILogger& logger) const {
+// Example: liteaerosim::control::FilterSS2::onLog()
+void FilterSS2::onLog(liteaerosim::ILogger& logger) const {
     logger.log("FilterSS2.in",  in_);
     logger.log("FilterSS2.out", out_);
     logger.log("FilterSS2.x0",  x_(0));
@@ -463,7 +507,7 @@ Loggers are attached at scenario setup time, not in constructors:
 
 ```cpp
 // Application layer — scenario setup
-filterSS2.attachLogger(&csvLogger);
+filterSS2.attachLogger(&csvLogger);  // csvLogger is a liteaerosim::logger::CsvLogger
 ```
 
 ---
@@ -578,6 +622,11 @@ flowchart TD
 | NVI for public API | Pure virtual public methods | Base class can enforce logging, schema checks, in_/out_ recording without subclass cooperation |
 | `dt_s` in `initialize()` config, not `step()` | Pass `dt_s` per call | Fixed-rate simulation; filter coefficients precomputed at init; `step(u)` aligns cleanly with `SISOBlock::step(u)`; eliminates `setDt()` anti-pattern |
 | JSON serialization | Binary / protobuf | Human-readable; schema-versioned; works across C++ and Python analysis tools |
-| Two-tier (`SISOBlock` + `DynamicBlock`) | Single base with full lifecycle | Embedded primitives (Limit in SISOPIDFF) don't need standalone lifecycle; avoids bloated interface |
+| Two-tier (`SISOBlock` + `DynamicBlock`) | Single base with full lifecycle | Composable primitives embedded in a parent (e.g. `Limit` inside `SISOPIDFF`) don't need standalone lifecycle; avoids bloated interface |
+| `Limit`/`RateLimit` as `DynamicLimitBlock` | Tier 1 primitive only | Used both standalone (with full lifecycle) and embedded inside controllers |
+| `SISOPIDFF`/`ControlLoop` lifecycle by convention | Shared `ILifecycle` base | Multi-input controllers can't satisfy `SISOBlock`; too few classes to justify a shared enforcing base |
+| `typeName()` pure virtual in `DynamicBlock` | No type field | Snapshots are self-describing; enables diagnostics and future polymorphic factory |
+| `DynamicBlock.hpp`, `ILogger.hpp` at `include/` root | Under `include/control/` | Cross-subsystem types must not depend on a subsystem-specific directory |
+| Namespace `liteaerosim` with subsystem sub-namespaces | Single `namespace Control` (Pascal) | Full project name avoids collisions; subsystem sub-namespaces (`control`, `physics`, `sensor`, …) follow C++ lowercase convention and express ownership |
 | Injected logger | Global logger / spdlog | No global state; testable; zero overhead when not attached |
 | `ILogger` interface | Concrete logger type | Decouples domain from I/O; multiple logger implementations (CSV, binary, in-memory) |

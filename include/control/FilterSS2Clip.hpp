@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 #include "control/Filter.hpp"
 #include "control/Limit.hpp"
 #include "control/control.hpp"

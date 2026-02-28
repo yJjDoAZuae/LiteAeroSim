@@ -2,7 +2,7 @@
 #pragma once
 
 #include "control/control.hpp"
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 #include "control/Filter.hpp"
 #include "control/FilterSS2.hpp"
 #include <Eigen/Dense>

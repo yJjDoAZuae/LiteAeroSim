@@ -2,11 +2,11 @@
 
 #pragma once
 
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 
 namespace Control {
 
-class LimitBase : public SISOBlock {
+class LimitBase : public liteaerosim::SISOBlock {
 
     public:
 

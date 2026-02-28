@@ -1,14 +1,14 @@
 #pragma once
 
 #include "control/control.hpp"
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 #include "control/Limit.hpp"
 #include "control/Antiwindup.hpp"
 #include <vector>
 
 namespace Control {
 
-    class Integrator : public SISOBlock {
+    class Integrator : public liteaerosim::SISOBlock {
 
     public:
 

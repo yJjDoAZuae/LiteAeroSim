@@ -3,7 +3,7 @@
 #pragma once
 
 #include "control/LimitBase.hpp"
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 
 namespace Control {
 

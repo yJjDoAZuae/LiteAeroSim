@@ -52,7 +52,7 @@ The filter is configured with a natural frequency $\omega_n$ in rad/s and dampin
 #include "control/FilterSS2.hpp"
 #include <nlohmann/json.hpp>
 
-using namespace las;
+using namespace liteaerosim::control;
 
 // --- Initialize ---
 nlohmann::json config = {
@@ -111,7 +111,7 @@ The integrator accumulates its input over time. An optional `Limit` member can c
 ```cpp
 #include "control/Integrator.hpp"
 
-using namespace las;
+using namespace liteaerosim::control;
 
 nlohmann::json config = {
     {"dt_s",        0.01},
@@ -171,7 +171,7 @@ flowchart LR
 #include "control/ControlRoll.hpp"
 #include "KinematicState.hpp"
 
-using namespace las;
+using namespace liteaerosim::control;
 
 ControlRoll roll_ctrl;
 roll_ctrl.initialize(config);
@@ -218,7 +218,7 @@ roll_ctrl.deserialize(loaded.at("roll_ctrl"));
 ```cpp
 #include "logger/CsvLogger.hpp"   // concrete implementation
 
-using namespace las;
+using namespace liteaerosim::control;
 
 CsvLogger logger("flight_log.csv");
 
@@ -247,7 +247,7 @@ Unit conversion is never done inside a `DynamicBlock`. It happens only when data
 // Interface layer — config file parsing
 #include "units/conversion.hpp"
 
-using namespace las::units;
+using namespace liteaerosim::units;
 
 nlohmann::json raw_config = load_json("roll_ctrl_config.json");
 
@@ -274,11 +274,11 @@ Adding a new SISO element requires implementing the six `on*()` hooks and `schem
 ```cpp
 // include/control/MyCustomFilter.hpp
 #pragma once
-#include "control/DynamicBlock.hpp"
+#include "DynamicBlock.hpp"
 
-namespace las {
+namespace liteaerosim::control {
 
-class MyCustomFilter : public DynamicBlock {
+class MyCustomFilter : public liteaerosim::DynamicBlock {
 public:
     MyCustomFilter() = default;
 
@@ -293,7 +293,7 @@ protected:
         state_ = 0.0f;
     }
 
-    float onStep(float u, float /*dt_s*/) override {
+    float onStep(float u) override {
         state_ += alpha_ * (u - state_);
         return state_;
     }
@@ -313,13 +313,14 @@ protected:
         alpha_  = dt_s_ / (tau_s_ + dt_s_);
     }
 
-    void onLog(ILogger& logger) const override {
+    void onLog(liteaerosim::ILogger& logger) const override {
         logger.log("MyCustomFilter.in",    in_);
         logger.log("MyCustomFilter.out",   out_);
         logger.log("MyCustomFilter.state", state_);
     }
 
     int schemaVersion() const override { return 1; }
+    const char* typeName() const override { return "MyCustomFilter"; }
 
 private:
     float tau_s_  = 1.0f;
@@ -328,7 +329,7 @@ private:
     float state_  = 0.0f;
 };
 
-} // namespace las
+} // namespace liteaerosim::control
 ```
 
 ### Corresponding Test (TDD — write this first)
@@ -338,7 +339,7 @@ private:
 #include <gtest/gtest.h>
 #include "control/MyCustomFilter.hpp"
 
-using namespace las;
+using namespace liteaerosim::control;
 
 class MyCustomFilterTest : public ::testing::Test {
 protected:
@@ -350,16 +351,16 @@ protected:
 };
 
 TEST_F(MyCustomFilterTest, Step_ZeroInput_OutputIsZero) {
-    EXPECT_NEAR(filter_.step(0.0f, 0.01f), 0.0f, 1e-9f);
+    EXPECT_NEAR(filter_.step(0.0f), 0.0f, 1e-9f);
 }
 
 TEST_F(MyCustomFilterTest, Step_ConstantInput_ConvergesToInput) {
-    for (int k = 0; k < 2000; k++) filter_.step(1.0f, 0.01f);
+    for (int k = 0; k < 2000; k++) filter_.step(1.0f);
     EXPECT_NEAR(filter_.out(), 1.0f, 1e-3f);
 }
 
 TEST_F(MyCustomFilterTest, Serialize_Deserialize_RoundTrip) {
-    for (int k = 0; k < 20; k++) filter_.step(1.0f, 0.01f);
+    for (int k = 0; k < 20; k++) filter_.step(1.0f);
     const auto snapshot = filter_.serialize();
     MyCustomFilter restored;
     restored.initialize({{"tau_s", 1.0}, {"dt_s", 0.01}});

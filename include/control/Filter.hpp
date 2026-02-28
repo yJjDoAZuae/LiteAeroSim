@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 #include "control/control.hpp"
 #include <Eigen/Dense>
 
@@ -13,7 +13,7 @@ namespace Control {
 // with ARMA parameterization
 // NOTE: filter parameterization enforces finite DC gain
 // template <char NUM_STATES=FILTER_MAX_STATES>
-class Filter : public SISOBlock
+class Filter : public liteaerosim::SISOBlock
 {
 
 public:

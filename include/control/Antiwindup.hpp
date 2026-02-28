@@ -1,6 +1,6 @@
 #pragma once
 
-#include "control/SISOBlock.hpp"
+#include "SISOBlock.hpp"
 
 #include <string>
 #include <sstream>
