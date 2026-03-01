@@ -544,57 +544,97 @@ For small angles ($\alpha,\beta \ll 1$) this reduces to approximately $[-D + L\a
 
 ## Lift Curve Model
 
-The linear model $C_L(\alpha) = C_{L_\alpha}\,\alpha$ is valid only below stall. The following three-region piecewise model extends it through the stall break and into fully separated flow.
+The linear model $C_L(\alpha) = C_{L_\alpha}\,\alpha$ is valid only within the pre-stall envelope. The following five-region piecewise model extends it symmetrically through positive and negative stall breaks and into fully separated flow on both sides.
+
+### Input Parameters
+
+| Parameter | Symbol | Description |
+|-----------|--------|-------------|
+| `cl_alpha` | $C_{L_\alpha}$ | Pre-stall lift-curve slope (rad$^{-1}$) |
+| `cl_max` | $C_{L,max}$ | Peak lift coefficient (positive stall vertex) |
+| `cl_min` | $C_{L,min}$ | Minimum lift coefficient (negative stall vertex, $< 0$) |
+| `delta_alpha_stall` | $\Delta\alpha_s$ | Angular distance from positive linear join to positive stall vertex (rad) |
+| `delta_alpha_stall_neg` | $\Delta\alpha_{s,neg}$ | Angular distance from negative linear join to negative stall vertex (rad) |
+| `cl_sep` | $C_{L,sep}$ | Positive post-stall plateau ($C_{L,sep} < C_{L,max}$) |
+| `cl_sep_neg` | $C_{L,sep,neg}$ | Negative post-stall plateau ($C_{L,sep,neg} > C_{L,min}$) |
+
+### Derived Breakpoints
+
+**Positive side:**
+
+$$
+\alpha_{peak} = \frac{C_{L,max}}{C_{L_\alpha}} + \frac{\Delta\alpha_s}{2}, \qquad
+\alpha_* = \alpha_{peak} - \Delta\alpha_s
+$$
+
+**Negative side:**
+
+$$
+\alpha_{peak,neg} = \frac{C_{L,min}}{C_{L_\alpha}} - \frac{\Delta\alpha_{s,neg}}{2}, \qquad
+\alpha_{*,neg} = \alpha_{peak,neg} + \Delta\alpha_{s,neg}
+$$
 
 ### Piecewise Definition
-
-Let $\alpha_*$ be the **stall onset angle** (where the lift curve first departs from linearity), $\alpha_{sep}$ the angle at which flow is **fully separated**, and $C_{L,sep}$ the constant separated-flow lift coefficient ($C_{L,sep} < C_{L_\alpha}\,\alpha_{sep}$ for a physical stall break). The model is:
 
 $$
 C_L(\alpha) =
 \begin{cases}
-C_{L_\alpha}\,\alpha & \alpha \leq \alpha_* \\[4pt]
+C_{L,sep,neg} & \alpha < \alpha_{sep,neg} \\[4pt]
+a_{2n}\alpha^2 + a_{1n}\alpha + a_{0n} & \alpha_{sep,neg} \leq \alpha < \alpha_{*,neg} \\[4pt]
+C_{L_\alpha}\,\alpha & \alpha_{*,neg} \leq \alpha \leq \alpha_* \\[4pt]
 a_2\alpha^2 + a_1\alpha + a_0 & \alpha_* < \alpha \leq \alpha_{sep} \\[4pt]
 C_{L,sep} & \alpha > \alpha_{sep}
 \end{cases}
 $$
 
-The transition segment is determined by three conditions: (i) value and (ii) slope continuity at $\alpha_*$ ($C^1$ join — no kink at stall onset), and (iii) value match at $\alpha_{sep}$ ($C^0$ join — a slope discontinuity at full separation is accepted as physically representative of an abrupt flow reattachment boundary).
+The linear region has $C^1$ joins at both $\alpha_*$ (positive onset) and $\alpha_{*,neg}$ (negative onset). The flat regions join with $C^0$ continuity at $\alpha_{sep}$ and $\alpha_{sep,neg}$; the slope discontinuity at each separation boundary is physically representative of an abrupt flow reattachment boundary.
 
 ### Quadratic Coefficients
 
-Define $\Delta\alpha = \alpha_{sep} - \alpha_*$ and $\Delta C_L = C_{L,sep} - C_{L_\alpha}\,\alpha_{sep}$. For a stall break $\Delta C_L < 0$. The three constraints determine the coefficients uniquely:
+**Positive stall** (downward-opening parabola, vertex at $(\alpha_{peak},\, C_{L,max})$):
 
 $$
-a_2 = \frac{\Delta C_L}{\Delta\alpha^2}, \qquad
-a_1 = C_{L_\alpha} - 2a_2\,\alpha_*, \qquad
-a_0 = a_2\,\alpha_*^2
+a_2 = -\frac{C_{L_\alpha}}{2\,\Delta\alpha_s}, \qquad
+a_1 = -2\,a_2\,\alpha_{peak}, \qquad
+a_0 = a_2\,\alpha_{peak}^2 + C_{L,max}
 $$
 
-**Verification.** At $\alpha_*$: $a_2\alpha_*^2 + a_1\alpha_* + a_0 = a_2(\alpha_*^2 - 2\alpha_*^2 + \alpha_*^2) + C_{L_\alpha}\alpha_* = C_{L_\alpha}\alpha_*\,\checkmark$; slope $2a_2\alpha_* + a_1 = C_{L_\alpha}\,\checkmark$. At $\alpha_{sep}$: $a_2(\alpha_{sep}-\alpha_*)^2 + C_{L_\alpha}\alpha_{sep} = a_2\Delta\alpha^2 + C_{L_\alpha}\alpha_{sep} = \Delta C_L + C_{L_\alpha}\alpha_{sep} = C_{L,sep}\,\checkmark$.
+The $C^1$ join at $\alpha_*$ is satisfied by construction: the parabola's slope there equals $-2a_2\alpha_* + a_1 = -2a_2(\alpha_{peak} - \Delta\alpha_s) + a_1 = C_{L_\alpha}$. The separation angle is found by solving $C_L(\alpha_{sep}) = C_{L,sep}$:
 
-The lift slope (needed for Newton iteration — see [Implicit Equation for $\alpha$](#implicit-equation-for-alpha)):
+$$
+\alpha_{sep} = \alpha_{peak} + \sqrt{\frac{C_{L,sep} - C_{L,max}}{a_2}}
+$$
+
+**Negative stall** (upward-opening parabola, vertex at $(\alpha_{peak,neg},\, C_{L,min})$):
+
+$$
+a_{2n} = +\frac{C_{L_\alpha}}{2\,\Delta\alpha_{s,neg}}, \qquad
+a_{1n} = -2\,a_{2n}\,\alpha_{peak,neg}, \qquad
+a_{0n} = a_{2n}\,\alpha_{peak,neg}^2 + C_{L,min}
+$$
+
+The separation angle on the negative side:
+
+$$
+\alpha_{sep,neg} = \alpha_{peak,neg} - \sqrt{\frac{C_{L,sep,neg} - C_{L,min}}{a_{2n}}}
+$$
+
+### Lift-Curve Slope
 
 $$
 C_L'(\alpha) =
 \begin{cases}
-C_{L_\alpha} & \alpha \leq \alpha_* \\[4pt]
+0 & \alpha < \alpha_{sep,neg} \\[4pt]
+2a_{2n}\alpha + a_{1n} & \alpha_{sep,neg} \leq \alpha < \alpha_{*,neg} \\[4pt]
+C_{L_\alpha} & \alpha_{*,neg} \leq \alpha \leq \alpha_* \\[4pt]
 2a_2\alpha + a_1 & \alpha_* < \alpha \leq \alpha_{sep} \\[4pt]
 0 & \alpha > \alpha_{sep}
 \end{cases}
 $$
 
-### Pre-stall Peak
+### Peak and Trough Angles
 
-Because $a_2 < 0$, the transition parabola opens downward and has an interior maximum at:
-
-$$
-\alpha_{peak} = -\frac{a_1}{2a_2} = \alpha_* + \frac{C_{L_\alpha}\,\Delta\alpha^2}{-2\,\Delta C_L}
-$$
-
-This peak lies strictly inside $(\alpha_*, \alpha_{sep})$ when $|\Delta C_L| > \tfrac{1}{2}C_{L_\alpha}\,\Delta\alpha$, i.e., when the stall drop is large enough that the separated-flow $C_L$ falls below the value the linear slope would reach at the midpoint of the transition interval. When this condition holds, $C_L$ rises to $C_{L,max} = C_L(\alpha_{peak}) > C_{L_\alpha}\,\alpha_*$ before decreasing — the model captures the rounded top of a realistic stall curve.
-
-The slope discontinuity at $\alpha_{sep}$, from $C_L'(\alpha_{sep}^-) = 2a_2\alpha_{sep} + a_1 = 2\Delta C_L / \Delta\alpha + C_{L_\alpha}$ (negative for a sufficiently large stall break) to zero (flat region), represents the abrupt boundary between partially and fully separated flow.
+`alphaPeak()` returns $\alpha_{peak}$ — the angle at which the positive quadratic reaches $C_{L,max}$ with zero slope. `alphaTrough()` returns $\alpha_{peak,neg}$ — the angle at which the negative quadratic reaches $C_{L,min}$ with zero slope.
 
 ---
 
