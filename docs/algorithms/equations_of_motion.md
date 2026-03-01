@@ -361,6 +361,26 @@ $$
 
 $p_W$ is a direct control input. $q_W$ and $r_W$ are computed from the centripetal acceleration decomposed in the VW frame; the derivation is given in [Plane of Motion Frame](#plane-of-motion-frame) below.
 
+### Path Angle Rates
+
+The VW frame angular velocity $\boldsymbol{\omega}_{VW/N}^{VW}$ can be related to the time derivatives of the aerodynamic path angles by decomposing the DCM sequence $C_{VW,N} = C_y(-\gamma_a)\,C_z(\chi_a)$:
+
+$$
+\boldsymbol{\omega}_{VW/N}^{VW}
+= \begin{bmatrix}p_W \\ q_W \\ r_W\end{bmatrix}
+= \begin{bmatrix}-\dot\chi_a\sin\gamma_a + \dot\mu \\ \dot\gamma_a \\ \dot\chi_a\cos\gamma_a\end{bmatrix}
+$$
+
+Inverted:
+
+$$
+\dot\gamma_a = q_W, \qquad
+\dot\chi_a  = \frac{r_W}{\cos\gamma_a}, \qquad
+\dot\mu     = p_W + r_W\tan\gamma_a
+$$
+
+For coordinated wings-level flight ($\mu = 0$, $\dot\mu = 0$): $q_W$ drives flight path angle change, $r_W$ drives track angle change, and $p_W = -r_W\tan\gamma_a$ (a precession term that is nonzero during climbing turns as the velocity roll axis sweeps in azimuth).
+
 ---
 
 ## Plane of Motion Frame
