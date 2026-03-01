@@ -495,6 +495,120 @@ $\dot\alpha$ is the angular rate at which the body $x$-axis rotates relative to 
 
 ---
 
+## Aerodynamic Force Vectors
+
+Lift $L$, drag $D$, and side force $Y$ are defined as the projections of the total aerodynamic force onto the Wind frame axes:
+
+| Force | Wind frame vector | Sign convention |
+|---|---|---|
+| Drag | $\mathbf{D}^W = [-D,\ 0,\ 0]^T$ | $D \geq 0$; opposes the velocity vector |
+| Side force | $\mathbf{Y}^W = [0,\ Y,\ 0]^T$ | Positive in $+\hat{y}_W$ (to the right of the velocity vector) |
+| Lift | $\mathbf{L}^W = [0,\ 0,\ -L]^T$ | $L \geq 0$; in $-\hat{z}_W$ (upward within the body symmetry plane) |
+
+The total aerodynamic force in the Wind frame:
+
+$$
+\mathbf{F}_{aero}^W = \begin{bmatrix}-D \\ Y \\ -L\end{bmatrix}
+$$
+
+### In NED Frame
+
+Apply the Wind-to-NED DCM:
+
+$$
+\mathbf{F}_{aero}^N = C_{NW}\,\mathbf{F}_{aero}^W, \qquad C_{NW} = C_{NB}\,C_{BW}
+$$
+
+where $C_{NB}$ is the rotation matrix corresponding to the body quaternion $q_{nb}$ and $C_{BW} = C_y(\alpha)\,C_z(-\beta)$. Equivalently, in quaternion form:
+
+$$
+\mathbf{F}_{aero}^N = q_{nw} \otimes \mathbf{F}_{aero}^W \otimes q_{nw}^*, \qquad q_{nw} = q_{nb} \otimes q_{bw}
+$$
+
+### In Body Frame
+
+Expanding $\mathbf{F}_{aero}^B = C_{BW}\,\mathbf{F}_{aero}^W$:
+
+$$
+\mathbf{F}_{aero}^B
+= \begin{bmatrix}
+-D\cos\alpha\cos\beta - Y\cos\alpha\sin\beta + L\sin\alpha \\
+-D\sin\beta + Y\cos\beta \\
+-D\sin\alpha\cos\beta - Y\sin\alpha\sin\beta - L\cos\alpha
+\end{bmatrix}
+$$
+
+For small angles ($\alpha,\beta \ll 1$) this reduces to approximately $[-D + L\alpha,\ Y,\ -L]^T$, recovering the familiar body-axis load directions: drag opposes $+\hat{x}_B$, side force acts along $\hat{y}_B$, and lift acts in $-\hat{z}_B$.
+
+---
+
+## Thrust Decomposition and Load Factor Allocation
+
+When the thrust vector is aligned with the body $x$-axis it rotates with the aerodynamic angles. Its Wind frame representation follows from the first column of $C_{WB} = C_{BW}^T$:
+
+$$
+\mathbf{T}^W = T\,C_{BW}^T\begin{bmatrix}1\\0\\0\end{bmatrix}
+= T\begin{bmatrix}\cos\alpha\cos\beta \\ -\cos\alpha\sin\beta \\ -\sin\alpha\end{bmatrix}
+$$
+
+The three Wind frame components have distinct kinematic roles:
+
+| Component | Expression | Effect |
+|---|---|---|
+| Tangential ($x_W$) | $T\cos\alpha\cos\beta$ | Accelerates/decelerates along the velocity vector |
+| Lateral ($y_W$) | $-T\cos\alpha\sin\beta$ | Sideward force; must be balanced by $Y$ for coordinated flight |
+| Normal ($-z_W$, upward) | $T\sin\alpha$ | Acts in the lift direction; contributes to load factor |
+
+The **normal component $T\sin\alpha$ is independent of $\beta$** — it depends only on angle of attack.
+
+### Implicit Equation for $\alpha$
+
+The normal load factor $n$ (positive upward, perpendicular to velocity) is the total upward normal force divided by weight:
+
+$$
+n = \frac{L + T\sin\alpha}{mg}
+\quad\Longrightarrow\quad
+L + T\sin\alpha = n\,mg
+$$
+
+Substituting the linear lift model $L = q_\infty S C_{L_\alpha}\,\alpha$:
+
+$$
+\boxed{q_\infty S C_{L_\alpha}\,\alpha + T\sin\alpha = n\,mg}
+$$
+
+This is an implicit equation for $\alpha$ given commanded load factor $n$, thrust $T$, dynamic pressure $q_\infty = \tfrac{1}{2}\rho V^2$, and mass $m$. Defining the residual $f(\alpha) = q_\infty S C_{L_\alpha}\,\alpha + T\sin\alpha - n\,mg$, Newton's method gives:
+
+$$
+\alpha_{k+1} = \alpha_k - \frac{f(\alpha_k)}{f'(\alpha_k)}, \qquad f'(\alpha) = q_\infty S C_{L_\alpha} + T\cos\alpha
+$$
+
+Convergence is fast (typically 2–3 iterations) for $|\alpha| \lesssim 20°$.
+
+### Tangential Force Balance
+
+Along the velocity vector, the net tangential acceleration drives airspeed change:
+
+$$
+a_\parallel = \frac{T\cos\alpha\cos\beta - D}{m} - g\sin\gamma_a
+$$
+
+For coordinated flight ($\beta = 0$) this simplifies to $(T\cos\alpha - D)/m - g\sin\gamma_a$.
+
+### Issues and Limitations
+
+**1. Thrust misalignment.** If the engine has a fixed incidence offset $\delta_T$ relative to $\hat{x}_B$, replace $\alpha$ with $\alpha + \delta_T$ throughout the thrust decomposition. The implicit equation becomes $q_\infty S C_{L_\alpha}\,\alpha + T\sin(\alpha + \delta_T) = nmg$; the Newton derivative changes to $f'(\alpha) = q_\infty S C_{L_\alpha} + T\cos(\alpha + \delta_T)$.
+
+**2. Zero-$\alpha$ lift.** A cambered airfoil generates lift at $\alpha = 0$: $L = q_\infty S(C_{L_0} + C_{L_\alpha}\,\alpha)$. The implicit equation becomes $q_\infty S(C_{L_0} + C_{L_\alpha}\,\alpha) + T\sin\alpha = nmg$. The Newton step is unchanged; the residual constant shifts by $q_\infty S C_{L_0}$.
+
+**3. Linear model validity.** The lift model is valid only for $\alpha$ below stall. Near stall the implicit equation may have no solution (commanded $n$ exceeds maximum lift capability) or, if $C_L(\alpha)$ is non-monotone past stall, multiple solutions.
+
+**4. Lateral coupling.** For $\beta \neq 0$ the lateral thrust component $-T\cos\alpha\sin\beta$ must be balanced by the aerodynamic side force $Y = q_\infty S C_{Y_\beta}\,\beta$. For large thrust this couples the $\alpha$ and $\beta$ equations. In practice, coordinated flight ($\beta \approx 0$) is maintained by the yaw channel, decoupling them.
+
+**5. Quasi-static assumption.** The equation $L + T\sin\alpha = nmg$ is an instantaneous force balance. It gives the $\alpha$ required for a steady load factor but does not capture pitch dynamics or $q$-dependent lift ($C_{L_q}$ terms). In a rapidly pitching maneuver the actual $\alpha$ will lag the quasi-static solution.
+
+---
+
 ## Derived Quantities
 
 | Quantity | Expression | Unit |
