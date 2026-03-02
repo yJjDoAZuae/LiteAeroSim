@@ -5,6 +5,41 @@
 KinematicState::KinematicState(double time_sec,
                const WGS84_Datum &position_datum,
                const Eigen::Vector3f &velocity_NED_mps,
+               const Eigen::Vector3f &acceleration_NED_mps,
+               const Eigen::Quaternionf &q_nb,
+               const Eigen::Vector3f &rates_Body_rps)
+    : _time_sec(time_sec),
+      _positionDatum(position_datum),
+      _velocity_NED_mps(velocity_NED_mps),
+      _acceleration_NED_mps(acceleration_NED_mps),
+      _q_nb(q_nb),
+      _rates_Body_rps(rates_Body_rps),
+      _wind_NED_mps(Eigen::Vector3f::Zero())
+{
+    // Derive alpha and beta exactly from the body-frame velocity projection.
+    // With q_wb = Ry(alpha) * Rz(-beta), the body-frame airmass velocity is:
+    //   u = V*cos(alpha)*cos(beta),  v = V*cos(alpha)*sin(beta),  w = V*sin(alpha)
+    // Inverting: alpha = atan2(w, sqrt(u^2+v^2)),  beta = atan2(v, u)
+    // Then _q_nw = q_nb * q_wb^{-1} = q_nb * Rz(beta) * Ry(-alpha).
+    const float smallV = 0.1f;
+    const Eigen::Vector3f v_body = q_nb.toRotationMatrix().transpose() * velocity_NED_mps;
+    float alpha = 0.0f;
+    float beta  = 0.0f;
+    if (v_body.norm() > smallV) {
+        const float u = v_body(0);
+        const float v = v_body(1);
+        const float w = v_body(2);
+        alpha = std::atan2(w, std::sqrt(u*u + v*v));
+        beta  = std::atan2(v, u);
+    }
+    _q_nw = (q_nb
+             * Eigen::AngleAxisf( beta, Eigen::Vector3f::UnitZ())
+             * Eigen::AngleAxisf(-alpha, Eigen::Vector3f::UnitY())).normalized();
+}
+
+KinematicState::KinematicState(double time_sec,
+               const WGS84_Datum &position_datum,
+               const Eigen::Vector3f &velocity_NED_mps,
                const Eigen::Vector3f &acceleration_Wind_mps,
                const Eigen::Quaternionf &q_nw,
                float rollRate_Wind_rps,
@@ -93,7 +128,10 @@ Eigen::Vector3f KinematicState::acceleration_Body_mps() const
 
 Eigen::Vector3f KinematicState::eulers() const
 {
-    return q_nb().toRotationMatrix().eulerAngles(3,2,1);
+    // eulerAngles(2,1,0) gives ZYX decomposition: returns [yaw, pitch, roll].
+    // Reorder to [roll, pitch, heading] so that eulers()(0)=φ, (1)=θ, (2)=ψ.
+    const Eigen::Vector3f ypr = q_nb().toRotationMatrix().eulerAngles(2, 1, 0);
+    return {ypr(2), ypr(1), ypr(0)};
 }
 
 float KinematicState::roll() const

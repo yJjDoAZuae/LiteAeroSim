@@ -7,6 +7,8 @@
 | [Architecture](architecture/overview.md) | System design, layer model, subsystem breakdown |
 | [Dynamic Block Design](architecture/dynamic_block.md) | SISOBlock / DynamicBlock refactoring — the core simulation element pattern |
 | [Algorithms](algorithms/filters.md) | Filter design, discretization, control algorithms |
+| [Implementation Notes](implementation/equations_of_motion.md) | Implementation decisions, API references, build notes |
+| [Roadmap](roadmap/equations_of_motion.md) | Recommended next steps and open work |
 | [Dependencies](dependencies/README.md) | External libraries — versions, licenses, integration method |
 | [Installation](installation/README.md) | Build from source, toolchain setup, first run |
 | [Testing](testing/strategy.md) | TDD strategy, test patterns, coverage requirements |

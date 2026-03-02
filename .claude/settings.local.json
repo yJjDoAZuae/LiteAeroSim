@@ -105,7 +105,30 @@
       "Bash(PATH=\"/c/msys64/ucrt64/bin:$PATH\" ./build/test/liteaerosim_test.exe --gtest_filter=\"LiftCurveModelTest.*\")",
       "Bash(PATH=\"/c/msys64/ucrt64/bin:$PATH\" ./build/test/liteaerosim_test.exe --gtest_filter=\"KinematicStateTest.*\")",
       "Bash(PATH=\"/c/msys64/ucrt64/bin:$PATH\" ./build/test/liteaerosim_test.exe)",
-      "Bash(PATH=\"/c/msys64/ucrt64/bin:$PATH\" ./build/test/liteaerosim_test.exe --gtest_filter=\"AllocatorFixture.*:KinematicStateTest.*\")"
+      "Bash(PATH=\"/c/msys64/ucrt64/bin:$PATH\" ./build/test/liteaerosim_test.exe --gtest_filter=\"AllocatorFixture.*:KinematicStateTest.*\")",
+      "Bash(C:/msys64/ucrt64/bin/g++.exe @build/src/CMakeFiles/liteaerosim.dir/includes_CXX.rsp -std=gnu++17 -c src/KinematicState.cpp -o /dev/null)",
+      "Bash(mingw32-make VERBOSE=1 src/CMakeFiles/liteaerosim.dir/KinematicState.cpp.obj)",
+      "Bash(mingw32-make VERBOSE=1)",
+      "Bash(C:/msys64/ucrt64/bin/g++.exe @CMakeFiles/liteaerosim.dir/includes_CXX.rsp -g -std=gnu++17 -o /dev/null -c /c/Users/Alex/avraero/LiteAeroSim/src/KinematicState.cpp)",
+      "Bash(C:/msys64/ucrt64/bin/g++.exe -std=gnu++17 @CMakeFiles/liteaerosim.dir/includes_CXX.rsp -E -x c++ - -o /dev/null)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(xxd /c/Users/Alex/avraero/LiteAeroSim/include/KinematicState.hpp)",
+      "Bash(xxd /c/Users/Alex/avraero/LiteAeroSim/src/KinematicState.cpp)",
+      "Bash(xxd /tmp/ks_head.hpp)",
+      "Bash(awk 'NF>0')",
+      "Bash(grep \"\\\\\\\\\")",
+      "Bash(C:/msys64/ucrt64/bin/g++.exe @build/src/CMakeFiles/liteaerosim.dir/includes_CXX.rsp -g -std=gnu++17 -o /tmp/testbuild/KinematicState.cpp.obj -c src/KinematicState.cpp)",
+      "Bash(C:/msys64/ucrt64/bin/g++.exe @build/src/CMakeFiles/liteaerosim.dir/includes_CXX.rsp -std=gnu++17 -o /tmp/testbuild/KinematicState.cpp.obj -c src/KinematicState.cpp)",
+      "Bash(ls /c/Users/Alex/avraero/LiteAeroSim/build/src/*.a /c/Users/Alex/avraero/LiteAeroSim/build/test/*.exe)",
+      "Bash(ar t /c/Users/Alex/avraero/LiteAeroSim/build/src/libliteaerosim.a)",
+      "Bash(cmd.exe /c \"C:\\\\msys64\\\\ucrt64\\\\bin\\\\g++.exe --version\")",
+      "Bash(cmd.exe /c \"C:\\\\msys64\\\\ucrt64\\\\bin\\\\g++.exe @CMakeFiles\\\\liteaerosim.dir\\\\includes_CXX.rsp -g -std=gnu++17 -o C:\\\\tmp\\\\ks.obj -c C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\src\\\\KinematicState.cpp 2>&1\")",
+      "Bash(echo \"cmd exit=$?\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && C:\\\\msys64\\\\ucrt64\\\\bin\\\\g++.exe @CMakeFiles\\\\liteaerosim.dir\\\\includes_CXX.rsp -g -std=gnu++17 -o C:\\\\tmp\\\\ks.obj -c C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\src\\\\KinematicState.cpp\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && cmake --build build\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && cd build\\\\test && liteaerosim_test.exe --gtest_filter=KinematicStateTest.*\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && build\\\\test\\\\liteaerosim_test.exe --gtest_filter=KinematicStateTest.*\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && build\\\\test\\\\liteaerosim_test.exe\")"
     ]
   }
 }

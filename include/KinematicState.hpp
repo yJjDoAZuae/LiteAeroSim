@@ -52,21 +52,18 @@ public:
                    float windSpeed_mps,
                    float windDirFrom_rad);
 
+    // Constructor 2: accepts q_nb directly (e.g. from an Euler-angle specification).
+    // _q_nw is derived exactly from velocity_NED_mps and q_nb.  With
+    // q_wb = Ry(α)·Rz(−β) the body-frame airmass velocity satisfies
+    //   u = V·cosα·cosβ,  v = V·cosα·sinβ,  w = V·sinα
+    // which inverts to α = atan2(w, √(u²+v²)), β = atan2(v, u).
+    // Then _q_nw = q_nb · Rz(β) · Ry(−α).  Below the small-V threshold α=β=0.
     KinematicState(double time_sec,
                    const WGS84_Datum &position_datum,
                    const Eigen::Vector3f &velocity_NED_mps,
                    const Eigen::Vector3f &acceleration_NED_mps,
                    const Eigen::Quaternionf &q_nb,
-                   const Eigen::Vector3f &rates_Body_rps)
-        : _time_sec(time_sec),
-          _positionDatum(position_datum),
-          _velocity_NED_mps(velocity_NED_mps),
-          _acceleration_NED_mps(acceleration_NED_mps),
-          _q_nw(Eigen::Quaternionf::Identity()),
-          _q_nb(q_nb),
-          _rates_Body_rps(rates_Body_rps),
-          _wind_NED_mps(Eigen::Vector3f::Zero())
-          {}
+                   const Eigen::Vector3f &rates_Body_rps);
 
     ~KinematicState() {};
 

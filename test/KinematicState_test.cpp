@@ -35,13 +35,44 @@ TEST(KinematicStateTest, QnwStoredFromConstructor) {
 }
 
 TEST(KinematicStateTest, QnwIsIdentityFromSimpleConstructor) {
-    // Constructor 2 (takes q_nb directly) should default q_nw to Identity.
+    // With q_nb = Identity and v = [50,0,0], alpha = 0, so q_nw = Identity.
     KinematicState s(0.0, WGS84_Datum(),
                      Eigen::Vector3f(50.f, 0.f, 0.f),
                      Eigen::Vector3f::Zero(),
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
     EXPECT_NEAR((s.q_nw().toRotationMatrix() - Eigen::Matrix3f::Identity()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateTest, Constructor2_QnwAlignsVelocityWithWindX) {
+    // Pitched-up q_nb, purely northward velocity (β=0).
+    // Wind x-axis must align with v so that velocity_Wind_mps() = [50, 0, 0].
+    const float pitch = 0.2f;
+    Eigen::Quaternionf q_nb(Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitY()));
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(50.f, 0.f, 0.f),
+                     Eigen::Vector3f::Zero(),
+                     q_nb,
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.velocity_Wind_mps().x(), 50.f, 1e-4f);
+    EXPECT_NEAR(s.velocity_Wind_mps().y(),  0.f, 1e-4f);
+    EXPECT_NEAR(s.velocity_Wind_mps().z(),  0.f, 1e-4f);
+}
+
+TEST(KinematicStateTest, Constructor2_QnwAlignsVelocityWithWindX_WithSideslip) {
+    // Identity q_nb, velocity with a sideways component (nonzero β).
+    // β is derived exactly from the body-frame velocity projection.
+    // velocity_Wind_mps() must still be [V, 0, 0].
+    const float beta0 = 0.1f;
+    const float V     = 50.f;
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(V * std::cos(beta0), V * std::sin(beta0), 0.f),
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf::Identity(),
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.velocity_Wind_mps().x(), V,   1e-4f);
+    EXPECT_NEAR(s.velocity_Wind_mps().y(), 0.f, 1e-4f);
+    EXPECT_NEAR(s.velocity_Wind_mps().z(), 0.f, 1e-4f);
 }
 
 TEST(KinematicStateTest, QnwChangesAfterRollStep) {
@@ -192,4 +223,76 @@ TEST(KinematicStateTest, PositionIntegration_ZeroVelocityNoChange) {
     EXPECT_NEAR(s.positionDatum().latitudeGeodetic_rad(), 0.0, 1e-15);
     EXPECT_NEAR(s.positionDatum().longitude_rad(),        0.0, 1e-15);
     EXPECT_NEAR(s.positionDatum().height_WGS84_m(),       0.0f, 1e-10f);
+}
+
+// ── Phase E: eulers() / roll() / pitch() / heading() ─────────────────────────
+
+TEST(KinematicStateTest, EulersZeroForIdentityQuaternion) {
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(50.f, 0.f, 0.f),
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf::Identity(),
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.roll(),    0.f, 1e-5f);
+    EXPECT_NEAR(s.pitch(),   0.f, 1e-5f);
+    EXPECT_NEAR(s.heading(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateTest, EulersPureYaw) {
+    // q_nb = Rz(psi): heading only, no roll or pitch
+    const float psi = 1.2f;
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(50.f, 0.f, 0.f),
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf(Eigen::AngleAxisf(psi, Eigen::Vector3f::UnitZ())),
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.roll(),    0.f, 1e-5f);
+    EXPECT_NEAR(s.pitch(),   0.f, 1e-5f);
+    EXPECT_NEAR(s.heading(), psi, 1e-5f);
+}
+
+TEST(KinematicStateTest, EulersPurePitch) {
+    // q_nb = Ry(theta): pitch only, no roll or heading
+    const float theta = 0.3f;
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(50.f, 0.f, 0.f),
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf(Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitY())),
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.roll(),    0.f,   1e-5f);
+    EXPECT_NEAR(s.pitch(),   theta, 1e-5f);
+    EXPECT_NEAR(s.heading(), 0.f,   1e-5f);
+}
+
+TEST(KinematicStateTest, EulersPureRoll) {
+    // q_nb = Rx(phi): roll only, no pitch or heading
+    const float phi = 0.5f;
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(50.f, 0.f, 0.f),
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf(Eigen::AngleAxisf(phi, Eigen::Vector3f::UnitX())),
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.roll(),    phi, 1e-5f);
+    EXPECT_NEAR(s.pitch(),   0.f, 1e-5f);
+    EXPECT_NEAR(s.heading(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateTest, EulersCombinedZYX) {
+    // q_nb = Rz(psi) * Ry(theta) * Rx(phi) — standard ZYX aerospace convention.
+    // eulers() must recover all three angles.
+    const float phi   = 0.3f;
+    const float theta = 0.1f;
+    const float psi   = 1.2f;
+    Eigen::Quaternionf q_nb(
+        Eigen::AngleAxisf(psi,   Eigen::Vector3f::UnitZ()) *
+        Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitY()) *
+        Eigen::AngleAxisf(phi,   Eigen::Vector3f::UnitX()));
+    KinematicState s(0.0, WGS84_Datum(),
+                     Eigen::Vector3f(50.f, 0.f, 0.f),
+                     Eigen::Vector3f::Zero(),
+                     q_nb,
+                     Eigen::Vector3f::Zero());
+    EXPECT_NEAR(s.roll(),    phi,   1e-4f);
+    EXPECT_NEAR(s.pitch(),   theta, 1e-4f);
+    EXPECT_NEAR(s.heading(), psi,   1e-4f);
 }
