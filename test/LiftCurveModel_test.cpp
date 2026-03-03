@@ -2,6 +2,7 @@
 #include "aerodynamics/LiftCurveModel.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <stdexcept>
 
 // Symmetric general-aviation lift curve parameters
 //   cl_alpha          = 5.73   rad^-1
@@ -190,6 +191,101 @@ TEST(LiftCurveModelTest, AlphaTroughReturnsExpectedAngle) {
     LiftCurveModel m(gaParams());
     const float expected = gaParams().cl_min / gaParams().cl_alpha - gaParams().delta_alpha_stall_neg / 2.0f;
     EXPECT_NEAR(m.alphaTrough(), expected, 1e-5f);
+}
+
+// ── classify() ───────────────────────────────────────────────────────────────
+
+TEST(LiftCurveModelTest, ClassifyLinear) {
+    LiftCurveModel m(gaParams());
+    EXPECT_EQ(m.classify(0.0f),   LiftCurveSegment::Linear);
+    EXPECT_EQ(m.classify(0.10f),  LiftCurveSegment::Linear);
+    EXPECT_EQ(m.classify(-0.10f), LiftCurveSegment::Linear);
+}
+
+TEST(LiftCurveModelTest, ClassifyIncipientStallPositive) {
+    LiftCurveModel m(gaParams());
+    const float alpha_star = alphaStarFromParams(gaParams());
+    const float alpha_peak = gaParams().cl_max / gaParams().cl_alpha + gaParams().delta_alpha_stall / 2.0f;
+    const float alpha_mid  = 0.5f * (alpha_star + alpha_peak);
+    EXPECT_EQ(m.classify(alpha_mid),    LiftCurveSegment::IncipientStallPositive);
+    EXPECT_EQ(m.classify(m.alphaPeak()), LiftCurveSegment::IncipientStallPositive);
+}
+
+TEST(LiftCurveModelTest, ClassifyPostStallPositive) {
+    LiftCurveModel m(gaParams());
+    const float alpha_mid = 0.5f * (m.alphaPeak() + alphaSepFromParams(gaParams()));
+    EXPECT_EQ(m.classify(alpha_mid), LiftCurveSegment::PostStallPositive);
+}
+
+TEST(LiftCurveModelTest, ClassifyFullySeparatedPositive) {
+    LiftCurveModel m(gaParams());
+    EXPECT_EQ(m.classify(0.40f), LiftCurveSegment::FullySeparatedPositive);
+    EXPECT_EQ(m.classify(1.00f), LiftCurveSegment::FullySeparatedPositive);
+}
+
+TEST(LiftCurveModelTest, ClassifyIncipientStallNegative) {
+    LiftCurveModel m(gaParams());
+    const float alpha_mid = 0.5f * (m.alphaTrough() + alphaStarNegFromParams(gaParams()));
+    EXPECT_EQ(m.classify(alpha_mid),     LiftCurveSegment::IncipientStallNegative);
+    EXPECT_EQ(m.classify(m.alphaTrough()), LiftCurveSegment::IncipientStallNegative);
+}
+
+TEST(LiftCurveModelTest, ClassifyPostStallNegative) {
+    LiftCurveModel m(gaParams());
+    const float alpha_mid = 0.5f * (alphaSepNegFromParams(gaParams()) + m.alphaTrough());
+    EXPECT_EQ(m.classify(alpha_mid), LiftCurveSegment::PostStallNegative);
+}
+
+TEST(LiftCurveModelTest, ClassifyFullySeparatedNegative) {
+    LiftCurveModel m(gaParams());
+    EXPECT_EQ(m.classify(-0.40f), LiftCurveSegment::FullySeparatedNegative);
+    EXPECT_EQ(m.classify(-1.00f), LiftCurveSegment::FullySeparatedNegative);
+}
+
+// ── Degenerate and invalid construction ──────────────────────────────────────
+
+TEST(LiftCurveModelTest, DegeneratePositiveClSepEqualsClMax) {
+    // cl_sep == cl_max: post-stall descending region has zero width; the flat
+    // plateau begins immediately at the peak. Construction must succeed.
+    LiftCurveParams p = gaParams();
+    p.cl_sep = p.cl_max;
+    LiftCurveModel m(p);
+
+    const float alpha_peak = m.alphaPeak();
+    // Value at the peak equals cl_max; flat plateau continues for α > α_peak.
+    EXPECT_NEAR(m.evaluate(alpha_peak),         p.cl_max, 1e-5f);
+    EXPECT_NEAR(m.evaluate(alpha_peak + 0.01f), p.cl_max, 1e-5f);
+    // At the peak: IncipientStallPositive (α ≤ α_peak).
+    // Just above: FullySeparatedPositive (α_sep == α_peak, so PostStallPositive unreachable).
+    EXPECT_EQ(m.classify(alpha_peak),          LiftCurveSegment::IncipientStallPositive);
+    EXPECT_EQ(m.classify(alpha_peak + 0.001f), LiftCurveSegment::FullySeparatedPositive);
+}
+
+TEST(LiftCurveModelTest, InvalidPositiveClSepAboveClMax) {
+    // cl_sep > cl_max: separation point would require sqrt of a negative — must throw.
+    LiftCurveParams p = gaParams();
+    p.cl_sep = p.cl_max + 0.1f;
+    EXPECT_THROW(LiftCurveModel{p}, std::invalid_argument);
+}
+
+TEST(LiftCurveModelTest, DegenerateNegativeClSepNegEqualsClMin) {
+    // cl_sep_neg == cl_min: symmetric to the positive degenerate case.
+    LiftCurveParams p = gaParams();
+    p.cl_sep_neg = p.cl_min;
+    LiftCurveModel m(p);
+
+    const float alpha_trough = m.alphaTrough();
+    EXPECT_NEAR(m.evaluate(alpha_trough),           p.cl_min, 1e-5f);
+    EXPECT_NEAR(m.evaluate(alpha_trough - 0.01f),   p.cl_min, 1e-5f);
+    EXPECT_EQ(m.classify(alpha_trough),           LiftCurveSegment::IncipientStallNegative);
+    EXPECT_EQ(m.classify(alpha_trough - 0.001f),  LiftCurveSegment::FullySeparatedNegative);
+}
+
+TEST(LiftCurveModelTest, InvalidNegativeClSepNegBelowClMin) {
+    // cl_sep_neg < cl_min: separation point would require sqrt of a negative — must throw.
+    LiftCurveParams p = gaParams();
+    p.cl_sep_neg = p.cl_min - 0.1f;
+    EXPECT_THROW(LiftCurveModel{p}, std::invalid_argument);
 }
 
 // ── Symmetry ─────────────────────────────────────────────────────────────────

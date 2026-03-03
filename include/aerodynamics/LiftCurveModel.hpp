@@ -2,6 +2,19 @@
 
 #include <cmath>
 
+// Identifies which of the seven segments of the piecewise lift curve contains α.
+// Ordinal values increase monotonically with α, so comparisons such as
+// (segment >= LiftCurveSegment::IncipientStallPositive) are meaningful.
+enum class LiftCurveSegment {
+    FullySeparatedNegative = -3,  // α < α_sep_neg (flat negative plateau)
+    PostStallNegative      = -2,  // α_sep_neg ≤ α < α_trough (descending toward trough)
+    IncipientStallNegative = -1,  // α_trough ≤ α < α_*_neg (recovering toward linear)
+    Linear                 =  0,  // α_*_neg ≤ α ≤ α_* (C_Lα·α)
+    IncipientStallPositive =  1,  // α_* < α ≤ α_peak (approaching peak)
+    PostStallPositive      =  2,  // α_peak < α ≤ α_sep (descending from peak)
+    FullySeparatedPositive =  3,  // α > α_sep (flat positive plateau)
+};
+
 // Parameters defining the five-region piecewise lift curve C_L(α).
 // See docs/algorithms/equations_of_motion.md — Lift Curve Model.
 struct LiftCurveParams {
@@ -23,7 +36,10 @@ struct LiftCurveParams {
 // Region 5 (α > α_sep)           : C_L = cl_sep                 (positive flat plateau)
 //
 // α_* and α_sep (and their negative counterparts) are derived from the seven input parameters.
-// Requires cl_sep < cl_max, cl_sep_neg > cl_min, delta_alpha_stall > 0, delta_alpha_stall_neg > 0.
+// Requires cl_sep ≤ cl_max, cl_sep_neg ≥ cl_min, delta_alpha_stall > 0, delta_alpha_stall_neg > 0.
+// When cl_sep == cl_max (or cl_sep_neg == cl_min) the post-stall descending region has zero width
+// and the flat plateau begins immediately at the peak (or trough). The constructor throws
+// std::invalid_argument if cl_sep > cl_max or cl_sep_neg < cl_min.
 //
 // Stateless; construct once per aircraft configuration.
 class LiftCurveModel {
@@ -38,6 +54,9 @@ public:
 
     // Angle (rad) at which the negative quadratic reaches cl_min.
     float alphaTrough() const;
+
+    // Returns which piecewise segment contains alpha_rad.
+    LiftCurveSegment classify(float alpha_rad) const;
 
 private:
     LiftCurveParams _p;

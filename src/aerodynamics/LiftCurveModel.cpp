@@ -1,10 +1,21 @@
 #include "aerodynamics/LiftCurveModel.hpp"
+#include <stdexcept>
 
 LiftCurveModel::LiftCurveModel(const LiftCurveParams& params) : _p(params) {
     computeCoefficients();
 }
 
 void LiftCurveModel::computeCoefficients() {
+    // ── Precondition checks ───────────────────────────────────────────────────
+    if (_p.cl_sep > _p.cl_max) {
+        throw std::invalid_argument(
+            "LiftCurveModel: cl_sep must not exceed cl_max");
+    }
+    if (_p.cl_sep_neg < _p.cl_min) {
+        throw std::invalid_argument(
+            "LiftCurveModel: cl_sep_neg must not be less than cl_min");
+    }
+
     // ── Positive stall ────────────────────────────────────────────────────────
     // Downward-opening parabola with vertex at (_alpha_peak, cl_max).
     // C¹ joined to the linear model at _alpha_star.
@@ -70,4 +81,14 @@ float LiftCurveModel::alphaPeak() const {
 
 float LiftCurveModel::alphaTrough() const {
     return _alpha_peak_neg;
+}
+
+LiftCurveSegment LiftCurveModel::classify(float alpha_rad) const {
+    if (alpha_rad < _alpha_sep_neg)   return LiftCurveSegment::FullySeparatedNegative;
+    if (alpha_rad < _alpha_peak_neg)  return LiftCurveSegment::PostStallNegative;
+    if (alpha_rad < _alpha_star_neg)  return LiftCurveSegment::IncipientStallNegative;
+    if (alpha_rad <= _alpha_star)     return LiftCurveSegment::Linear;
+    if (alpha_rad <= _alpha_peak)     return LiftCurveSegment::IncipientStallPositive;
+    if (alpha_rad <= _alpha_sep)      return LiftCurveSegment::PostStallPositive;
+    return LiftCurveSegment::FullySeparatedPositive;
 }

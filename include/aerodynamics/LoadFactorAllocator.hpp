@@ -4,18 +4,22 @@
 
 // Inputs to the load-factor allocator for a single solve() call.
 struct LoadFactorInputs {
-    float n;         // commanded normal load factor (g)
-    float n_y;       // commanded lateral load factor (g)
-    float q_inf;     // dynamic pressure (Pa)
-    float thrust_n;  // thrust magnitude (N)
-    float mass_kg;   // aircraft mass (kg)
+    float n;              // commanded normal load factor (g)
+    float n_y;            // commanded lateral load factor (g)
+    float q_inf;          // dynamic pressure (Pa)
+    float thrust_n;       // thrust magnitude (N)
+    float mass_kg;        // aircraft mass (kg)
+    float n_dot   = 0.f;  // time derivative of n (1/s) — used to compute alphaDot
+    float n_y_dot = 0.f;  // time derivative of n_y (1/s) — used to compute betaDot
 };
 
 // Outputs produced by the load-factor allocator.
 struct LoadFactorOutputs {
-    float alpha_rad; // angle of attack (rad)
-    float beta_rad;  // sideslip angle (rad)
-    bool  stall;     // true when α demand has exceeded the pre-stall CL peak
+    float            alpha_rad;                               // angle of attack (rad)
+    float            beta_rad;                                // sideslip angle (rad)
+    LiftCurveSegment alpha_segment = LiftCurveSegment::Linear; // lift curve segment containing α
+    float            alphaDot_rps  = 0.f;  // d(alpha)/dt (rad/s) — analytical, via implicit function theorem
+    float            betaDot_rps   = 0.f;  // d(beta)/dt  (rad/s) — analytical, via implicit function theorem
 };
 
 // Implicit Newton solver that maps commanded load factors (n, n_y) to angle of

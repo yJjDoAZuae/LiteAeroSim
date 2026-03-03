@@ -32,7 +32,7 @@ TEST_F(AllocatorFixture, ZeroDemandZeroAngles) {
     auto out = alloc.solve(in);
     EXPECT_NEAR(out.alpha_rad, 0.f, 1e-5f);
     EXPECT_NEAR(out.beta_rad,  0.f, 1e-5f);
-    EXPECT_FALSE(out.stall);
+    EXPECT_EQ(out.alpha_segment, LiftCurveSegment::Linear);
 }
 
 // ── Linear region, analytic check ─────────────────────────────────────────────
@@ -47,21 +47,33 @@ TEST_F(AllocatorFixture, SmallNLinearRegionT0) {
     LoadFactorInputs in{n, 0.f, kQ, 0.f, kMass};
     auto out = alloc.solve(in);
     EXPECT_NEAR(out.alpha_rad, alpha_expected, 1e-4f);
-    EXPECT_FALSE(out.stall);
+    EXPECT_EQ(out.alpha_segment, LiftCurveSegment::Linear);
 }
 
 // ── Stall flag ────────────────────────────────────────────────────────────────
 
-TEST_F(AllocatorFixture, StallFlagRaisedAboveCeiling) {
-    // n_max (T=0) ≈ cl_max·qS / (m·g) ≈ 3.0 g.  Use n=3.5 g to exceed it.
+TEST_F(AllocatorFixture, PositiveStallClampsAtPeak) {
+    // n_max (T=0) ≈ cl_max·qS / (m·g) ≈ 3.0 g.  Use 20 % above ceiling.
     const float n_ceiling = gaLiftParams().cl_max * kQ * kS / (kMass * kG);
-    const float n_stall   = n_ceiling * 1.2f; // 20 % above ceiling
+    const float n_stall   = n_ceiling * 1.2f;
 
     LoadFactorInputs in{n_stall, 0.f, kQ, 0.f, kMass};
     auto out = alloc.solve(in);
-    EXPECT_TRUE(out.stall);
-    // α must be clamped to the pre-stall peak.
+    // α clamped at the pre-stall peak — sits at the incipient/post boundary.
     EXPECT_NEAR(out.alpha_rad, lift.alphaPeak(), 1e-4f);
+    EXPECT_EQ(out.alpha_segment, LiftCurveSegment::IncipientStallPositive);
+}
+
+TEST_F(AllocatorFixture, NegativeStallClampsAtTrough) {
+    // Symmetric to positive stall: n more negative than the negative CL ceiling.
+    const float n_ceiling_neg = gaLiftParams().cl_min * kQ * kS / (kMass * kG);
+    const float n_stall_neg   = n_ceiling_neg * 1.2f; // 20 % more negative
+
+    LoadFactorInputs in{n_stall_neg, 0.f, kQ, 0.f, kMass};
+    auto out = alloc.solve(in);
+    // α clamped at the negative trough.
+    EXPECT_NEAR(out.alpha_rad, lift.alphaTrough(), 1e-4f);
+    EXPECT_EQ(out.alpha_segment, LiftCurveSegment::IncipientStallNegative);
 }
 
 // ── Branch tracking ───────────────────────────────────────────────────────────
@@ -75,7 +87,10 @@ TEST_F(AllocatorFixture, MonotonicNStaysPreStall) {
     for (float n = 0.1f; n < n_ceiling * 0.95f; n += 0.1f) {
         LoadFactorInputs in{n, 0.f, kQ, 0.f, kMass};
         auto out = alloc.solve(in);
-        EXPECT_FALSE(out.stall) << "stall at n=" << n;
+        // α must stay in the pre-stall envelope (linear or incipient, not post-stall or separated).
+        const auto seg = out.alpha_segment;
+        EXPECT_TRUE(seg == LiftCurveSegment::Linear || seg == LiftCurveSegment::IncipientStallPositive)
+            << "unexpected segment at n=" << n;
         EXPECT_GE(out.alpha_rad, alpha_prev) << "non-monotonic α at n=" << n;
         alpha_prev = out.alpha_rad;
     }
@@ -91,4 +106,56 @@ TEST_F(AllocatorFixture, LateralT0AnalyticCheck) {
     LoadFactorInputs in{1.0f, n_y, kQ, 0.f, kMass};
     auto out = alloc.solve(in);
     EXPECT_NEAR(out.beta_rad, beta_expected, 1e-4f);
+}
+
+// ── alphaDot: analytical via implicit function theorem ────────────────────────
+
+TEST_F(AllocatorFixture, AlphaDotZeroForConstantN) {
+    // n_dot=0 → alphaDot=0 at any operating point.
+    LoadFactorInputs in{1.f, 0.f, kQ, 0.f, kMass};
+    // n_dot defaults to 0
+    auto out = alloc.solve(in);
+    EXPECT_NEAR(out.alphaDot_rps, 0.f, 1e-6f);
+}
+
+TEST_F(AllocatorFixture, AlphaDotAnalyticLinearRegionT0) {
+    // T=0, linear region: f'(α) = q·S·C_Lα  →  alphaDot = m·g·n_dot / (q·S·C_Lα).
+    const float n_dot             = 0.2f;
+    const float alphaDot_expected = kMass * kG * n_dot
+                                    / (kQ * kS * gaLiftParams().cl_alpha);
+    LoadFactorInputs in{1.f, 0.f, kQ, 0.f, kMass};
+    in.n_dot = n_dot;
+    auto out = alloc.solve(in);
+    EXPECT_NEAR(out.alphaDot_rps, alphaDot_expected, 1e-5f);
+}
+
+TEST_F(AllocatorFixture, AlphaDotZeroAtStall) {
+    // Once α is clamped to the stall peak, further load-factor demand cannot
+    // increase α — alphaDot should be zero.
+    const float n_ceiling = gaLiftParams().cl_max * kQ * kS / (kMass * kG);
+    LoadFactorInputs in{n_ceiling * 1.2f, 0.f, kQ, 0.f, kMass};
+    in.n_dot = 1.f; // non-zero demand rate
+    auto out  = alloc.solve(in);
+    EXPECT_EQ(out.alpha_segment, LiftCurveSegment::IncipientStallPositive);
+    EXPECT_NEAR(out.alphaDot_rps, 0.f, 1e-6f);
+}
+
+// ── betaDot: analytical via implicit function theorem ─────────────────────────
+
+TEST_F(AllocatorFixture, BetaDotZeroForConstantNy) {
+    // n_y_dot=0 → betaDot=0.
+    LoadFactorInputs in{1.f, 0.2f, kQ, 0.f, kMass};
+    // n_y_dot defaults to 0
+    auto out = alloc.solve(in);
+    EXPECT_NEAR(out.betaDot_rps, 0.f, 1e-6f);
+}
+
+TEST_F(AllocatorFixture, BetaDotAnalyticT0) {
+    // T=0: g'(β) = q·S·C_Yβ, dg/dα term = 0  →  betaDot = m·g·n_y_dot / (q·S·C_Yβ).
+    const float n_y_dot           = 0.1f;
+    const float betaDot_expected  = kMass * kG * n_y_dot / (kQ * kS * kCYb);
+    LoadFactorInputs in{1.f, 0.f, kQ, 0.f, kMass};
+    in.n_y_dot = n_y_dot;
+    auto out = alloc.solve(in);
+    EXPECT_NEAR(out.betaDot_rps, betaDot_expected, 1e-5f);
 }
