@@ -2,6 +2,9 @@
 #include "aerodynamics/LoadFactorAllocator.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <nlohmann/json.hpp>
+#include <vector>
+#include <cstdint>
 
 // Representative GA aircraft parameters (matching LiftCurveModel_test.cpp).
 static LiftCurveParams gaLiftParams() {
@@ -158,4 +161,67 @@ TEST_F(AllocatorFixture, BetaDotAnalyticT0) {
     in.n_y_dot = n_y_dot;
     auto out = alloc.solve(in);
     EXPECT_NEAR(out.betaDot_rps, betaDot_expected, 1e-5f);
+}
+
+// ── Serialization ─────────────────────────────────────────────────────────────
+
+// Advance the allocator with several solve() calls to build warm-start state.
+static void warmUpAllocator(LoadFactorAllocator& alloc) {
+    alloc.solve({1.0f, 0.1f, kQ, 0.f, kMass});
+    alloc.solve({1.5f, 0.2f, kQ, 0.f, kMass});
+    alloc.solve({2.0f, 0.0f, kQ, 0.f, kMass});
+}
+
+TEST_F(AllocatorFixture, JsonRoundTrip) {
+    warmUpAllocator(alloc);
+    const nlohmann::json j = alloc.serializeJson();
+
+    LiftCurveModel liftRestored(gaLiftParams());
+    LoadFactorAllocator restored(liftRestored, kS, kCYb);
+    restored.deserializeJson(j);
+
+    // Both allocators should produce identical output on the next solve().
+    LoadFactorInputs in{1.2f, 0.15f, kQ, 0.f, kMass};
+    const LoadFactorOutputs outOriginal = alloc.solve(in);
+    const LoadFactorOutputs outRestored = restored.solve(in);
+    EXPECT_NEAR(outRestored.alpha_rad, outOriginal.alpha_rad, 1e-5f);
+    EXPECT_NEAR(outRestored.beta_rad,  outOriginal.beta_rad,  1e-5f);
+}
+
+TEST_F(AllocatorFixture, JsonSchemaVersionMismatchThrows) {
+    nlohmann::json j = alloc.serializeJson();
+    j["schema_version"] = 99;
+    LiftCurveModel liftRestored(gaLiftParams());
+    LoadFactorAllocator restored(liftRestored, kS, kCYb);
+    EXPECT_THROW(restored.deserializeJson(j), std::runtime_error);
+}
+
+TEST_F(AllocatorFixture, ProtoRoundTrip) {
+    warmUpAllocator(alloc);
+    const std::vector<uint8_t> bytes = alloc.serializeProto();
+
+    LiftCurveModel liftRestored(gaLiftParams());
+    LoadFactorAllocator restored(liftRestored, kS, kCYb);
+    restored.deserializeProto(bytes);
+
+    LoadFactorInputs in{1.2f, 0.15f, kQ, 0.f, kMass};
+    const LoadFactorOutputs outOriginal = alloc.solve(in);
+    const LoadFactorOutputs outRestored = restored.solve(in);
+    EXPECT_NEAR(outRestored.alpha_rad, outOriginal.alpha_rad, 1e-4f);
+    EXPECT_NEAR(outRestored.beta_rad,  outOriginal.beta_rad,  1e-4f);
+}
+
+TEST_F(AllocatorFixture, ProtoSchemaVersionMismatchThrows) {
+    const std::vector<uint8_t> bytes = alloc.serializeProto();
+    // Corrupt: modify schema_version field (field 1, varint, tag = 0x08) to value 99.
+    std::vector<uint8_t> bad = bytes;
+    for (std::size_t i = 0; i + 1 < bad.size(); ++i) {
+        if (bad[i] == 0x08) {
+            bad[i + 1] = 99;
+            break;
+        }
+    }
+    LiftCurveModel liftRestored(gaLiftParams());
+    LoadFactorAllocator restored(liftRestored, kS, kCYb);
+    EXPECT_THROW(restored.deserializeProto(bad), std::runtime_error);
 }

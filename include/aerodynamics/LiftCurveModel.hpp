@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
+#include <vector>
+#include <nlohmann/json.hpp>
 
 // Identifies which of the seven segments of the piecewise lift curve contains α.
 // Ordinal values increase monotonically with α, so comparisons such as
@@ -57,6 +60,12 @@ public:
 
     // Returns which piecewise segment contains alpha_rad.
     LiftCurveSegment classify(float alpha_rad) const;
+
+    nlohmann::json        serializeJson()                               const;
+    static LiftCurveModel deserializeJson(const nlohmann::json&         j);
+
+    std::vector<uint8_t>  serializeProto()                             const;
+    static LiftCurveModel deserializeProto(const std::vector<uint8_t>&  bytes);
 
 private:
     LiftCurveParams _p;

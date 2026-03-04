@@ -19,6 +19,7 @@ Prefer permissive open-source licenses. See [guidelines/general.md](../guideline
 |---|---|---|---|---|
 | [Eigen3](https://eigen.tuxfamily.org) | 3.4+ | MPL-2 | System `find_package` | Linear algebra — matrices, vectors, state-space |
 | [nlohmann/json](https://github.com/nlohmann/json) | v3.12.0 | MIT | FetchContent (tarball) | JSON serialization / deserialization |
+| [protobuf](https://github.com/protocolbuffers/protobuf) | v3.21.12 | BSD-3-Clause | `find_package` + FetchContent fallback (pattern 1a) | Binary serialization (proto3 wire format) |
 | [trochoids](https://github.com/castacks/trochoids) | `38d23eb` | Clear BSD | FetchContent (source, pattern 1b) | Dubins and trochoidal path planning |
 
 ### C++ Test Dependencies

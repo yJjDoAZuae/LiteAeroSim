@@ -1,6 +1,8 @@
 
 #include "KinematicState.hpp"
 #include "math/math_util.hpp"
+#include "liteaerosim.pb.h"
+#include <stdexcept>
 
 KinematicState::KinematicState(double time_sec,
                const WGS84_Datum &position_datum,
@@ -456,4 +458,141 @@ EulerRates KinematicState::BodyRatesToEulerRates(const EulerAngles& ang, const E
     }
 
     return EulerRates::Zero();
+}
+
+// ── Serialization helpers ────────────────────────────────────────────────────
+
+static nlohmann::json vec3ToJson(const Eigen::Vector3f& v) {
+    return {{"x", v.x()}, {"y", v.y()}, {"z", v.z()}};
+}
+
+static nlohmann::json quatToJson(const Eigen::Quaternionf& q) {
+    return {{"w", q.w()}, {"x", q.x()}, {"y", q.y()}, {"z", q.z()}};
+}
+
+static Eigen::Vector3f vec3FromJson(const nlohmann::json& j) {
+    return {j.at("x").get<float>(), j.at("y").get<float>(), j.at("z").get<float>()};
+}
+
+static Eigen::Quaternionf quatFromJson(const nlohmann::json& j) {
+    return Eigen::Quaternionf(j.at("w").get<float>(), j.at("x").get<float>(),
+                              j.at("y").get<float>(), j.at("z").get<float>());
+}
+
+// ── JSON ────────────────────────────────────────────────────────────────────
+
+nlohmann::json KinematicState::serializeJson() const {
+    return {
+        {"schema_version",       1},
+        {"type",                 "KinematicState"},
+        {"time_sec",             _time_sec},
+        {"position", {
+            {"latitude_rad",  _positionDatum.latitudeGeodetic_rad()},
+            {"longitude_rad", _positionDatum.longitude_rad()},
+            {"altitude_m",    _positionDatum.height_WGS84_m()}
+        }},
+        {"velocity_NED_mps",     vec3ToJson(_velocity_NED_mps)},
+        {"acceleration_NED_mps", vec3ToJson(_acceleration_NED_mps)},
+        {"q_nw",                 quatToJson(_q_nw)},
+        {"q_nb",                 quatToJson(_q_nb)},
+        {"rates_body_rps",       vec3ToJson(_rates_Body_rps)},
+        {"wind_NED_mps",         vec3ToJson(_wind_NED_mps)},
+        {"alpha_rad",            _alpha_rad},
+        {"beta_rad",             _beta_rad},
+        {"alpha_dot_rps",        _alphaDot_rps},
+        {"beta_dot_rps",         _betaDot_rps},
+        {"roll_rate_wind_rps",   _rollRate_Wind_rps}
+    };
+}
+
+void KinematicState::deserializeJson(const nlohmann::json& j) {
+    if (j.at("schema_version").get<int>() != 1)
+        throw std::runtime_error("KinematicState::deserializeJson: unsupported schema_version");
+
+    const auto& pos = j.at("position");
+    _time_sec = j.at("time_sec").get<double>();
+    _positionDatum.setLatitudeGeodetic_rad(pos.at("latitude_rad").get<double>());
+    _positionDatum.setLongitude_rad(pos.at("longitude_rad").get<double>());
+    _positionDatum.setHeight_WGS84_m(pos.at("altitude_m").get<float>());
+    _velocity_NED_mps     = vec3FromJson(j.at("velocity_NED_mps"));
+    _acceleration_NED_mps = vec3FromJson(j.at("acceleration_NED_mps"));
+    _q_nw                 = quatFromJson(j.at("q_nw"));
+    _q_nb                 = quatFromJson(j.at("q_nb"));
+    _rates_Body_rps       = vec3FromJson(j.at("rates_body_rps"));
+    _wind_NED_mps         = vec3FromJson(j.at("wind_NED_mps"));
+    _alpha_rad            = j.at("alpha_rad").get<float>();
+    _beta_rad             = j.at("beta_rad").get<float>();
+    _alphaDot_rps         = j.at("alpha_dot_rps").get<float>();
+    _betaDot_rps          = j.at("beta_dot_rps").get<float>();
+    _rollRate_Wind_rps    = j.at("roll_rate_wind_rps").get<float>();
+}
+
+// ── Proto ────────────────────────────────────────────────────────────────────
+
+static void fillVec3(las_proto::Vector3f* msg, const Eigen::Vector3f& v) {
+    msg->set_x(v.x()); msg->set_y(v.y()); msg->set_z(v.z());
+}
+
+static void fillQuat(las_proto::Quaternionf* msg, const Eigen::Quaternionf& q) {
+    msg->set_w(q.w()); msg->set_x(q.x()); msg->set_y(q.y()); msg->set_z(q.z());
+}
+
+std::vector<uint8_t> KinematicState::serializeProto() const {
+    las_proto::KinematicState msg;
+    msg.set_schema_version(1);
+    msg.set_time_sec(_time_sec);
+
+    auto* pos = msg.mutable_position();
+    pos->set_latitude_rad(_positionDatum.latitudeGeodetic_rad());
+    pos->set_longitude_rad(_positionDatum.longitude_rad());
+    pos->set_altitude_m(_positionDatum.height_WGS84_m());
+
+    fillVec3(msg.mutable_velocity_ned_mps(),     _velocity_NED_mps);
+    fillVec3(msg.mutable_acceleration_ned_mps(), _acceleration_NED_mps);
+    fillQuat(msg.mutable_q_nw(),                 _q_nw);
+    fillQuat(msg.mutable_q_nb(),                 _q_nb);
+    fillVec3(msg.mutable_rates_body_rps(),        _rates_Body_rps);
+    fillVec3(msg.mutable_wind_ned_mps(),          _wind_NED_mps);
+
+    msg.set_alpha_rad(_alpha_rad);
+    msg.set_beta_rad(_beta_rad);
+    msg.set_alpha_dot_rps(_alphaDot_rps);
+    msg.set_beta_dot_rps(_betaDot_rps);
+    msg.set_roll_rate_wind_rps(_rollRate_Wind_rps);
+
+    std::string buf;
+    msg.SerializeToString(&buf);
+    return {buf.begin(), buf.end()};
+}
+
+void KinematicState::deserializeProto(const std::vector<uint8_t>& bytes) {
+    las_proto::KinematicState msg;
+    if (!msg.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())))
+        throw std::runtime_error("KinematicState::deserializeProto: parse failed");
+    if (msg.schema_version() != 1)
+        throw std::runtime_error("KinematicState::deserializeProto: unsupported schema_version");
+
+    const auto& pos = msg.position();
+    const auto& v   = msg.velocity_ned_mps();
+    const auto& a   = msg.acceleration_ned_mps();
+    const auto& qnw = msg.q_nw();
+    const auto& qnb = msg.q_nb();
+    const auto& r   = msg.rates_body_rps();
+    const auto& w   = msg.wind_ned_mps();
+
+    _time_sec = msg.time_sec();
+    _positionDatum.setLatitudeGeodetic_rad(pos.latitude_rad());
+    _positionDatum.setLongitude_rad(pos.longitude_rad());
+    _positionDatum.setHeight_WGS84_m(pos.altitude_m());
+    _velocity_NED_mps     = {v.x(), v.y(), v.z()};
+    _acceleration_NED_mps = {a.x(), a.y(), a.z()};
+    _q_nw                 = Eigen::Quaternionf(qnw.w(), qnw.x(), qnw.y(), qnw.z());
+    _q_nb                 = Eigen::Quaternionf(qnb.w(), qnb.x(), qnb.y(), qnb.z());
+    _rates_Body_rps       = {r.x(), r.y(), r.z()};
+    _wind_NED_mps         = {w.x(), w.y(), w.z()};
+    _alpha_rad            = msg.alpha_rad();
+    _beta_rad             = msg.beta_rad();
+    _alphaDot_rps         = msg.alpha_dot_rps();
+    _betaDot_rps          = msg.beta_dot_rps();
+    _rollRate_Wind_rps    = msg.roll_rate_wind_rps();
 }

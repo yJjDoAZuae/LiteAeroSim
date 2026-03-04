@@ -26,6 +26,7 @@ enable_testing()
 #   nlohmann_json    | v3.12.0                                  | MIT          | FetchContent (1a)
 #   googletest       | v1.17.0                                  | BSD-3-Clause | FetchContent (1a)
 #   trochoids        | 38d23eb3346737fe9d6e9ff57c742113e29dfe4f | Clear BSD    | FetchContent (1b)
+#   protobuf         | v3.21.12                                 | BSD-3-Clause | find_package + FetchContent (1a)
 # ---------------------------------------------------------------------------
 include(FetchContent)
 
@@ -96,8 +97,24 @@ if(NOT trochoids_POPULATED)
     )
 endif()
 
+# --- protobuf v3.21.12 (BSD-3-Clause) — binary serialization ---
+# v3.21.x is the last pre-abseil release; avoids pulling in ~30 abseil targets.
+# Prefer a system installation (e.g. MSYS2 pacman); fall back to FetchContent.
+find_package(Protobuf QUIET)
+if(NOT Protobuf_FOUND)
+    FetchContent_Declare(
+        protobuf
+        GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+        GIT_TAG        v3.21.12
+    )
+    set(protobuf_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(protobuf)
+endif()
+
 # ---------------------------------------------------------------------------
 # Subdirectories
 # ---------------------------------------------------------------------------
+add_subdirectory(proto)
 add_subdirectory(src)
 add_subdirectory(test)

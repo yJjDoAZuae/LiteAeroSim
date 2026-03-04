@@ -1,0 +1,73 @@
+syntax = "proto3";
+package las_proto;
+
+// ---------------------------------------------------------------------------
+// Supporting scalar types
+// ---------------------------------------------------------------------------
+
+message Vector3f {
+    float x = 1;
+    float y = 2;
+    float z = 3;
+}
+
+message Quaternionf {
+    float w = 1;
+    float x = 2;
+    float y = 3;
+    float z = 4;
+}
+
+message WGS84Datum {
+    double latitude_rad  = 1;
+    double longitude_rad = 2;
+    float  altitude_m    = 3;
+}
+
+// ---------------------------------------------------------------------------
+// KinematicState snapshot — all 14 primary state fields
+// ---------------------------------------------------------------------------
+message KinematicState {
+    int32       schema_version       = 1;
+    double      time_sec             = 2;
+    WGS84Datum  position             = 3;
+    Vector3f    velocity_ned_mps     = 4;
+    Vector3f    acceleration_ned_mps = 5;
+    Quaternionf q_nw                 = 6;
+    Quaternionf q_nb                 = 7;
+    Vector3f    rates_body_rps       = 8;
+    Vector3f    wind_ned_mps         = 9;
+    float       alpha_rad            = 10;
+    float       beta_rad             = 11;
+    float       alpha_dot_rps        = 12;
+    float       beta_dot_rps         = 13;
+    float       roll_rate_wind_rps   = 14;
+}
+
+// ---------------------------------------------------------------------------
+// LiftCurveModel — configuration parameters only (model is stateless)
+// ---------------------------------------------------------------------------
+message LiftCurveParams {
+    int32 schema_version        = 1;
+    float cl_alpha              = 2;
+    float cl_max                = 3;
+    float cl_min                = 4;
+    float delta_alpha_stall     = 5;
+    float delta_alpha_stall_neg = 6;
+    float cl_sep                = 7;
+    float cl_sep_neg            = 8;
+}
+
+// ---------------------------------------------------------------------------
+// LoadFactorAllocator — configuration + Newton warm-start state
+// Note: the LiftCurveModel reference (_lift) is NOT included; callers must
+// construct LoadFactorAllocator with a matching LiftCurveModel before calling
+// deserializeProto().
+// ---------------------------------------------------------------------------
+message LoadFactorAllocatorState {
+    int32 schema_version = 1;
+    float s_ref_m2       = 2;
+    float cl_y_beta      = 3;
+    float alpha_prev_rad = 4;
+    float beta_prev_rad  = 5;
+}

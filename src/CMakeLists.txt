@@ -34,6 +34,7 @@ target_link_libraries(liteaerosim
         Eigen3::Eigen
         nlohmann_json::nlohmann_json
         trochoids
+        liteaerosim_proto
 )
 
 target_compile_features(liteaerosim PUBLIC cxx_std_17)

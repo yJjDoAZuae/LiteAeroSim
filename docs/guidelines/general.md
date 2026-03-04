@@ -112,16 +112,26 @@ Every dynamic element (any object with internal state that evolves over time) mu
 - Enables reproducible testing with fixed initial conditions.
 - Enables inter-process or inter-language data exchange.
 
+### Two Required Formats
+
+Every serializable class must support both formats:
+
+| Format | Library | Method names | Use case |
+|--------|---------|--------------|----------|
+| JSON | nlohmann/json | `serializeJson()` / `deserializeJson(j)` | Human-readable state files, config, debugging, inter-language exchange |
+| Binary | Protocol Buffers v3 | `serializeProto()` → `std::vector<uint8_t>` / `deserializeProto(bytes)` | Efficient checkpointing, high-frequency logging, IPC |
+
+Proto message definitions live in `proto/liteaerosim.proto`. Generated types must not appear in public headers — the `std::vector<uint8_t>` interface keeps the public API format-agnostic. Include generated headers (`liteaerosim.pb.h`) only in `.cpp` files.
+
 ### Rules
 
-- Serialized format is **JSON** by default for human-readable interchange; binary formats are acceptable for performance-critical logging.
 - Serialized representations use SI units — never convert to other units in serialized output.
-- Every serializable class must implement:
-  - `serialize()` — returns a complete snapshot of internal state.
-  - `deserialize(data)` — restores state from a snapshot; validates schema version.
-- Serialization must be round-trip lossless (serialize then deserialize must yield identical state).
-- A schema version field is included in all serialized output to support forward compatibility.
-- Serialization interfaces are covered by dedicated round-trip unit tests.
+- Every serializable class must implement the four methods above.
+- Serialization must be round-trip lossless (serialize then deserialize must yield identical state) for both formats.
+- A `schema_version` field (integer) is included in all serialized output. Deserialize throws `std::runtime_error` on version mismatch.
+- Serialization interfaces are covered by dedicated round-trip unit tests for both formats.
+- `DynamicBlock` subclasses use the NVI pattern (`onSerialize`/`onDeserialize`) for the JSON format; the base class injects `schema_version` and `type`. See [docs/architecture/dynamic_block.md](../architecture/dynamic_block.md) for details.
+- Non-`DynamicBlock` classes (e.g., `KinematicState`, `LiftCurveModel`, `LoadFactorAllocator`) add the four methods as plain public member functions. Stateless classes use a static factory for deserialization: `static T deserializeJson(const nlohmann::json&)`.
 
 ---
 

@@ -139,7 +139,13 @@
       "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\build\\\\test\\\\liteaerosim_test.exe --gtest_filter=LiftCurveModelTest.*:AllocatorFixture.* 2>&1\")",
       "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\build\\\\test\\\\liteaerosim_test.exe --gtest_filter=LiftCurveModelTest.* 2>&1\")",
       "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\build\\\\test\\\\liteaerosim_test.exe --gtest_filter=KinematicStateTest.* 2>&1\")",
-      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\build\\\\test\\\\liteaerosim_test.exe 2>&1\")"
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && C:\\\\Users\\\\Alex\\\\avraero\\\\LiteAeroSim\\\\build\\\\test\\\\liteaerosim_test.exe 2>&1\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && cmake -B build -G \"\"MinGW Makefiles\"\" -DCMAKE_C_COMPILER=C:/msys64/ucrt64/bin/gcc.exe -DCMAKE_CXX_COMPILER=C:/msys64/ucrt64/bin/g++.exe 2>&1\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && cmake --build build --target liteaerosim_proto 2>&1\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && cmake --build build --target liteaerosim 2>&1\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && cmake --build build 2>&1\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && build\\\\test\\\\liteaerosim_test.exe --gtest_filter=*Serialization* 2>&1\")",
+      "Bash(cmd.exe /c \"set PATH=C:\\\\msys64\\\\ucrt64\\\\bin;%PATH% && build\\\\test\\\\liteaerosim_test.exe 2>&1\")"
     ]
   }
 }

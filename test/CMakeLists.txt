@@ -30,9 +30,12 @@ target_compile_features(liteaerosim_test PRIVATE cxx_std_17)
 # Eigen3::Eigen and nlohmann_json::nlohmann_json are listed explicitly here
 # so that test files may include their headers directly (e.g. for test fixtures
 # that construct Eigen matrices or JSON objects directly).
+# liteaerosim_proto is listed explicitly to resolve proto symbols used inside
+# the liteaerosim static library (proto dep is PRIVATE to liteaerosim).
 target_link_libraries(liteaerosim_test
     PRIVATE
         liteaerosim
+        liteaerosim_proto
         GTest::gtest_main
         Eigen3::Eigen
         nlohmann_json::nlohmann_json

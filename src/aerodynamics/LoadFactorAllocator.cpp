@@ -1,5 +1,7 @@
 #include "aerodynamics/LoadFactorAllocator.hpp"
+#include "liteaerosim.pb.h"
 #include <cmath>
+#include <stdexcept>
 
 LoadFactorAllocator::LoadFactorAllocator(const LiftCurveModel& liftCurve,
                                          float S_ref_m2,
@@ -107,4 +109,52 @@ LoadFactorOutputs LoadFactorAllocator::solve(const LoadFactorInputs& in) {
     }
 
     return {alpha, beta, _lift.classify(alpha), alphaDot, betaDot};
+}
+
+// ── Serialization ─────────────────────────────────────────────────────────────
+
+nlohmann::json LoadFactorAllocator::serializeJson() const {
+    return {
+        {"schema_version",  1},
+        {"type",            "LoadFactorAllocator"},
+        {"s_ref_m2",        _S},
+        {"cl_y_beta",       _cl_y_beta},
+        {"alpha_prev_rad",  _alpha_prev},
+        {"beta_prev_rad",   _beta_prev},
+    };
+}
+
+void LoadFactorAllocator::deserializeJson(const nlohmann::json& j) {
+    if (j.at("schema_version").get<int>() != 1) {
+        throw std::runtime_error("LoadFactorAllocator::deserializeJson: unsupported schema_version");
+    }
+    _S          = j.at("s_ref_m2").get<float>();
+    _cl_y_beta  = j.at("cl_y_beta").get<float>();
+    _alpha_prev = j.at("alpha_prev_rad").get<float>();
+    _beta_prev  = j.at("beta_prev_rad").get<float>();
+}
+
+std::vector<uint8_t> LoadFactorAllocator::serializeProto() const {
+    las_proto::LoadFactorAllocatorState proto;
+    proto.set_schema_version(1);
+    proto.set_s_ref_m2(_S);
+    proto.set_cl_y_beta(_cl_y_beta);
+    proto.set_alpha_prev_rad(_alpha_prev);
+    proto.set_beta_prev_rad(_beta_prev);
+    const std::string s = proto.SerializeAsString();
+    return std::vector<uint8_t>(s.begin(), s.end());
+}
+
+void LoadFactorAllocator::deserializeProto(const std::vector<uint8_t>& bytes) {
+    las_proto::LoadFactorAllocatorState proto;
+    if (!proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()))) {
+        throw std::runtime_error("LoadFactorAllocator::deserializeProto: failed to parse bytes");
+    }
+    if (proto.schema_version() != 1) {
+        throw std::runtime_error("LoadFactorAllocator::deserializeProto: unsupported schema_version");
+    }
+    _S          = proto.s_ref_m2();
+    _cl_y_beta  = proto.cl_y_beta();
+    _alpha_prev = proto.alpha_prev_rad();
+    _beta_prev  = proto.beta_prev_rad();
 }

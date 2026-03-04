@@ -24,7 +24,7 @@ This file provides Claude Code with the project's development standards. Read th
 2. **TDD** — Write a failing test before writing production code.
 2. **SI units** — All stored values are meters, radians, seconds, kilograms, newtons. No exceptions inside the domain layer.
 3. **Unit conversion** — Only at the outermost interface (display, config file parsing). Never inside computation code.
-4. **Serialization** — Every stateful dynamic component implements `serialize()` and `deserialize()`. Round-trip test is required.
+4. **Serialization** — Every stateful class implements both `serializeJson()`/`deserializeJson()` (nlohmann/json) and `serializeProto()`/`deserializeProto()` (protobuf v3). Round-trip tests are required for both formats.
 5. **Naming** — Names are self-documenting. Abbreviations and Hungarian notation are forbidden. Encode units in names when not obvious from context.
 6. **No backward compatibility** — This codebase is not legacy code and must not be treated as such. Do not add forwarding shims, deprecated aliases, compatibility wrappers, or any other construct whose sole purpose is to preserve an old interface. When an API changes, update all call sites directly. When code is removed, remove it completely.
 7. **American English** — Use American spellings in all comments, documentation, identifiers, and string literals (e.g. "color" not "colour", "serialize" not "serialise").
@@ -102,12 +102,15 @@ cmake/               CMake helpers
 | Source available, no CMake | Git submodule under `extern/`, write a CMake wrapper |
 | Binary-only (no source available) | Vendor under `libs/` with a CMake `IMPORTED` target — last resort |
 
+**CMake and Python (uv) configurations must assume a clean base system** — do not rely on system-installed libraries or tools beyond what the toolchain provides. Use `FetchContent` for C++ dependencies so that the build works without any pre-installed packages. Use `uv` for Python so that the virtual environment is self-contained.
+
 **Current dependencies:**
 
 | Library | Version | License | Method |
 |---|---|---|---|
-| googletest | v1.14.0 | BSD-3-Clause | FetchContent |
-| nlohmann_json | v3.11.3 | MIT | FetchContent |
+| googletest | v1.17.0 | BSD-3-Clause | FetchContent |
+| nlohmann_json | v3.12.0 | MIT | FetchContent |
+| protobuf | v3.21.12 | BSD-3-Clause | `find_package` + FetchContent fallback |
 | trochoids | 38d23eb | Clear BSD | FetchContent (source from castacks/trochoids; bypasses catkin CMakeLists) |
 
 ---

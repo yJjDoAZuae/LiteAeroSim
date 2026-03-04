@@ -369,6 +369,27 @@ void DynamicBlock::deserialize(const nlohmann::json& state) {
 }
 ```
 
+### Serialization for Non-DynamicBlock Classes
+
+Classes that carry simulation state but do not derive from `DynamicBlock` (e.g., `KinematicState`, `LiftCurveModel`, `LoadFactorAllocator`) do not use the NVI pattern. They add the following plain public member functions:
+
+```cpp
+nlohmann::json       serializeJson()                              const;
+void                 deserializeJson(const nlohmann::json&        j);   // or static factory
+
+std::vector<uint8_t> serializeProto()                            const;
+void                 deserializeProto(const std::vector<uint8_t>& bytes); // or static factory
+```
+
+The same `schema_version` and round-trip requirements apply. Stateless classes (e.g., `LiftCurveModel`) use a static factory for deserialization because reconstruction must go through the constructor:
+
+```cpp
+static LiftCurveModel deserializeJson(const nlohmann::json&        j);
+static LiftCurveModel deserializeProto(const std::vector<uint8_t>& bytes);
+```
+
+Proto types are never exposed in public headers. Include `liteaerosim.pb.h` only in `.cpp` files; the public interface passes `std::vector<uint8_t>`.
+
 ---
 
 ## Logging Interface
@@ -524,7 +545,7 @@ flowchart TD
 |---|---|---|
 | NVI for public API | Pure virtual public methods | Base class can enforce logging, schema checks, in_/out_ recording without subclass cooperation |
 | `dt_s` in `initialize()` config, not `step()` | Pass `dt_s` per call | Fixed-rate simulation; filter coefficients precomputed at init; `step(u)` aligns cleanly with `SISOBlock::step(u)`; eliminates `setDt()` anti-pattern |
-| JSON serialization | Binary / protobuf | Human-readable; schema-versioned; works across C++ and Python analysis tools |
+| JSON + protobuf serialization | JSON only or protobuf only | JSON for human-readable interchange and cross-language analysis; protobuf for high-frequency logging and IPC. Both formats required for every serializable class. |
 | Two-tier (`SISOBlock` + `DynamicBlock`) | Single base with full lifecycle | Composable primitives embedded in a parent (e.g. `Limit` inside `SISOPIDFF`) don't need standalone lifecycle; avoids bloated interface |
 | `Limit`/`RateLimit` as `DynamicLimitBlock` | Tier 1 primitive only | Used both standalone (with full lifecycle) and embedded inside controllers |
 | `SISOPIDFF`/`ControlLoop` lifecycle by convention | Shared `ILifecycle` base | Multi-input controllers can't satisfy `SISOBlock`; too few classes to justify a shared enforcing base |

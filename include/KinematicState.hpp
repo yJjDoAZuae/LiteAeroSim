@@ -6,6 +6,9 @@
 
 #include "navigation/WGS84.hpp"
 #include <Eigen/Dense>
+#include <nlohmann/json.hpp>
+#include <cstdint>
+#include <vector>
 
 typedef Eigen::Vector3f EulerAngles;
 typedef Eigen::Vector3f EulerRates;
@@ -124,6 +127,12 @@ public:
 
     static Eigen::Vector3f EulerRatesToBodyRates(const EulerAngles& ang, const EulerRates& rates);
     static EulerRates BodyRatesToEulerRates(const EulerAngles& ang, const Eigen::Vector3f& rates);
+
+    // Serialization
+    nlohmann::json       serializeJson()                              const;
+    void                 deserializeJson(const nlohmann::json&        j);
+    std::vector<uint8_t> serializeProto()                            const;
+    void                 deserializeProto(const std::vector<uint8_t>& bytes);
 
 protected:
 

@@ -3,6 +3,9 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <stdexcept>
+#include <nlohmann/json.hpp>
+#include <vector>
+#include <cstdint>
 
 // Symmetric general-aviation lift curve parameters
 //   cl_alpha          = 5.73   rad^-1
@@ -298,4 +301,49 @@ TEST(LiftCurveModelTest, SymmetryForSymmetricParams) {
         EXPECT_NEAR(m.evaluate(-a), -m.evaluate(a),     1e-4f) << "at alpha = " << a;
         EXPECT_NEAR(m.derivative(-a), m.derivative(a),  1e-4f) << "at alpha = " << a;
     }
+}
+
+// ── Serialization ─────────────────────────────────────────────────────────────
+
+static const float kAlphaTest1 =  0.05f;  // linear region
+static const float kAlphaTest2 =  0.22f;  // post-stall positive
+static const float kAlphaTest3 = -0.15f;  // linear region negative
+
+TEST(LiftCurveModelSerializationTest, JsonRoundTrip) {
+    LiftCurveModel original(gaParams());
+    const nlohmann::json j = original.serializeJson();
+    const LiftCurveModel restored = LiftCurveModel::deserializeJson(j);
+    EXPECT_NEAR(restored.evaluate(kAlphaTest1), original.evaluate(kAlphaTest1), 1e-5f);
+    EXPECT_NEAR(restored.evaluate(kAlphaTest2), original.evaluate(kAlphaTest2), 1e-5f);
+    EXPECT_NEAR(restored.evaluate(kAlphaTest3), original.evaluate(kAlphaTest3), 1e-5f);
+}
+
+TEST(LiftCurveModelSerializationTest, JsonSchemaVersionMismatchThrows) {
+    LiftCurveModel m(gaParams());
+    nlohmann::json j = m.serializeJson();
+    j["schema_version"] = 99;
+    EXPECT_THROW(LiftCurveModel::deserializeJson(j), std::runtime_error);
+}
+
+TEST(LiftCurveModelSerializationTest, ProtoRoundTrip) {
+    LiftCurveModel original(gaParams());
+    const std::vector<uint8_t> bytes = original.serializeProto();
+    const LiftCurveModel restored = LiftCurveModel::deserializeProto(bytes);
+    EXPECT_NEAR(restored.evaluate(kAlphaTest1), original.evaluate(kAlphaTest1), 1e-4f);
+    EXPECT_NEAR(restored.evaluate(kAlphaTest2), original.evaluate(kAlphaTest2), 1e-4f);
+    EXPECT_NEAR(restored.evaluate(kAlphaTest3), original.evaluate(kAlphaTest3), 1e-4f);
+}
+
+TEST(LiftCurveModelSerializationTest, ProtoSchemaVersionMismatchThrows) {
+    LiftCurveModel m(gaParams());
+    std::vector<uint8_t> bytes = m.serializeProto();
+    // Corrupt: modify schema_version field (field 1, varint, tag = 0x08) to value 99.
+    // Proto3 encoding: tag 0x08 followed by the value varint.
+    for (std::size_t i = 0; i + 1 < bytes.size(); ++i) {
+        if (bytes[i] == 0x08) {
+            bytes[i + 1] = 99;
+            break;
+        }
+    }
+    EXPECT_THROW(LiftCurveModel::deserializeProto(bytes), std::runtime_error);
 }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "aerodynamics/LiftCurveModel.hpp"
+#include <cstdint>
+#include <vector>
 
 // Inputs to the load-factor allocator for a single solve() call.
 struct LoadFactorInputs {
@@ -43,6 +45,15 @@ public:
 
     // Reset warm-start state; call before a discontinuous change in demand.
     void reset(float alpha0_rad = 0.0f, float beta0_rad = 0.0f);
+
+    // Serialization.  Note: _lift reference is NOT serialized.  Callers must
+    // construct LoadFactorAllocator with the matching LiftCurveModel before
+    // calling deserialize.
+    nlohmann::json       serializeJson()                              const;
+    void                 deserializeJson(const nlohmann::json&        j);
+
+    std::vector<uint8_t> serializeProto()                            const;
+    void                 deserializeProto(const std::vector<uint8_t>& bytes);
 
 private:
     const LiftCurveModel& _lift;
