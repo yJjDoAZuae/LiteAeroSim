@@ -54,8 +54,7 @@ KinematicState::KinematicState(double time_sec,
                float beta,
                float alphaDot,
                float betaDot,
-               float windSpeed_mps,
-               float windDirFrom_rad)
+               const Eigen::Vector3f &wind_NED_mps)
     : _time_sec(time_sec),
       _positionDatum(position_datum),
       _velocity_NED_mps(velocity_NED_mps),
@@ -63,8 +62,7 @@ KinematicState::KinematicState(double time_sec,
       _q_nw(q_nw),
       _q_nb(Eigen::Quaternionf::Identity()),
       _rates_Body_rps(Eigen::Vector3f::Zero()),
-      _wind_NED_mps(-windSpeed_mps * Eigen::Vector3f(std::cos(windDirFrom_rad),
-                                                      std::sin(windDirFrom_rad), 0.f)),
+      _wind_NED_mps(wind_NED_mps),
       _alpha_rad(alpha),
       _beta_rad(beta),
       _alphaDot_rps(alphaDot),
@@ -244,8 +242,7 @@ void KinematicState::step(double time_sec,
               float beta,
               float alphaDot,
               float betaDot,
-              float windSpeed_mps,
-              float windDirFrom_rad)
+              const Eigen::Vector3f &wind_NED_mps)
 {
     const float smallV(0.1);
 
@@ -261,8 +258,7 @@ void KinematicState::step(double time_sec,
     _rollRate_Wind_rps = rollRate_Wind_rps;
 
     // update stored wind
-    _wind_NED_mps = -windSpeed_mps * Eigen::Vector3f(std::cos(windDirFrom_rad),
-                                                      std::sin(windDirFrom_rad), 0.f);
+    _wind_NED_mps = wind_NED_mps;
 
     // save the previous frame rotations
     Eigen::Quaternionf local_q_nv(this->q_nv());

@@ -5,41 +5,7 @@ failing test before writing production code.
 
 ---
 
-## 1. 3D Wind Support
-
-The current wind model is 2D (horizontal only): `windSpeed_mps` + `windDirFrom_rad`
-always sets `_wind_NED_mps[2] = 0`.  Updrafts, downdrafts, and turbulence require a
-full 3D wind vector.
-
-**Change:** Replace the `windSpeed_mps` / `windDirFrom_rad` pair in both the constructor
-and `step()` with a single `Eigen::Vector3f wind_NED_mps` parameter.  Update all call
-sites.  The 2D convenience conversion can live in a utility function at the interface
-layer if needed.
-
----
-
-## 2. LoadFactorAllocator — AeroPerformance Integration
-
-`LoadFactorAllocator` solves for α and β given commanded load factors, but is not yet
-wired to any upstream controller or downstream force model.  The intended data flow is:
-
-```
-FlightController
-    → load factors (n, n_y)
-LoadFactorAllocator::solve()
-    → (α, β, stall)
-AeroPerformance (forces from α, β, q_inf)
-    → acceleration_Wind_mps
-KinematicState::step()
-    → updated position / velocity / attitude
-```
-
-The `AeroPerformance` class needs to be designed or extended to consume α and β from
-`LoadFactorAllocator` rather than computing them internally.
-
----
-
-## 3. Higher-Order Integration
+## 1. Higher-Order Integration
 
 `KinematicState::step()` uses forward Euler for velocity and first-order position
 integration.  For scenarios requiring long-horizon accuracy (e.g., trajectory planning
@@ -48,7 +14,7 @@ priority for the current point-mass model.
 
 ---
 
-## 4. JSON Parameter Schema
+## 2. JSON Parameter Schema
 
 Define a JSON schema for initialization of the simulation model from a configuration file.
 The schema covers only parameters that are currently known to be used by the model; extend
@@ -86,8 +52,9 @@ it as new functionality is designed and implemented.
 | `velocity_north_mps` | float | m/s | Initial northward velocity component |
 | `velocity_east_mps` | float | m/s | Initial eastward velocity component |
 | `velocity_down_mps` | float | m/s | Initial downward velocity component |
-| `wind_speed_mps` | float | m/s | Horizontal wind speed |
-| `wind_dir_from_rad` | float | rad | Wind direction (meteorological from-direction) |
+| `wind_north_mps` | float | m/s | NED-north wind component (positive = northward) |
+| `wind_east_mps` | float | m/s | NED-east wind component (positive = eastward) |
+| `wind_down_mps` | float | m/s | NED-down wind component (positive = downward; negative = updraft) |
 
 ### Top-Level Schema Structure
 

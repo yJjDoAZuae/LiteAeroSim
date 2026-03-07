@@ -1,44 +1,71 @@
 #pragma once
 
-#include "airframe/AirframePerformance.hpp"
+#include <cstdint>
+#include <vector>
+#include <nlohmann/json.hpp>
 
-// Aerodynamic performance model for the aircraft
-// determines load factor and roll rate capabilities at each iteration
+namespace liteaerosim::aerodynamics {
 
-class AeroPerformance {
-
-    public:
-
-        float CLmax; // maximum lift coefficient in the wind Z axis
-        float CLmin; // minimum lift coefficient in the wind Z axis
-        float Cmxmax; // maximum roll moment coefficient in the wind X axis
-        float Cmymax; // maximum pitch moment coefficient in the wind Y axis
-
-        float Sref; // reference area in m^2
-        float bref; // wingspan in m
-        float cref; // mean aerodynamic chord in m
-        
-        float E; // Oswald efficiency factor
-        float CD0; // zero-lift drag coefficient
-
-        float AR() const;
-        float K() const;
-        float CDi(float CL) const;
-        float CL(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
-        float CLalpha(float rho, float V) const;
-        float CD(float CL) const;
-
-        float Drag(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
-        float Lift(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const;
-
-        static float q(float V, float rho);
-        static float beta(float rho, float V); // prandtl-glauert factor
-        static float EAS(float TAS, float rho);
-        static float EAS2TAS(float EAS, float rho);
-        static float Mach(float TAS);
-
-        static const float rhoSL;
-        static const float a_Mach; // speed of sound at sea level in m/s
-        static const float g; // standard gravity in m/s^2
-
+// Wind-frame aerodynamic forces (SI units: Newtons).
+// Sign convention (NED-wind frame, X forward, Y right, Z down):
+//   x_n — drag force: negative (opposes motion)
+//   y_n — side force: positive right
+//   z_n — lift force: negative (lift acts upward, opposing positive Z)
+struct AeroForces {
+    float x_n = 0.f;
+    float y_n = 0.f;
+    float z_n = 0.f;
 };
+
+// Stateless aerodynamic force model for the simple drag-polar + lateral-force model.
+//
+// Normal force equation (z-axis, wind frame):
+//   Fz = -q · S · CL          (lift upward = negative wind Z)
+//
+// Drag polar (x-axis, wind frame):
+//   CDi = k · CL²             (k = 1 / (π · e · AR))
+//   CD  = CD0 + CDi
+//   Fx  = -q · S · CD         (drag opposes motion = negative wind X)
+//
+// Lateral force (y-axis, wind frame):
+//   CY  = C_Yβ · β
+//   Fy  =  q · S · CY
+//
+// Construct once per aircraft configuration.
+class AeroPerformance {
+public:
+    // S_ref_m2  — reference wing area (m²)
+    // ar        — aspect ratio b²/S
+    // e         — Oswald efficiency factor (0 < e ≤ 1)
+    // cd0       — zero-lift drag coefficient
+    // cl_y_beta — lateral force slope C_Yβ (rad⁻¹, typically < 0)
+    AeroPerformance(float S_ref_m2, float ar, float e, float cd0, float cl_y_beta);
+
+    // Compute aerodynamic forces in the Wind frame.
+    //   alpha_rad — angle of attack (rad), from LoadFactorAllocator::solve()
+    //   beta_rad  — sideslip angle (rad), from LoadFactorAllocator::solve()
+    //   q_inf_pa  — dynamic pressure (Pa)
+    //   cl        — lift coefficient from LiftCurveModel::evaluate(alpha_rad)
+    AeroForces compute(float alpha_rad, float beta_rad, float q_inf_pa, float cl) const;
+
+    // Drag polar diagnostics
+    float cd0()           const { return _cd0; }
+    float inducedDragK()  const { return _k; }
+
+    // Serialization (stateless — serializes constructor parameters)
+    nlohmann::json        serializeJson()                               const;
+    static AeroPerformance deserializeJson(const nlohmann::json&        j);
+
+    std::vector<uint8_t>  serializeProto()                             const;
+    static AeroPerformance deserializeProto(const std::vector<uint8_t>& bytes);
+
+private:
+    float _S;           // reference wing area (m²)
+    float _ar;          // aspect ratio
+    float _e;           // Oswald efficiency
+    float _cd0;         // zero-lift drag coefficient
+    float _k;           // induced drag constant = 1 / (π · e · AR)
+    float _cl_y_beta;   // lateral force slope (rad⁻¹)
+};
+
+} // namespace liteaerosim::aerodynamics

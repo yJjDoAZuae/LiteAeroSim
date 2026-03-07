@@ -1,72 +1,81 @@
 #define _USE_MATH_DEFINES
-
 #include "aerodynamics/AeroPerformance.hpp"
-#include "math/math_util.hpp"
+#include "liteaerosim.pb.h"
 #include <cmath>
+#include <stdexcept>
 
-const float AeroPerformance::rhoSL = 1.225f; // sea level standard density in kg/m^3
-const float AeroPerformance::a_Mach = 340.29f; // speed of sound at sea level in m/s
-const float AeroPerformance::g = 9.81f; // standard gravity in m/s^2
+namespace liteaerosim::aerodynamics {
 
+AeroPerformance::AeroPerformance(float S_ref_m2, float ar, float e, float cd0, float cl_y_beta)
+    : _S(S_ref_m2), _ar(ar), _e(e), _cd0(cd0),
+      _k(1.f / (static_cast<float>(M_PI) * e * ar)),
+      _cl_y_beta(cl_y_beta)
+{}
 
-float AeroPerformance::AR() const {
-    return (bref * bref) / Sref;
-}
-
-float AeroPerformance::K() const {
-    return 1.0f / (M_PI * AR() * E);
-}
-
-float AeroPerformance::CDi(float CL) const {
-    return K() * CL * CL;
-}
-
-float AeroPerformance::CL(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const
+AeroForces AeroPerformance::compute(float /*alpha_rad*/, float beta_rad,
+                                    float q_inf_pa, float cl) const
 {
-    float L = MathUtil::clip(N, airframe.GMin, airframe.GMax) * mass_kg * g;
-    return MathUtil::clip(L / (q(V, rho) * Sref), CLmin, CLmax);
+    const float cdi = _k * cl * cl;
+    const float cd  = _cd0 + cdi;
+    const float cy  = _cl_y_beta * beta_rad;
+    const float qS  = q_inf_pa * _S;
+    return {-qS * cd, qS * cy, -qS * cl};
 }
 
-// CD
-float AeroPerformance::CD(float CL) const
-{
-    return CD0 + CDi(CL);
+// ── Serialization ──────────────────────────────────────────────────────────────
+
+nlohmann::json AeroPerformance::serializeJson() const {
+    return {
+        {"schema_version", 1},
+        {"type",           "AeroPerformance"},
+        {"s_ref_m2",       _S},
+        {"ar",             _ar},
+        {"e",              _e},
+        {"cd0",            _cd0},
+        {"cl_y_beta",      _cl_y_beta},
+    };
 }
 
-// this is a total drag
-float AeroPerformance::Drag(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const
-{
-    float i_CD = CD(CL(V,rho,N,mass_kg,airframe));
-
-    return i_CD * q(V,rho) * Sref;
+AeroPerformance AeroPerformance::deserializeJson(const nlohmann::json& j) {
+    if (j.at("schema_version").get<int>() != 1) {
+        throw std::runtime_error("AeroPerformance::deserializeJson: unsupported schema_version");
+    }
+    return AeroPerformance(
+        j.at("s_ref_m2").get<float>(),
+        j.at("ar").get<float>(),
+        j.at("e").get<float>(),
+        j.at("cd0").get<float>(),
+        j.at("cl_y_beta").get<float>()
+    );
 }
 
-float AeroPerformance::Lift(float V, float rho, float N, float mass_kg, AirframePerformance &airframe) const
-{
-    return CL(V,rho,N,mass_kg,airframe) * q(V,rho) * Sref;
+std::vector<uint8_t> AeroPerformance::serializeProto() const {
+    las_proto::AeroPerformanceParams proto;
+    proto.set_schema_version(1);
+    proto.set_s_ref_m2(_S);
+    proto.set_ar(_ar);
+    proto.set_e(_e);
+    proto.set_cd0(_cd0);
+    proto.set_cl_y_beta(_cl_y_beta);
+    const std::string s = proto.SerializeAsString();
+    return std::vector<uint8_t>(s.begin(), s.end());
 }
 
-// TODO: check this
-float AeroPerformance::CLalpha(float rho, float V) const {
-    return (2.0f * M_PI * AR()) / (2.0f + sqrt(4.0f + pow((AR() * beta(rho, V) / E), 2.0f))) * (Sref / q(V,rho));
+AeroPerformance AeroPerformance::deserializeProto(const std::vector<uint8_t>& bytes) {
+    las_proto::AeroPerformanceParams proto;
+    if (!proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()))) {
+        throw std::runtime_error("AeroPerformance::deserializeProto: failed to parse bytes");
+    }
+    if (proto.schema_version() != 1) {
+        throw std::runtime_error("AeroPerformance::deserializeProto: unsupported schema_version");
+    }
+    return AeroPerformance(
+        proto.s_ref_m2(),
+        proto.ar(),
+        proto.e(),
+        proto.cd0(),
+        proto.cl_y_beta()
+    );
 }
 
-float AeroPerformance::q(float V, float rho) {
-    return 0.5f * rho * V * V;
-}
-
-float AeroPerformance::beta(float rho, float V) {
-    return sqrt(1 - Mach(V) * Mach(V));
-}
-
-float AeroPerformance::EAS(float TAS, float rho) {
-    return TAS * sqrt(rhoSL / rhoSL);
-}
-
-float AeroPerformance::EAS2TAS(float EAS, float rho) {
-    return EAS / sqrt(rhoSL / rhoSL);
-}
-
-float AeroPerformance::Mach(float TAS) {
-    return TAS / a_Mach;
-}
+} // namespace liteaerosim::aerodynamics

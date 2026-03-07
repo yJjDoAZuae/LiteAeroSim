@@ -11,12 +11,11 @@ static KinematicState makeState1(
     float rollRate_Wind_rps                  = 0.f,
     float alpha_rad                          = 0.f,
     float beta_rad                           = 0.f,
-    float windSpeed_mps                      = 0.f,
-    float windDirFrom_rad                    = 0.f)
+    const Eigen::Vector3f&  wind_NED_mps     = Eigen::Vector3f::Zero())
 {
     return KinematicState(0.0, WGS84_Datum(), vel_NED, accel_Wind,
                           q_nw, rollRate_Wind_rps, alpha_rad, beta_rad,
-                          0.f, 0.f, windSpeed_mps, windDirFrom_rad);
+                          0.f, 0.f, wind_NED_mps);
 }
 
 static Eigen::Quaternionf makeQwb(float alpha_rad, float beta_rad) {
@@ -82,7 +81,7 @@ TEST(KinematicStateTest, QnwChangesAfterRollStep) {
 
     const float rollRate = 0.1f;
     const float dt       = 0.1f;
-    s.step(dt, Eigen::Vector3f::Zero(), rollRate, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+    s.step(dt, Eigen::Vector3f::Zero(), rollRate, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
 
     // With zero acceleration diff_rot_n = Identity, so _q_nw = AngleAxisf(rollRate*dt, X).
     Eigen::AngleAxisf aa(s.q_nw());
@@ -95,7 +94,7 @@ TEST(KinematicStateTest, QnbEqualsQnwTimesQwb) {
     KinematicState s = makeState1();
 
     const float alpha = 0.1f, beta = 0.05f;
-    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, alpha, beta, 0.f, 0.f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, alpha, beta, 0.f, 0.f, Eigen::Vector3f::Zero());
 
     Eigen::Quaternionf expected_q_nb = s.q_nw() * makeQwb(alpha, beta);
     Eigen::Matrix3f diff = s.q_nb().toRotationMatrix() - expected_q_nb.toRotationMatrix();
@@ -113,13 +112,27 @@ TEST(KinematicStateTest, VelocityWindEqualsGroundSpeedZeroWind) {
 }
 
 TEST(KinematicStateTest, VelocityWindSubtractsWind) {
-    // Wind FROM north (dir=0) at 10 m/s → wind velocity in NED = [-10, 0, 0].
+    // Wind from north at 10 m/s → wind_NED_mps = [-10, 0, 0].
     // Aircraft flying north at 50 m/s → airspeed = 60 m/s (headwind).
     KinematicState s = makeState1({50.f, 0.f, 0.f}, Eigen::Vector3f::Zero(),
                                   Eigen::Quaternionf::Identity(), 0.f, 0.f, 0.f,
-                                  10.f, 0.f);
+                                  {-10.f, 0.f, 0.f});
     EXPECT_NEAR(s.velocity_Wind_mps().x(), 60.f, 1e-4f);
     EXPECT_NEAR(s.velocity_Wind_mps().y(),  0.f, 1e-4f);
+}
+
+TEST(KinematicStateTest, VelocityWindVerticalComponent) {
+    // Updraft of 3 m/s (wind moving upward — NED z is positive down, so upward = z < 0).
+    // wind_NED_mps = {0, 0, -3}: air is moving upward.
+    // Aircraft flying level north: v_NED = {50, 0, 0}.
+    // Airspeed in Wind frame: v_Wind = C_NW^T * (v_NED - wind_NED)
+    //   = Identity^T * ([50,0,0] - [0,0,-3]) = [50, 0, 3].
+    KinematicState s = makeState1({50.f, 0.f, 0.f}, Eigen::Vector3f::Zero(),
+                                  Eigen::Quaternionf::Identity(), 0.f, 0.f, 0.f,
+                                  {0.f, 0.f, -3.f});
+    EXPECT_NEAR(s.velocity_Wind_mps().x(), 50.f, 1e-4f);
+    EXPECT_NEAR(s.velocity_Wind_mps().y(),  0.f, 1e-4f);
+    EXPECT_NEAR(s.velocity_Wind_mps().z(),  3.f, 1e-4f);
 }
 
 TEST(KinematicStateTest, VelocityBodyNonZeroAlpha) {
@@ -204,7 +217,7 @@ TEST(KinematicStateTest, ZeroVelocityZeroPositionRate) {
 TEST(KinematicStateTest, PositionIntegration_LatitudeIncreases) {
     // 50 m/s northward, dt = 1 s → latitude increases by ≈ 50/R_N.
     KinematicState s = makeState1({50.f, 0.f, 0.f});
-    s.step(1.0, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+    s.step(1.0, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_GT(s.positionDatum().latitudeGeodetic_rad(), 0.0);
     EXPECT_NEAR(s.positionDatum().latitudeGeodetic_rad(), 50.0 / 6.3354e6, 1e-9);
 }
@@ -212,14 +225,14 @@ TEST(KinematicStateTest, PositionIntegration_LatitudeIncreases) {
 TEST(KinematicStateTest, PositionIntegration_ClimbIncreasesHeight) {
     // V_D = -10 m/s (climbing in NED convention), dt = 1 s → altitude ≈ +10 m.
     KinematicState s = makeState1({0.f, 0.f, -10.f});
-    s.step(1.0, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+    s.step(1.0, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_GT(s.positionDatum().height_WGS84_m(), 0.0f);
     EXPECT_NEAR(s.positionDatum().height_WGS84_m(), 10.0f, 0.1f);
 }
 
 TEST(KinematicStateTest, PositionIntegration_ZeroVelocityNoChange) {
     KinematicState s = makeState1(Eigen::Vector3f::Zero());
-    s.step(1.0, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+    s.step(1.0, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.positionDatum().latitudeGeodetic_rad(), 0.0, 1e-15);
     EXPECT_NEAR(s.positionDatum().longitude_rad(),        0.0, 1e-15);
     EXPECT_NEAR(s.positionDatum().height_WGS84_m(),       0.0f, 1e-10f);
@@ -328,7 +341,7 @@ TEST(KinematicStateTest, AlphaBetaStoredFromStep) {
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
     const float alpha_val = 0.2f, beta_val = 0.1f;
-    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, alpha_val, beta_val, 0.f, 0.f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, alpha_val, beta_val, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.alpha(), alpha_val, 1e-6f);
     EXPECT_NEAR(s.beta(),  beta_val,  1e-6f);
 }
@@ -340,8 +353,8 @@ TEST(KinematicStateTest, AlphaBetaUpdatedEachStep) {
                      Eigen::Vector3f::Zero(),
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
-    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, 0.15f, 0.05f, 0.f, 0.f, 0.f, 0.f);
-    s.step(0.2, Eigen::Vector3f::Zero(), 0.f, 0.25f, 0.08f, 0.f, 0.f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, 0.15f, 0.05f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    s.step(0.2, Eigen::Vector3f::Zero(), 0.f, 0.25f, 0.08f, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.alpha(), 0.25f, 1e-6f);
     EXPECT_NEAR(s.beta(),  0.08f, 1e-6f);
 }
@@ -364,7 +377,7 @@ TEST(KinematicStateTest, AlphaDotStoredFromConstructor) {
                      Eigen::Vector3f(50.f, 0.f, 0.f),
                      Eigen::Vector3f::Zero(),
                      Eigen::Quaternionf::Identity(),
-                     0.f, 0.1f, 0.f, 0.05f, 0.01f, 0.f, 0.f);
+                     0.f, 0.1f, 0.f, 0.05f, 0.01f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.alphaDot(), 0.05f, 1e-6f);
     EXPECT_NEAR(s.betaDot(),  0.01f, 1e-6f);
 }
@@ -375,7 +388,7 @@ TEST(KinematicStateTest, AlphaDotStoredFromStep) {
                      Eigen::Vector3f::Zero(),
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
-    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.05f, 0.01f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.05f, 0.01f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.alphaDot(), 0.05f, 1e-6f);
     EXPECT_NEAR(s.betaDot(),  0.01f, 1e-6f);
 }
@@ -386,8 +399,8 @@ TEST(KinematicStateTest, AlphaDotUpdatedEachStep) {
                      Eigen::Vector3f::Zero(),
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
-    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.03f, 0.f, 0.f, 0.f);
-    s.step(0.2, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.07f, 0.f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.03f, 0.f, Eigen::Vector3f::Zero());
+    s.step(0.2, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.07f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.alphaDot(), 0.07f, 1e-6f);
 }
 
@@ -468,7 +481,7 @@ TEST(KinematicStateTest, RollRateWindStoredFromStep) {
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
     const float rollRate = 0.3f;
-    s.step(0.1, Eigen::Vector3f::Zero(), rollRate, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), rollRate, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.rollRate_Wind_rps(), rollRate, 1e-6f);
 }
 
@@ -478,8 +491,8 @@ TEST(KinematicStateTest, RollRateWindUpdatedEachStep) {
                      Eigen::Vector3f::Zero(),
                      Eigen::Quaternionf::Identity(),
                      Eigen::Vector3f::Zero());
-    s.step(0.1, Eigen::Vector3f::Zero(), 0.15f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
-    s.step(0.2, Eigen::Vector3f::Zero(), 0.25f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f);
+    s.step(0.1, Eigen::Vector3f::Zero(), 0.15f, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    s.step(0.2, Eigen::Vector3f::Zero(), 0.25f, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
     EXPECT_NEAR(s.rollRate_Wind_rps(), 0.25f, 1e-6f);
 }
 
@@ -604,8 +617,7 @@ static KinematicState makeNonTrivialState() {
                      0.02f,
                      0.01f,
                      -0.005f,
-                     5.f,
-                     1.2f);
+                     Eigen::Vector3f{-5.f * std::cos(1.2f), -5.f * std::sin(1.2f), 0.f});
     return s;
 }
 
@@ -657,10 +669,13 @@ TEST(KinematicStateSerializationTest, JsonTrajectoryFidelity) {
     KinematicState restored;
     restored.deserializeJson(original.serializeJson());
 
-    auto advance = [](KinematicState& s) {
+    // wind_NED_mps equivalent to windSpeed=3 m/s from direction 1.2 rad:
+    //   wind_NED = -3 * [cos(1.2), sin(1.2), 0]
+    const Eigen::Vector3f wind_NED{-3.f * std::cos(1.2f), -3.f * std::sin(1.2f), 0.f};
+    auto advance = [&wind_NED](KinematicState& s) {
         s.step(s.time_sec() + 0.01,
                Eigen::Vector3f{0.5f, 0.f, 0.f},
-               0.f, 0.05f, 0.01f, 0.f, 0.f, 3.f, 1.2f);
+               0.f, 0.05f, 0.01f, 0.f, 0.f, wind_NED);
     };
     advance(original);
     advance(restored);

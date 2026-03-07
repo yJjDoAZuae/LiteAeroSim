@@ -71,3 +71,15 @@ message LoadFactorAllocatorState {
     float alpha_prev_rad = 4;
     float beta_prev_rad  = 5;
 }
+
+// ---------------------------------------------------------------------------
+// AeroPerformance — configuration parameters only (model is stateless)
+// ---------------------------------------------------------------------------
+message AeroPerformanceParams {
+    int32 schema_version = 1;
+    float s_ref_m2       = 2;
+    float ar             = 3;
+    float e              = 4;
+    float cd0            = 5;
+    float cl_y_beta      = 6;
+}

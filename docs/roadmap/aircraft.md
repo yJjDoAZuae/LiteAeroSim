@@ -19,7 +19,7 @@ writing production code.
 | `LiftCurveModel` | `include/aerodynamics/LiftCurveModel.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `LoadFactorAllocator` | `include/aerodynamics/LoadFactorAllocator.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `WGS84_Datum` | `include/navigation/WGS84.hpp` | ✅ Implemented |
-| `AeroPerformance` | `include/aerodynamics/AeroPerformance.hpp` | ⚠️ Old-style stub — no namespace, no `LoadFactorAllocator` integration |
+| `AeroPerformance` | `include/aerodynamics/AeroPerformance.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `AirframePerformance` | `include/airframe/AirframePerformance.hpp` | ⚠️ Plain struct — no serialization |
 | `Inertia` | `include/airframe/Inertia.hpp` | ⚠️ Plain struct — no serialization |
 | `V_Propulsion` | `include/propulsion/V_Propulsion.hpp` | ❌ Stub comment only |
@@ -142,86 +142,7 @@ Add `test/PropulsionProp_test.cpp` to the test executable.
 
 ---
 
-## 4. `AeroPerformance` Redesign
-
-The existing `AeroPerformance` uses a load-factor-derived `CL(N)` formula that predates
-`LiftCurveModel` and `LoadFactorAllocator`. It must be replaced with a model that:
-
-1. Accepts α and β (outputs of `LoadFactorAllocator`) rather than load factor N.
-2. Computes all three aerodynamic force components in the Wind frame.
-3. Moves into the `liteaerosim::aerodynamics` namespace.
-
-The old `AeroPerformance` class is deleted. Any existing call sites are updated directly
-(no forwarding shims).
-
-### New interface
-
-```cpp
-// include/aerodynamics/AeroPerformance.hpp
-namespace liteaerosim::aerodynamics {
-
-struct AeroForces {
-    float x_n;   // Wind-frame X (along velocity, positive forward — thrust direction)
-    float y_n;   // Wind-frame Y (positive right)
-    float z_n;   // Wind-frame Z (positive down — lift is negative z)
-};
-
-class AeroPerformance {
-public:
-    // S_ref_m2   — reference wing area (m²)
-    // ar         — aspect ratio
-    // e          — Oswald efficiency factor
-    // cd0        — zero-lift drag coefficient
-    // cl_y_beta  — lateral force slope C_Yβ (rad⁻¹, < 0)
-    AeroPerformance(float S_ref_m2, float ar, float e, float cd0, float cl_y_beta);
-
-    // Compute aerodynamic forces in the Wind frame.
-    //   alpha_rad, beta_rad — from LoadFactorAllocator::solve()
-    //   q_inf_pa            — dynamic pressure (Pa)
-    //   cl                  — lift coefficient from LiftCurveModel::evaluate(alpha_rad)
-    AeroForces compute(float alpha_rad, float beta_rad,
-                       float q_inf_pa, float cl) const;
-
-    // Drag polar parameters (read-only access for diagnostics)
-    float cd0() const { return _cd0; }
-    float inducedDragK() const { return _k; }
-
-private:
-    float _S, _ar, _e, _cd0, _k;   // k = 1 / (π · e · AR)
-    float _cl_y_beta;
-};
-
-} // namespace liteaerosim::aerodynamics
-```
-
-### Algorithm
-
-```
-k    = 1 / (π · e · AR)
-CDi  = k · CL²
-CD   = CD0 + CDi
-CY   = C_Yβ · β
-
-Fx   = -q · S · CD          // drag opposes motion (negative X in wind frame)
-Fy   =  q · S · CY          // side force
-Fz   = -q · S · CL          // lift opposes wind-Z (negative = upward)
-```
-
-### Tests
-
-- Level flight: `Fz` consistent with `CL = W / (q·S)`.
-- Zero airspeed (q = 0): all forces zero.
-- Zero β: `Fy = 0`.
-- Drag increases with CL (induced drag term).
-
-### CMake
-
-Replace the existing `AeroPerformance` source file in `src/CMakeLists.txt`.
-Add `test/AeroPerformance_test.cpp` to the test executable.
-
----
-
-## 5. `Aircraft` Class Definition
+## 4. `Aircraft` Class Definition
 
 `Aircraft` owns and orchestrates the full physics update loop. It is not a `DynamicBlock`
 (the interface is multi-input, multi-output), but it follows the project's lifecycle
@@ -299,7 +220,7 @@ private:
 
 ---
 
-## 6. `Aircraft::step()` — Physics Integration Loop
+## 5. `Aircraft::step()` — Physics Integration Loop
 
 The `step()` method is the closed-loop physics update. It must execute in this order:
 
@@ -354,7 +275,7 @@ velocity integration before finalizing.
 
 ---
 
-## 7. Serialization
+## 6. Serialization
 
 `Aircraft` must implement both JSON and binary (protobuf) serialization, capturing the full
 restart state of every owned subcomponent with warm-start state. The methods follow the
@@ -400,9 +321,9 @@ Add an `Aircraft` message to `proto/liteaerosim.proto` that embeds the existing
 
 ---
 
-## 8. JSON Initialization
+## 7. JSON Initialization
 
-Once the JSON parameter schema (see `docs/roadmap/equations_of_motion.md §4`) is defined,
+Once the JSON parameter schema (see `docs/roadmap/equations_of_motion.md §2`) is defined,
 `Aircraft::initialize(config)` must read from a validated config file and construct all
 owned subcomponents.
 
@@ -416,7 +337,7 @@ owned subcomponents.
 | `lift_curve.*` | `LiftCurveParams` → `LiftCurveModel` |
 | `initial_state.*` | `KinematicState` constructor |
 
-The `validate_aircraft_config.py` script (see `docs/roadmap/equations_of_motion.md §4`)
+The `validate_aircraft_config.py` script (see `docs/roadmap/equations_of_motion.md §2`)
 must pass before `initialize()` is called. `initialize()` may throw `std::invalid_argument`
 on malformed input but is not required to duplicate the full Python-side validation.
 
