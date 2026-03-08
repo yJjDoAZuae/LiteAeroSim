@@ -9,8 +9,14 @@ failing test before writing production code.
 
 `KinematicState::step()` uses forward Euler for velocity and first-order position
 integration.  For scenarios requiring long-horizon accuracy (e.g., trajectory planning
-over minutes), consider replacing with RK4 or a symplectic integrator.  This is low
-priority for the current point-mass model.
+over minutes), this should be replaced with RK4.
+
+**Design document:** [`docs/algorithms/integration.md`](../algorithms/integration.md) —
+covers algorithm options, the recommended RK4 implementation, `IVehicleDynamics` /
+`rk4Step<>` architecture for multi-vehicle support, and the migration path to 6DOF.
+
+**Recommendation:** Classic RK4 (4 evaluations/step, 4th-order accuracy, no startup
+overhead).  See the design document for the full rationale and algorithm comparison table.
 
 ---
 
