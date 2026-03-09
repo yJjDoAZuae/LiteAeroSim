@@ -246,7 +246,7 @@ The `step()` method is the closed-loop physics update. It must execute in this o
        float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3)
 
 7. Compute net Wind-frame acceleration:
-       // Thrust decomposition in Wind frame (see equations_of_motion roadmap)
+       // Thrust decomposition in Wind frame (see docs/algorithms/equations_of_motion.md)
        ax = (T * cosα * cosβ  + F.x_n) / m     // F.x_n is negative (drag)
        ay = (−T * cosα * sinβ + F.y_n) / m
        az = (−T * sinα        + F.z_n) / m     // F.z_n is negative (lift up)
@@ -323,9 +323,9 @@ Add an `Aircraft` message to `proto/liteaerosim.proto` that embeds the existing
 
 ## 7. JSON Initialization
 
-Once the JSON parameter schema (see `docs/roadmap/equations_of_motion.md §2`) is defined,
-`Aircraft::initialize(config)` must read from a validated config file and construct all
-owned subcomponents.
+The JSON parameter schema is complete (see [`docs/schemas/aircraft_config_v1.md`](../schemas/aircraft_config_v1.md)).
+`Aircraft::initialize(config)` must read from a validated config and construct all owned
+subcomponents.
 
 ### Mapping from schema to Aircraft members
 
@@ -337,12 +337,13 @@ owned subcomponents.
 | `lift_curve.*` | `LiftCurveParams` → `LiftCurveModel` |
 | `initial_state.*` | `KinematicState` constructor |
 
-The `validate_aircraft_config.py` script (see `docs/roadmap/equations_of_motion.md §2`)
-must pass before `initialize()` is called. `initialize()` may throw `std::invalid_argument`
-on malformed input but is not required to duplicate the full Python-side validation.
+`validate_aircraft_config.py` must pass before `initialize()` is called.  `initialize()`
+may throw `std::invalid_argument` on malformed input but is not required to duplicate the
+full Python-side validation.
 
 ### Tests
 
-- `initialize()` with each of the three example JSON files (`general_aviation.json`,
-  `jet_trainer.json`, `small_uas.json`) succeeds without throwing.
+- `initialize()` with each of the three fixture files (`test/data/aircraft/general_aviation.json`,
+  `test/data/aircraft/jet_trainer.json`, `test/data/aircraft/small_uas.json`) succeeds
+  without throwing.
 - `initialize()` with a missing required field throws `std::exception`.

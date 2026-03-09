@@ -166,11 +166,18 @@ $$
 \mathbf{a}_N = C_{NW}\, \mathbf{a}_W = q_{nw} \otimes \mathbf{a}_W \otimes q_{nw}^*
 $$
 
-Velocity in NED is integrated with forward Euler:
+Velocity and position are jointly integrated with classical fourth-order Runge-Kutta
+(RK4) over the six-component state $(\varphi, \lambda, h, v_N, v_E, v_D)$. Because the
+input acceleration is held constant throughout each timestep, all four RK4 slope
+evaluations for velocity are identical, and the velocity update reduces to:
 
 $$
 \mathbf{v}_{N,k+1} = \mathbf{v}_{N,k} + \Delta t\, \mathbf{a}_{N,k}
 $$
+
+The four-point evaluation provides full fourth-order accuracy for position, where the
+WGS84 geodetic rate functions are nonlinear in velocity (see
+[Position Kinematics](#position-kinematics--wgs84-integration)).
 
 ---
 
@@ -204,13 +211,16 @@ $$
 
 where $v_N$, $v_E$, $v_D$ are the NED velocity components.
 
-Integrated with forward Euler:
+Integrated jointly with velocity via RK4. The four slope evaluations sample
+$\dot\varphi(\mathbf{v})$, $\dot\lambda(\mathbf{v})$, $\dot h(\mathbf{v})$ at four
+intermediate velocity values — current, two half-step midpoints, and end-of-step — giving
+fourth-order accuracy in the nonlinear geodetic rate functions:
 
 $$
-\varphi_{k+1} = \varphi_k + \Delta t\, \dot{\varphi}_k, \quad
-\lambda_{k+1} = \lambda_k + \Delta t\, \dot{\lambda}_k, \quad
-h_{k+1}       = h_k       + \Delta t\, \dot{h}_k
+\varphi_{k+1} = \varphi_k + \Delta t\,\frac{\dot\varphi_1 + 2\dot\varphi_2 + 2\dot\varphi_3 + \dot\varphi_4}{6}
 $$
+
+and analogously for $\lambda$ and $h$.
 
 ---
 
@@ -492,6 +502,53 @@ where $C_{Y_\beta}$ is the side-force derivative (typically negative for a stati
 ### Geometric Interpretation
 
 $\dot\alpha$ is the angular rate at which the body $x$-axis rotates relative to the velocity vector within the body symmetry plane. $\dot\beta$ is the rate of lateral drift of the velocity vector out of the symmetry plane. Both terms appear directly in the $\boldsymbol{\omega}_{B/W}^B$ contribution to the body rate equations.
+
+### Worked Example — Linear Load-Factor Ramp
+
+This example ties together $\alpha$, $\dot\alpha$, $q_W$, and body pitch rate $q$ for
+a coordinated pull-up with no sideslip ($\beta = 0$, $p_W = 0$).
+
+**Aircraft parameters:**
+
+| Parameter | Value |
+|---|---|
+| $C_{L\alpha}$ | 5.73 rad⁻¹ |
+| $m$ | 1 200 kg |
+| $S$ | 16 m² |
+| $V$ (constant) | 100 m/s |
+| $\rho$ | 1.225 kg/m³ → $q_\infty = 6125$ Pa |
+
+**Input:** load factor ramps linearly: $n(t) = 1 + t/5$, $\dot n = 0.2$ s⁻¹.
+
+From the linear lift model and the $\dot\alpha$ formula above:
+
+$$\alpha(t) = n(t)\,\frac{mg}{C_{L\alpha}\,q_\infty\,S} = n(t)\times 0.02096\;\text{rad}$$
+
+$$\dot\alpha = \dot n\;\frac{mg}{C_{L\alpha}\,q_\infty\,S} = 0.00419\;\text{rad/s} = 0.240°/\text{s (constant)}$$
+
+The flight-path angular rate from the centripetal acceleration:
+
+$$q_W(t) = \frac{(n-1)\,g}{V} = 0.01962\,t\;\text{rad/s}$$
+
+Body pitch rate (from the body-rate decomposition at $\beta=0$):
+
+$$q(t) = \dot\alpha + q_W(t)$$
+
+| $t$ (s) | $n$ | $\alpha$ (°) | $\dot\alpha$ (°/s) | $q_W$ (°/s) | $q$ (°/s) | $\gamma$ (°) | $h$ (m) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1.00 | 1.20 | 0.24 | 0.00 | 0.24 | 0.00 | 0.00 |
+| 1 | 1.20 | 1.44 | 0.24 | 1.12 | 1.36 | 0.56 | 0.33 |
+| 2 | 1.40 | 1.68 | 0.24 | 2.25 | 2.49 | 2.25 | 2.62 |
+| 3 | 1.60 | 1.92 | 0.24 | 3.37 | 3.61 | 5.06 | 8.83 |
+| 4 | 1.80 | 2.16 | 0.24 | 4.50 | 4.74 | 8.99 | 20.93 |
+| 5 | 2.00 | 2.40 | 0.24 | 5.62 | 5.86 | 14.08 | 40.94 |
+
+$\dot\alpha$ is constant because $\dot n$ is constant and the lift curve is linear.
+$q = \dot\alpha + q_W$ shows two additive contributions: a small constant term from the
+rising AoA and a growing term from the curving velocity path. $q_W$ dominates after
+$t \approx 0.2$ s.
+
+![Load-factor ramp time history](../implementation/figures/task2_phase_g_example.png)
 
 ---
 
@@ -801,15 +858,15 @@ No iteration is required. A solution in this region exists only when $T > 0$ and
 
 ```mermaid
 flowchart TD
-    IN["Inputs at step k<br/>a_W, rollRate_W, α, β, α̇, β̇<br/>v_wind, dir_wind"] -->
+    IN["Inputs at step k<br/>a_W, rollRate_W, α, β, α̇, β̇<br/>wind_NED"] -->
     ROT["Rotate a_W → NED<br/>a_N = C_NW · a_W"] -->
-    VEL["Integrate velocity<br/>v_{N,k+1} = v_{N,k} + Δt · a_{N,k}"] -->
-    POS["Integrate position<br/>φ, λ, h via WGS84 rates"] -->
+    PVRK4["RK4 over joint state (φ, λ, h, v_N, v_E, v_D)<br/>4 evaluations of WGS84 geodetic rates<br/>v_{k+1} = v_k + Δt · a_N  (const-accel equivalent)"] -->
     ATT["Propagate quaternion<br/>q_{nb,k+1} = q_{nb,k} + Δt/2 · q ⊗ ω<br/>then renormalize"] -->
     OUT["KinematicState k+1"]
 ```
 
-All integration uses **forward Euler** at a fixed timestep $\Delta t$ set in `KinematicState::step()`. Higher-order integration (RK4) is a future option for improved long-horizon accuracy.
+Position and velocity are integrated jointly with classical **fourth-order Runge-Kutta
+(RK4)** at a fixed timestep $\Delta t$. Attitude uses forward Euler on the quaternion ODE.
 
 ---
 

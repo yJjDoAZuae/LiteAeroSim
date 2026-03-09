@@ -53,36 +53,23 @@ Below the small-V threshold (0.1 m/s), α and β default to 0 and `_q_nw = q_nb`
 
 ### Wind Representation
 
-The 2D wind input (`windSpeed_mps`, `windDirFrom_rad`) is converted to a 3D NED vector at
-the top of `step()` (and in Constructor 1).  `windDirFrom_rad` is the direction the wind
-blows FROM: a north wind (`dir = 0`) gives `_wind_NED_mps = [-windSpeed, 0, 0]`.
+`step()` accepts wind as a full 3D NED vector `wind_NED_mps` (`Eigen::Vector3f`). The
+2D-to-3D conversion (from meteorological speed and direction-from) happens in the
+environment or scenario layer before the call to `step()`. A north wind blowing at
+$V_w$ m/s corresponds to `wind_NED_mps = {-Vw, 0, 0}`.
 
-```cpp
-_wind_NED_mps = -windSpeed_mps
-              * Vector3f(cos(windDirFrom_rad), sin(windDirFrom_rad), 0.f);
-```
+### Position and Velocity Integration (RK4)
 
-The vertical component is always zero in the current model; 3D wind requires a separate
-`_wind_NED_mps` input (see roadmap).
+Position and velocity are jointly integrated with classical fourth-order Runge-Kutta
+(RK4) over the six-component state `PVState{lat_rad, lon_rad, alt_m, vN_mps, vE_mps,
+vD_mps}`, defined in an anonymous namespace in `src/KinematicState.cpp`.
 
-### Position Integration
-
-Position integration runs inside `step()` after the velocity update:
-
-- **Latitude / longitude** — forward Euler using the post-step velocity and `WGS84_Datum`
-  rate helpers.
-- **Altitude** — trapezoidal rule averaging the pre- and post-step vertical velocity,
-  negated because NED `V_D > 0` is descent.
-
-```cpp
-const float height_prev_m = _positionDatum.height_WGS84_m();
-_positionDatum.setLatitudeGeodetic_rad(
-    _positionDatum.latitudeGeodetic_rad() + latitudeRate_rps() * dt);
-_positionDatum.setLongitude_rad(
-    _positionDatum.longitude_rad() + longitudeRate_rps() * dt);
-_positionDatum.setHeight_WGS84_m(
-    height_prev_m - 0.5f * (velocity_NED_mps_prev(2) + _velocity_NED_mps(2)) * dt);
-```
+The four RK4 derivative evaluations call `pvDerivative()`, which queries
+`WGS84_Datum::latitudeRate()` and `WGS84_Datum::longitudeRate()` at intermediate
+position/velocity values. Because the input acceleration `a_NED` is constant during each
+step, all four velocity slope values are identical and the velocity result reduces to
+`v_new = v_old + a_NED * dt`. The position result achieves fourth-order accuracy in the
+nonlinear WGS84 geodetic rate functions.
 
 #### WGS84_Datum API
 
@@ -106,6 +93,39 @@ acceleration_Body_mps()  = C_BN * a_NED
 latitudeRate_rps()       = _positionDatum.latitudeRate(v_NED[0])
 longitudeRate_rps()      = _positionDatum.longitudeRate(v_NED[1])
 ```
+
+### `step()` Parameters
+
+`KinematicState::step()` is the integration sink. Each parameter is produced by a
+specific upstream subsystem and passed in each simulation step:
+
+| Parameter | Source | Meaning |
+|---|---|---|
+| `time_sec` | Simulation clock | Absolute simulation time |
+| `acceleration_Wind_mps` | Aerodynamic / propulsion model | Net Wind-frame acceleration (lift + drag + thrust + gravity expressed in Wind frame) |
+| `rollRate_Wind_rps` | Roll-control model | Wind-axis roll rate $p_W$ — drives `_q_nw` propagation |
+| `alpha_rad` | Aerodynamic model | Angle of attack — used to propagate `_q_nb` and stored in `_alpha_rad` |
+| `beta_rad` | Aerodynamic model | Sideslip angle — same uses as above |
+| `alphaDot_rps` | Aerodynamic model | Rate of change of angle of attack — stored in `_alphaDot_rps` |
+| `betaDot_rps` | Aerodynamic model | Rate of change of sideslip — stored in `_betaDot_rps` |
+| `wind_NED_mps` | Environment model | Ambient 3D wind velocity in NED |
+
+The integrator does not call back into the aerodynamic model within a step. Coupling
+is one-directional: aero/propulsion outputs → kinematic inputs. The aerodynamic model
+reads `alpha()`, `beta()`, and `velocity_Wind_mps()` from the kinematic state at the
+start of the next step.
+
+### `q_nl()` Semantics
+
+`q_nl()` returns `Quaternionf(_positionDatum.qne().cast<float>())`, where `qne()` is
+the ECEF-to-NED rotation at the current position. This is used as the NED-to-Local-Level
+rotation.
+
+**Open question:** For long-range flights, the Local Level frame (tangent plane at the
+current aircraft position) diverges from the NED frame (fixed at the initial datum). The
+current implementation returns the ECEF-to-NED rotation at the current position, which
+is the rotation of the tangent plane, not a fixed NED frame. Confirm whether this is the
+intended behavior before depending on `q_nl()` for inertial navigation calculations.
 
 ---
 
@@ -139,7 +159,7 @@ discontinuous change in demand.
 
 | Suite | Tests | File |
 |-------|-------|------|
-| KinematicState | 15 | `test/KinematicState_test.cpp` |
+| KinematicState | 52 | `test/KinematicState_test.cpp` |
 | LiftCurveModel | 16 | `test/LiftCurveModel_test.cpp` |
 | LoadFactorAllocator | 5 | `test/LoadFactorAllocator_test.cpp` |
 
