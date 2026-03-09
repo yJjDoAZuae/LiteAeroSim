@@ -6,6 +6,7 @@
 |---|---|
 | [Architecture](architecture/overview.md) | System design, layer model, subsystem breakdown |
 | [Dynamic Block Design](architecture/dynamic_block.md) | SISOBlock / DynamicBlock refactoring — the core simulation element pattern |
+| [Propulsion Design](architecture/propulsion.md) | V_Propulsion virtual interface, PropulsionJet, PropulsionProp — class hierarchy, use cases, serialization |
 | [Algorithms](algorithms/filters.md) | Filter design, discretization, control algorithms |
 | [Implementation Notes](implementation/equations_of_motion.md) | Implementation decisions, API references, build notes |
 | [Roadmap](roadmap/aircraft.md) | Recommended next steps and open work |
