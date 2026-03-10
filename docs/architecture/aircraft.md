@@ -477,19 +477,19 @@ acceleration; `KinematicState::step()` integrates it directly without adding $g$
 
 ```mermaid
 flowchart LR
-    CMD["AircraftCommand\n(n, n_y, n_dot, n_y_dot,\nrollRate, throttle)"]
-    ENV["Environment\n(wind_NED_mps, rho_kgm3)"]
+    CMD["AircraftCommand"]
+    ENV["Environment"]
 
     subgraph Aircraft
         direction TB
-        VAS["1. V_air, q_inf"]
-        ELP["3. Envelope clamp\n→ n_cmd, n_y_cmd"]
-        LFA["4. LoadFactorAllocator\n→ α, β, αDot, βDot"]
-        LCM["5. LiftCurveModel\n→ CL"]
-        AER["6. AeroPerformance\n→ F_x, F_y, F_z"]
-        PROP["7. V_Propulsion\n→ thrust_n"]
-        ACCEL["8. Wind-frame\nacceleration"]
-        KIN["9. KinematicState\n→ position, velocity,\nattitude"]
+        VAS["1. V_air / q_inf"]
+        ELP["3. Envelope clamp"]
+        LFA["4. LoadFactorAllocator"]
+        LCM["5. LiftCurveModel"]
+        AER["6. AeroPerformance"]
+        PROP["7. V_Propulsion"]
+        ACCEL["8. Wind-frame accel"]
+        KIN["9. KinematicState"]
     end
 
     CMD --> VAS
