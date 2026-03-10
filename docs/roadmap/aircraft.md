@@ -34,7 +34,141 @@ writing production code.
 
 ---
 
-## 1. `Aircraft` Class Definition
+## 1. `AirframePerformance` — Field Cleanup, Serialization, and Envelope Integration
+
+Design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md).
+
+`AirframePerformance` defines the structural and operational hard limits of the airframe.
+It is a config-driven value struct owned by `Aircraft` as a value member. Its primary role
+is **envelope protection**: `Aircraft::step()` clamps the commanded normal and lateral load
+factors to `[g_min_nd, g_max_nd]` before calling `LoadFactorAllocator::solve()`, preventing
+the physics loop from commanding structurally impossible maneuvers.
+
+### Required changes
+
+Current field names violate the naming convention (no unit suffixes). Renames required:
+
+| Current name | Renamed to | Unit |
+|---|---|---|
+| `GMax` | `g_max_nd` | dimensionless (g) |
+| `GMin` | `g_min_nd` | dimensionless (g) |
+| `TASMax` | `tas_max_mps` | m/s |
+| `MachMax` | `mach_max_nd` | dimensionless |
+
+Also add `#pragma once` and move into `namespace liteaerosim`.
+
+### Serialization
+
+`AirframePerformance` must support full reconstitution from a frozen state — add
+`serializeJson()` / `deserializeJson()` and `serializeProto()` / `deserializeProto()`
+that capture all four config fields. These are included in the `Aircraft` state snapshot
+so that `Aircraft::deserializeJson()` is self-contained and does not require a prior
+`initialize()` call.
+
+### Schema extension
+
+Add an `"airframe"` section to `aircraft_config_v1`:
+
+```json
+"airframe": {
+    "g_max_nd":    3.8,
+    "g_min_nd":   -1.5,
+    "tas_max_mps": 82.3,
+    "mach_max_nd": 0.25
+}
+```
+
+Update `python/tools/validate_aircraft_config.py` and its tests:
+- `g_min_nd < 0` (structural negative limit must be negative)
+- `g_max_nd > 0`
+- `tas_max_mps > 0`
+- `mach_max_nd > 0`
+
+### Integration with `Aircraft::step()`
+
+After computing dynamic pressure and before calling `LoadFactorAllocator::solve()`,
+clamp the commanded load factors (new step 3 in the physics loop):
+
+```
+n_cmd   = clamp(cmd.n,   _airframe.g_min_nd, _airframe.g_max_nd)
+n_y_cmd = clamp(cmd.n_y, _airframe.g_min_nd, _airframe.g_max_nd)
+```
+
+Pass `n_cmd` and `n_y_cmd` to `LoadFactorAllocator::solve()` instead of the raw commands.
+
+### Tests
+
+- JSON round-trip: `deserializeJson(serializeJson())` restores all four fields exactly.
+- Proto round-trip: same.
+- Schema version mismatch throws `std::runtime_error`.
+- `g_min_nd >= 0` fails validator; `g_max_nd <= 0` fails validator.
+- `tas_max_mps <= 0` fails validator.
+- In `Aircraft::step()`: commanding `n = 10.0` with `g_max_nd = 3.8` clamps to `3.8`.
+
+---
+
+## 2. `Inertia` — Field Cleanup, Serialization, and `Aircraft` Integration
+
+Design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md).
+
+`Inertia` collects all mass properties of the airframe into a single serializable struct.
+Its `mass_kg` field replaces the bare `float _mass_kg` scalar planned on `Aircraft`,
+keeping all mass properties co-located. The moment-of-inertia fields (`Ixx_kgm2`,
+`Iyy_kgm2`, `Izz_kgm2`) are read from config and currently unused in the point-mass model
+— they are reserved for the 6-DOF angular dynamics (moment equations) when those are added.
+
+### Required changes
+
+The existing field names already follow the convention. Add `#pragma once` and move into
+`namespace liteaerosim`. Add a default constructor that zero-initializes all fields
+(`mass_kg = 0` is invalid; `Aircraft::initialize()` throws if `mass_kg <= 0`).
+
+### Serialization
+
+`Inertia` must support full reconstitution from a frozen state — add `serializeJson()` /
+`deserializeJson()` and `serializeProto()` / `deserializeProto()` that capture all four
+fields. These are included in the `Aircraft` state snapshot so that
+`Aircraft::deserializeJson()` is self-contained and does not require a prior
+`initialize()` call.
+
+### Schema extension
+
+Add an `"inertia"` section to `aircraft_config_v1` and remove `aircraft.mass_kg`
+(subsumed by `inertia.mass_kg`):
+
+```json
+"inertia": {
+    "mass_kg":   1045.0,
+    "Ixx_kgm2":  1285.0,
+    "Iyy_kgm2":  1825.0,
+    "Izz_kgm2":  2667.0
+}
+```
+
+Update `python/tools/validate_aircraft_config.py` and its tests:
+- `mass_kg > 0`
+- `Ixx_kgm2 > 0`, `Iyy_kgm2 > 0`, `Izz_kgm2 > 0`
+- Remove the existing `mass_kg` check from the `aircraft` section.
+
+### Integration with `Aircraft`
+
+Replace `float _mass_kg` with `Inertia _inertia` as a value member of `Aircraft`. All
+references to `_mass_kg` inside `Aircraft::step()` and serialization methods become
+`_inertia.mass_kg`.
+
+### Tests
+
+- JSON round-trip: all four fields restored exactly.
+- Proto round-trip: same.
+- Schema version mismatch throws `std::runtime_error`.
+- `mass_kg <= 0` fails validator; any moment-of-inertia `<= 0` fails validator.
+- `Aircraft::initialize()` with `mass_kg = 0` throws `std::invalid_argument`.
+
+---
+
+## 3. `Aircraft` Class Definition
+
+Design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md).
 
 `Aircraft` owns and orchestrates the full physics update loop. It is not a `DynamicBlock`
 (the interface is multi-input, multi-output), but it follows the project's lifecycle
@@ -112,7 +246,11 @@ private:
 
 ---
 
-## 2. `Aircraft::step()` — Physics Integration Loop
+## 4. `Aircraft::step()` — Physics Integration Loop
+
+Design authority: [`docs/architecture/aircraft.md — Physics Integration Loop`](../architecture/aircraft.md#physics-integration-loop).
+
+
 
 The `step()` method is the closed-loop physics update. It must execute in this order:
 
@@ -167,7 +305,9 @@ velocity integration before finalizing.
 
 ---
 
-## 3. Serialization
+## 5. Serialization
+
+Design authority: [`docs/architecture/aircraft.md — Serialization Design`](../architecture/aircraft.md#serialization-design).
 
 `Aircraft` must implement both JSON and binary (protobuf) serialization, capturing the full
 restart state of every owned subcomponent with warm-start state. The methods follow the
@@ -181,39 +321,53 @@ std::vector<uint8_t> serializeProto()                            const;
 void                 deserializeProto(const std::vector<uint8_t>& bytes);
 ```
 
+### Serialization contract
+
+Every simulation element serializes its **full configuration and internal state** sufficient
+for exact reconstitution from a frozen snapshot. `Aircraft::deserializeJson()` must be
+self-contained — a caller must not need to call `initialize()` before or after
+`deserializeJson()` to obtain a fully operational `Aircraft`.
+
 ### JSON schema
 
 ```json
 {
     "schema_version": 1,
     "type": "Aircraft",
-    "kinematic_state": { ... },         // KinematicState::serializeJson()
-    "allocator_state": { ... },         // LoadFactorAllocator::serializeJson()
-    "propulsion_state": { ... },        // V_Propulsion::serializeJson() (TBD per subclass)
-    "params": {
-        "mass_kg":  1000.0,
-        "dt_s":     0.01
-    }
+    "params": { "dt_s": 0.01 },
+    "kinematic_state":   { ... },    // KinematicState — position, velocity, attitude
+    "allocator":         { ... },    // LoadFactorAllocator — config + warm-start α, β
+    "lift_curve":        { ... },    // LiftCurveModel — config params (stateless)
+    "aero_performance":  { ... },    // AeroPerformance — config params (stateless)
+    "airframe":          { ... },    // AirframePerformance — config params (stateless)
+    "inertia":           { ... },    // Inertia — config params (stateless)
+    "propulsion":        { ... }     // V_Propulsion subclass — config + filter state
 }
 ```
 
-`LiftCurveModel` and `AeroPerformance` are stateless; their parameters are re-read from the
-config at `initialize()` time and are not duplicated in the state snapshot.
+Stateless components (`LiftCurveModel`, `AeroPerformance`, `AirframePerformance`, `Inertia`)
+serialize their config parameters only — they have no internal state beyond what is set at
+construction. Stateful components additionally serialize their warm-start state.
 
 ### Proto message
 
 Add an `Aircraft` message to `proto/liteaerosim.proto` that embeds the existing
-`KinematicState` and `LoadFactorAllocatorState` messages.
+`KinematicState` and `LoadFactorAllocatorState` messages, plus messages for each config
+struct and the propulsion `oneof`.
 
 ### Tests
 
-- JSON round-trip: `deserializeJson(serializeJson())` yields identical `KinematicState` and allocator warm-start.
+- JSON round-trip: `deserializeJson(serializeJson())` fully reconstitutes the `Aircraft`
+  without a prior `initialize()` call; next `step()` output is identical to the original.
 - Proto round-trip: same verification via `deserializeProto(serializeProto())`.
 - Schema version mismatch on either deserialize throws `std::runtime_error`.
+- Round-trip after 100 steps preserves all subsystem state exactly.
 
 ---
 
-## 4. JSON Initialization
+## 6. JSON Initialization
+
+Design authority: [`docs/architecture/aircraft.md — Initialization`](../architecture/aircraft.md#initialization--json-config-mapping).
 
 The JSON parameter schema is complete (see [`docs/schemas/aircraft_config_v1.md`](../schemas/aircraft_config_v1.md)).
 `Aircraft::initialize(config)` must read from a validated config and construct all owned
@@ -242,7 +396,7 @@ full Python-side validation.
 
 ---
 
-## 5. `Logger` — Telemetry Serialization
+## 7. `Logger` — Telemetry Serialization
 
 `Logger` records simulation state at each timestep to a binary or structured-text file for
 post-flight analysis. It lives in the Infrastructure layer and has no physics logic.
@@ -291,7 +445,7 @@ Add `test/Logger_test.cpp` to the test executable.
 
 ---
 
-## 6. `Atmosphere` — International Standard Atmosphere Model
+## 8. `Atmosphere` — International Standard Atmosphere Model
 
 `Atmosphere` provides density, temperature, and pressure as functions of geopotential
 altitude. It is a stateless value-type (no `step()`, no serialization). All dependent
@@ -337,7 +491,7 @@ Add `test/Atmosphere_test.cpp` to the test executable.
 
 ---
 
-## 7. `Wind` and `Gust` — Ambient Wind and Turbulence Models
+## 9. `Wind` and `Gust` — Ambient Wind and Turbulence Models
 
 `Wind` provides a spatially and temporally varying wind vector in NED coordinates. `Gust`
 provides a transient velocity disturbance (discrete gust or Dryden turbulence). Both are
@@ -401,7 +555,7 @@ Add `test/Wind_test.cpp` and `test/Gust_test.cpp` to the test executable.
 
 ---
 
-## 8. `Terrain` — Elevation Model
+## 10. `Terrain` — Elevation Model
 
 `Terrain` provides ground elevation (meters above mean sea level) at a given latitude and
 longitude. The Domain Layer uses it to compute height above ground (HAG) and to detect
@@ -446,7 +600,7 @@ Add `test/Terrain_test.cpp` to the test executable.
 
 ---
 
-## 9. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
+## 11. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
 
 Air data sensors derive indicated and calibrated quantities from the true atmospheric state
 and aircraft kinematics. They model systematic bias and measurement noise. All sensors
@@ -492,7 +646,7 @@ Add `test/SensorAirData_test.cpp` and `test/SensorAngle_test.cpp` to the test ex
 
 ---
 
-## 10. `SensorRadAlt` — Radar / Laser Altimeter
+## 12. `SensorRadAlt` — Radar / Laser Altimeter
 
 `SensorRadAlt` outputs height above ground (HAG) derived from `Terrain::heightAboveGround_m`.
 `SensorForwardTerrainProfile` returns a look-ahead terrain elevation vector along the
@@ -516,7 +670,7 @@ Add `test/SensorRadAlt_test.cpp` to the test executable.
 
 ---
 
-## 11. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 13. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
 A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
 cross-track error, along-track distance, and desired heading at a query position. The
@@ -571,7 +725,7 @@ Add `test/Path_test.cpp` to the test executable.
 
 ---
 
-## 12. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 14. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
 Guidance laws convert path and altitude errors into commanded load factors for `Aircraft::step()`.
 They live in the Domain Layer and have no I/O. Each is a stateful element (contains filter
@@ -612,7 +766,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 13. Autopilot — Outer Loop Command Generation
+## 15. Autopilot — Outer Loop Command Generation
 
 `Autopilot` combines `PathGuidance`, `VerticalGuidance`, and `ParkTracking` into a single
 class that consumes the `KinematicState` and `PathResponse` and produces an `AircraftCommand`
@@ -663,7 +817,7 @@ Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
-## 14. Plot Visualization — Python Post-Processing Tools
+## 16. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -697,7 +851,7 @@ dev = [
 
 ---
 
-## 15. Manual Input — Joystick and Keyboard
+## 17. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -738,7 +892,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 16. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 18. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
