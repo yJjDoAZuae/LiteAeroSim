@@ -30,7 +30,7 @@ writing production code.
 | `MotorElectric` | `include/propulsion/MotorElectric.hpp` | ✅ Implemented — see [propulsion.md](../architecture/propulsion.md) |
 | `MotorPiston` | `include/propulsion/MotorPiston.hpp` | ✅ Implemented — see [propulsion.md](../architecture/propulsion.md) |
 | `PropulsionProp` | `include/propulsion/PropulsionProp.hpp` | ✅ Implemented + serialization (JSON + proto) — see [propulsion.md](../architecture/propulsion.md) |
-| `Aircraft` | `include/Aircraft.hpp` | ❌ Stub comment only |
+| `Aircraft` | `include/Aircraft.hpp` | ✅ Implemented — items 3 & 4 complete |
 
 ---
 
@@ -97,7 +97,7 @@ mismatch throws (both formats). 6 tests, all passing.
 
 ---
 
-## 3. `Aircraft` Class Definition
+## 3. `Aircraft` Class Definition — ✅ Complete
 
 Design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md).
 
@@ -105,140 +105,61 @@ Design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md)
 (the interface is multi-input, multi-output), but it follows the project's lifecycle
 convention (`initialize` → `reset` → `step` → `serialize` / `deserialize`).
 
-### Ownership model
+### Changes delivered
 
-| Member | Type | Owned by |
-|--------|------|----------|
-| `_state` | `KinematicState` | Aircraft (value member) |
-| `_liftCurve` | `LiftCurveModel` | Aircraft (value member) |
-| `_allocator` | `LoadFactorAllocator` | Aircraft (value member) |
-| `_aeroPerf` | `AeroPerformance` | Aircraft (value member) |
-| `_airframe` | `AirframePerformance` | Aircraft (value member) |
-| `_inertia` | `Inertia` | Aircraft (value member) |
-| `_propulsion` | `std::unique_ptr<V_Propulsion>` | Aircraft (owns, injected at construction) |
-
-### Inputs to `step()`
+`AircraftCommand` struct defined in `include/Aircraft.hpp` with default values:
 
 ```cpp
 struct AircraftCommand {
-    float n;              // commanded normal load factor (g)
-    float n_y;            // commanded lateral load factor (g)
-    float n_dot;          // rate of change of n (1/s) — for alphaDot
-    float n_y_dot;        // rate of change of n_y (1/s) — for betaDot
-    float rollRate_Wind_rps; // commanded wind-frame roll rate (rad/s)
-    float throttle_nd;    // normalized throttle [0, 1]
+    float n               = 1.f;   // commanded normal load factor (g)
+    float n_y             = 0.f;   // commanded lateral load factor (g)
+    float n_dot           = 0.f;   // d(n)/dt (1/s) — for alphaDot
+    float n_y_dot         = 0.f;   // d(n_y)/dt (1/s) — for betaDot
+    float rollRate_Wind_rps = 0.f; // commanded wind-frame roll rate (rad/s)
+    float throttle_nd     = 0.f;   // normalized throttle [0, 1]
 };
 ```
 
-### Class interface
+`Aircraft` class declared non-copyable and non-movable (`LoadFactorAllocator` holds a
+`const LiftCurveModel&`; moving the optional member would invalidate the reference).
+`LiftCurveModel`, `LoadFactorAllocator`, and `AeroPerformance` are `std::optional` members
+(none has a default constructor); `initialize()` emplaces them. `_initial_state` stores the
+`KinematicState` from `initialize()` for use by `reset()`.
 
-```cpp
-// include/Aircraft.hpp
-namespace liteaerosim {
+`src/Aircraft.cpp`: constructor stores the injected propulsion model; `initialize()` reads
+all five `aircraft_config_v1` sections in dependency order and emplaces subsystems;
+`reset()` copies `_initial_state` back to `_state`, calls `_allocator->reset()` and
+`_propulsion->reset()`; `serializeJson()` / `deserializeJson()` snapshot all components.
 
-class Aircraft {
-public:
-    explicit Aircraft(std::unique_ptr<propulsion::V_Propulsion> propulsion);
-
-    void initialize(const nlohmann::json& config);
-    void reset();
-
-    // Advance the aircraft physics by one timestep.
-    //   time_sec      — absolute simulation time (s)
-    //   cmd           — autopilot-commanded inputs
-    //   wind_NED_mps  — ambient wind vector in NED frame (m/s)
-    //   rho_kgm3      — local air density (kg/m³)
-    void step(double time_sec,
-              const AircraftCommand& cmd,
-              const Eigen::Vector3f& wind_NED_mps,
-              float rho_kgm3);
-
-    const KinematicState& state() const { return _state; }
-
-    nlohmann::json serialize() const;
-    void deserialize(const nlohmann::json& snapshot);
-
-private:
-    KinematicState                         _state;
-    aerodynamics::LiftCurveModel           _liftCurve;
-    aerodynamics::LoadFactorAllocator      _allocator;
-    aerodynamics::AeroPerformance          _aeroPerf;
-    AirframePerformance                    _airframe;
-    Inertia                                _inertia;
-    std::unique_ptr<propulsion::V_Propulsion> _propulsion;
-    float _dt_s = 0.f;
-};
-
-} // namespace liteaerosim
-```
-
-### Tests
-
-- `Aircraft` constructs without throwing given a valid `PropulsionJet` and a representative config.
-- `state()` returns the initial `KinematicState` before any `step()` call.
+Tests in `test/Aircraft_test.cpp` (shared `StubPropulsion` test double):
+- `ConstructsWithoutThrowing`
+- `InitializePopulatesState` — `velocity_NED_mps()` matches `initial_state` config fields
+- `ResetRestoresInitialState` — velocity returns to initial after several steps + reset
 
 ---
 
-## 4. `Aircraft::step()` — Physics Integration Loop
+## 4. `Aircraft::step()` — Physics Integration Loop — ✅ Complete
 
 Design authority: [`docs/architecture/aircraft.md — Physics Integration Loop`](../architecture/aircraft.md#physics-integration-loop).
 
+### Changes delivered
 
+`Aircraft::step()` implements the 9-step closed-loop physics update in `src/Aircraft.cpp`:
 
-The `step()` method is the closed-loop physics update. It must execute in this order:
+1. `V_air = (velocity_NED - wind_NED).norm()`
+2. `q_inf = 0.5 * rho * V_air²`
+3. Clamp `n`, `n_y` to `[g_min_nd, g_max_nd]`
+4. `LoadFactorAllocator::solve()` with previous-step thrust (0 on first call)
+5. `LiftCurveModel::evaluate(α)` → CL
+6. `AeroPerformance::compute(α, β, q_inf, CL)` → Wind-frame forces
+7. `V_Propulsion::step(throttle, V_air, rho)` → thrust T
+8. Wind-frame acceleration: `ax = (T·cosα·cosβ + Fx) / m`, `ay = (−T·cosα·sinβ + Fy) / m`, `az = (−T·sinα + Fz) / m` — gravity not added separately (embedded in load factor constraint)
+9. `KinematicState::step(time_sec, {ax,ay,az}, rollRate, α, β, αDot, βDot, wind_NED)`
 
-```
-1. Compute true airspeed from KinematicState and wind:
-       V_air = (velocity_NED - wind_NED).norm()
-
-2. Compute dynamic pressure:
-       q_inf = 0.5 * rho * V_air²
-
-3. Clamp commanded load factors to airframe structural limits:
-       n_cmd   = clamp(cmd.n,   _airframe.g_min_nd, _airframe.g_max_nd)
-       n_y_cmd = clamp(cmd.n_y, _airframe.g_min_nd, _airframe.g_max_nd)
-
-4. Solve for α, β via LoadFactorAllocator:
-       LoadFactorInputs in = { n_cmd, n_y_cmd, q_inf, thrust_n (previous step),
-                               _inertia.mass_kg, cmd.n_dot, cmd.n_y_dot }
-       LoadFactorOutputs out = _allocator.solve(in)
-
-5. Evaluate lift coefficient:
-       CL = _liftCurve.evaluate(out.alpha_rad)
-
-6. Compute aerodynamic forces in Wind frame:
-       AeroForces F = _aeroPerf.compute(out.alpha_rad, out.beta_rad, q_inf, CL)
-
-7. Advance propulsion:
-       float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3)
-
-8. Compute net Wind-frame acceleration:
-       // Thrust decomposition in Wind frame (see docs/algorithms/equations_of_motion.md)
-       ax = (T * cosα * cosβ  + F.x_n) / m     // F.x_n is negative (drag)
-       ay = (−T * cosα * sinβ + F.y_n) / m
-       az = (−T * sinα        + F.z_n) / m     // F.z_n is negative (lift up)
-       // Gravity is already embedded in the load factor — do not add separately
-
-9. Advance KinematicState:
-       _state.step(time_sec,
-                   {ax, ay, az},           // acceleration_Wind_mps
-                   cmd.rollRate_Wind_rps,
-                   out.alpha_rad, out.beta_rad,
-                   out.alphaDot_rps, out.betaDot_rps,
-                   wind_NED_mps);
-```
-
-**Note on gravity:** The `LoadFactorAllocator` constraint `q·S·CL + T·sinα = n·m·g` already
-encodes the gravitational load. The Wind-frame acceleration computed here is the kinematic
-acceleration only — gravity must not be double-counted. Verify this against `KinematicState`
-velocity integration before finalizing.
-
-### Tests
-
-- Straight-and-level at `n = 1`: speed is approximately constant over several steps.
-- `throttle_nd = 0`, `n = 1`: aircraft decelerates (drag exceeds thrust).
-- After `reset()`, position and velocity return to initial values.
-- `step()` does not throw for any physically plausible command.
+Tests added to `test/Aircraft_test.cpp`:
+- `StepDoesNotThrow` — nominal command, single step
+- `ZeroThrottle_AircraftDecelerates` — zero thrust, speed decreases over 10 steps (1 s)
+- `StraightAndLevel_SpeedApproximatelyConstant` — balanced thrust (989 N), speed change < 5% over 5 steps (0.5 s)
 
 ---
 
@@ -303,13 +224,14 @@ already defined in `proto/liteaerosim.proto` (added in items 1 and 2 above).
 
 ---
 
-## 6. JSON Initialization
+## 6. JSON Initialization — Remaining Tests
 
 Design authority: [`docs/architecture/aircraft.md — Initialization`](../architecture/aircraft.md#initialization--json-config-mapping).
 
-The JSON parameter schema is complete (see [`docs/schemas/aircraft_config_v1.md`](../schemas/aircraft_config_v1.md)).
-`Aircraft::initialize(config)` must read from a validated config and construct all owned
-subcomponents.
+`Aircraft::initialize(config)` is implemented (items 3 & 4). The JSON parameter schema is
+complete (see [`docs/schemas/aircraft_config_v1.md`](../schemas/aircraft_config_v1.md)).
+The remaining deliverable is extended test coverage with all three fixture files and
+error-path validation.
 
 ### Mapping from schema to Aircraft members
 

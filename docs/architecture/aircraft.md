@@ -99,11 +99,10 @@ the `Aircraft` with a propulsion model.
 2. Read `aircraft.S_ref_m2`, `aircraft.cl_y_beta`.
 3. Construct `LiftCurveModel` from `lift_curve.*` parameters.
 4. Construct `LoadFactorAllocator` from the lift curve, `S_ref_m2`, and `cl_y_beta`.
-5. Construct `AeroPerformance` from `S_ref_m2`, `cl_y_beta`, and drag parameters
-   (aspect ratio, Oswald efficiency, `cd0`). These fields are not yet in
-   `aircraft_config_v1` — they must be added when `Aircraft::initialize()` is implemented.
-6. Construct the initial `KinematicState` from `initial_state.*`.
-7. Store `_dt_s`.
+5. Construct `AeroPerformance` from `aircraft.S_ref_m2`, `aircraft.cl_y_beta`,
+   `aircraft.ar`, `aircraft.e`, `aircraft.cd0`.
+6. Construct the initial `KinematicState` from `initial_state.*`; save a copy as
+   `_initial_state` for `reset()`.
 
 **Postconditions:** `state()` returns the initial kinematic state. The allocator and lift
 curve are ready for `step()`.
@@ -128,7 +127,7 @@ curve are ready for `step()`.
 | `AeroPerformance` | `serializeJson()` | Config params (stateless) |
 | `AirframePerformance` | `serializeJson()` | Config params (stateless) |
 | `Inertia` | `serializeJson()` | Config params (stateless) |
-| `_dt_s` | inline in `"params"` | Config scalar |
+| `_initial_state` | `_initial_state.serializeJson()` | Initial conditions for `reset()` |
 
 **Postconditions:** The returned JSON or byte vector is sufficient to restore the
 aircraft to the exact mid-flight state via `deserializeJson()` / `deserializeProto()`.
@@ -141,13 +140,13 @@ aircraft to the exact mid-flight state via `deserializeJson()` / `deserializePro
 classDiagram
     class Aircraft {
         -_state : KinematicState
-        -_liftCurve : LiftCurveModel
-        -_allocator : LoadFactorAllocator
-        -_aeroPerf : AeroPerformance
+        -_initial_state : KinematicState
+        -_liftCurve : optional~LiftCurveModel~
+        -_allocator : optional~LoadFactorAllocator~
+        -_aeroPerf : optional~AeroPerformance~
         -_airframe : AirframePerformance
         -_inertia : Inertia
         -_propulsion : unique_ptr~V_Propulsion~
-        -_dt_s : float
         +Aircraft(propulsion)
         +initialize(config) void
         +reset() void
@@ -264,8 +263,9 @@ from a snapshot) must be called before `step()`.
 void initialize(const nlohmann::json& config);
 ```
 
-Reads `aircraft_config_v1` JSON, constructs all value-member subsystems, and sets `_dt_s`
-from the config's `"dt_s"` field (or a caller-supplied default). Throws
+Reads `aircraft_config_v1` JSON and constructs all owned subsystems in dependency order:
+inertia and airframe first, then lift curve, then aero performance and load factor allocator
+(which reference the lift curve), then the initial `KinematicState`. Throws
 `std::invalid_argument` if any required field is missing or invalid.
 
 ```cpp
@@ -365,8 +365,8 @@ its full configuration and internal state.
 {
     "schema_version": 1,
     "type": "Aircraft",
-    "params":           { "dt_s": 0.01 },
     "kinematic_state":  { ... },
+    "initial_state":    { ... },
     "allocator":        { ... },
     "lift_curve":       { ... },
     "aero_performance": { ... },
@@ -380,11 +380,11 @@ its full configuration and internal state.
 |---|---|---|
 | `"schema_version"` | constant 1 | Verified on deserialize; mismatch throws |
 | `"type"` | constant `"Aircraft"` | Verified on deserialize; mismatch throws |
-| `"params"` | `_dt_s` | Timestep config scalar |
-| `"kinematic_state"` | `_state.serializeJson()` | Full kinematic state |
-| `"allocator"` | `_allocator.serializeJson()` | Config + warm-start α, β |
-| `"lift_curve"` | `_liftCurve.serializeJson()` | Lift curve config params |
-| `"aero_performance"` | `_aeroPerf.serializeJson()` | Aero config params |
+| `"kinematic_state"` | `_state.serializeJson()` | Full kinematic state at snapshot time |
+| `"initial_state"` | `_initial_state.serializeJson()` | Initial conditions for `reset()` |
+| `"allocator"` | `_allocator->serializeJson()` | Config + warm-start α, β |
+| `"lift_curve"` | `_liftCurve->serializeJson()` | Lift curve config params |
+| `"aero_performance"` | `_aeroPerf->serializeJson()` | Aero config params |
 | `"airframe"` | `_airframe.serializeJson()` | Structural envelope limits |
 | `"inertia"` | `_inertia.serializeJson()` | Mass properties |
 | `"propulsion"` | `_propulsion->serializeJson()` | Engine type, config, and filter state |
@@ -395,7 +395,10 @@ its full configuration and internal state.
 - `"propulsion"."type"` must match the concrete `V_Propulsion` subclass injected at
   construction; the propulsion subclass's own `deserializeJson()` enforces this.
 - `deserializeJson()` does **not** require a prior `initialize()` call — the snapshot
-  contains all data needed for full reconstitution.
+  contains all data needed to reconstruct the aerodynamics and kinematic state. However,
+  the correct `V_Propulsion` concrete subclass **must** have been injected at construction
+  before calling `deserializeJson()`; the propulsion model is not re-created from the
+  snapshot (item 5 scope).
 - After `deserializeJson()`, the next `step()` call must produce the same output as if the
   simulation had never been interrupted.
 
@@ -424,11 +427,11 @@ its full configuration and internal state.
        .n_dot    = cmd.n_dot,
        .n_y_dot  = cmd.n_y_dot
    }
-   LoadFactorOutputs lf = _allocator.solve(lf_in)
+   LoadFactorOutputs lf = _allocator->solve(lf_in)
 
-5. float CL = _liftCurve.evaluate(lf.alpha_rad)
+5. float CL = _liftCurve->evaluate(lf.alpha_rad)
 
-6. AeroForces F = _aeroPerf.compute(lf.alpha_rad, lf.beta_rad, q_inf, CL)
+6. AeroForces F = _aeroPerf->compute(lf.alpha_rad, lf.beta_rad, q_inf, CL)
    // F.x_n < 0 (drag),  F.y_n (side force),  F.z_n < 0 (lift upward)
 
 7. float T  = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3)
@@ -520,8 +523,9 @@ flowchart LR
 | Member | Type | Lifetime | Notes |
 |---|---|---|---|
 | `_state` | `KinematicState` | Value member — lives with `Aircraft` | Fully owned; no sharing |
-| `_liftCurve` | `LiftCurveModel` | Value member | Stateless after construction |
-| `_allocator` | `LoadFactorAllocator` | Value member | Holds `const&` to `_liftCurve` — must outlive allocator |
+| `_initial_state` | `KinematicState` | Value member — lives with `Aircraft` | Saved by `initialize()` for `reset()` |
+| `_liftCurve` | `std::optional<LiftCurveModel>` | Inline optional (no default ctor) | Emplaced by `initialize()` / `deserializeJson()`; stateless after construction |
+| `_allocator` | `std::optional<LoadFactorAllocator>` | Inline optional (no default ctor) | Holds `const&` to `_liftCurve` — `Aircraft` is non-movable to prevent dangling reference |
 | `_aeroPerf` | `AeroPerformance` | Value member | Stateless after construction |
 | `_airframe` | `AirframePerformance` | Value member | Envelope limits — clamped before `LoadFactorAllocator`; stateless |
 | `_inertia` | `Inertia` | Value member | Mass and inertia — `mass_kg` replaces bare scalar; `Ixx/Iyy/Izz` reserved for future 6-DOF moment equations |
@@ -530,8 +534,10 @@ flowchart LR
 **Invariant:** `_propulsion` must never be null after construction. If the caller passes
 `nullptr`, the constructor throws `std::invalid_argument`.
 
-**Copy and move:** `Aircraft` is **move-only**. Copy is deleted because `_allocator` holds
-a `const&` to `_liftCurve` that would become a dangling reference after a value copy.
+**Copy and move:** `Aircraft` is **non-copyable and non-movable**. Both copy and move are
+deleted because `_allocator` (inside its `std::optional`) holds a `const LiftCurveModel&`
+pointing to `_liftCurve`'s inline storage. Moving `Aircraft` would relocate `_liftCurve`
+and leave the reference dangling.
 
 ---
 

@@ -1,0 +1,188 @@
+// Tests for Aircraft — items 3 (class definition) and 4 (step() physics loop).
+
+#include "Aircraft.hpp"
+#include "propulsion/V_Propulsion.hpp"
+#include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+// ---------------------------------------------------------------------------
+// StubPropulsion — constant-thrust, stateless test double
+// ---------------------------------------------------------------------------
+
+class StubPropulsion : public liteaerosim::propulsion::V_Propulsion {
+public:
+    explicit StubPropulsion(float thrust_n = 0.0f) : _thrust(thrust_n) {}
+
+    [[nodiscard]] float step(float /*throttle_nd*/,
+                             float /*tas_mps*/,
+                             float /*rho_kgm3*/) override {
+        return _thrust;
+    }
+    [[nodiscard]] float thrust_n() const override { return _thrust; }
+    void reset() override {}
+
+    [[nodiscard]] nlohmann::json       serializeJson()                               const override { return {}; }
+    void                               deserializeJson(const nlohmann::json&)               override {}
+    [[nodiscard]] std::vector<uint8_t> serializeProto()                             const override { return {}; }
+    void                               deserializeProto(const std::vector<uint8_t>&)        override {}
+
+private:
+    float _thrust;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// General-aviation config (Cessna 172 analog) — values from general_aviation.json.
+static nlohmann::json makeConfig() {
+    return nlohmann::json::parse(R"({
+        "schema_version": 1,
+        "aircraft": {
+            "S_ref_m2": 16.2,
+            "cl_y_beta": -0.60,
+            "ar": 7.47,
+            "e": 0.80,
+            "cd0": 0.027
+        },
+        "airframe": {
+            "g_max_nd":    3.8,
+            "g_min_nd":   -1.52,
+            "tas_max_mps": 82.3,
+            "mach_max_nd": 0.25
+        },
+        "inertia": {
+            "mass_kg":   1045.0,
+            "Ixx_kgm2":  1285.0,
+            "Iyy_kgm2":  1825.0,
+            "Izz_kgm2":  2667.0
+        },
+        "lift_curve": {
+            "cl_alpha":             5.1,
+            "cl_max":               1.80,
+            "cl_min":              -1.20,
+            "delta_alpha_stall":    0.262,
+            "delta_alpha_stall_neg":0.262,
+            "cl_sep":               1.05,
+            "cl_sep_neg":          -0.80
+        },
+        "initial_state": {
+            "latitude_rad":        0.0,
+            "longitude_rad":       0.0,
+            "altitude_m":        300.0,
+            "velocity_north_mps": 55.0,
+            "velocity_east_mps":   0.0,
+            "velocity_down_mps":   0.0,
+            "wind_north_mps":      0.0,
+            "wind_east_mps":       0.0,
+            "wind_down_mps":       0.0
+        }
+    })");
+}
+
+static std::unique_ptr<liteaerosim::Aircraft> makeAircraft(float stub_thrust_n = 989.0f) {
+    auto prop = std::make_unique<StubPropulsion>(stub_thrust_n);
+    auto ac   = std::make_unique<liteaerosim::Aircraft>(std::move(prop));
+    ac->initialize(makeConfig());
+    return ac;
+}
+
+// ---------------------------------------------------------------------------
+// Item 3 — class definition
+// ---------------------------------------------------------------------------
+
+TEST(AircraftTest, ConstructsWithoutThrowing) {
+    auto prop = std::make_unique<StubPropulsion>();
+    EXPECT_NO_THROW({
+        liteaerosim::Aircraft ac(std::move(prop));
+    });
+}
+
+TEST(AircraftTest, InitializePopulatesState) {
+    auto ac = makeAircraft();
+
+    const Eigen::Vector3f vel = ac->state().velocity_NED_mps();
+    EXPECT_FLOAT_EQ(vel.x(), 55.0f);   // north
+    EXPECT_FLOAT_EQ(vel.y(), 0.0f);    // east
+    EXPECT_FLOAT_EQ(vel.z(), 0.0f);    // down
+}
+
+TEST(AircraftTest, ResetRestoresInitialState) {
+    auto ac = makeAircraft();
+
+    liteaerosim::AircraftCommand cmd;
+    cmd.n         = 1.0f;
+    cmd.throttle_nd = 0.5f;
+    Eigen::Vector3f wind = Eigen::Vector3f::Zero();
+
+    // Take a few steps to change state.
+    for (int i = 1; i <= 5; ++i) {
+        ac->step(i * 0.05, cmd, wind, 1.225f);
+    }
+
+    ac->reset();
+
+    const Eigen::Vector3f vel = ac->state().velocity_NED_mps();
+    EXPECT_NEAR(vel.x(), 55.0f, 1e-3f);
+    EXPECT_NEAR(vel.y(), 0.0f,  1e-3f);
+    EXPECT_NEAR(vel.z(), 0.0f,  1e-3f);
+}
+
+// ---------------------------------------------------------------------------
+// Item 4 — step() physics loop
+// ---------------------------------------------------------------------------
+
+TEST(AircraftTest, StepDoesNotThrow) {
+    auto ac = makeAircraft();
+
+    liteaerosim::AircraftCommand cmd;
+    cmd.n         = 1.0f;
+    cmd.throttle_nd = 0.5f;
+    Eigen::Vector3f wind = Eigen::Vector3f::Zero();
+
+    EXPECT_NO_THROW(ac->step(0.1, cmd, wind, 1.225f));
+}
+
+TEST(AircraftTest, ZeroThrottle_AircraftDecelerates) {
+    // Zero thrust → drag decelerates the aircraft.
+    auto ac = makeAircraft(0.0f);   // StubPropulsion always returns 0 N
+
+    liteaerosim::AircraftCommand cmd;
+    cmd.n         = 1.0f;
+    cmd.throttle_nd = 0.0f;
+    Eigen::Vector3f wind = Eigen::Vector3f::Zero();
+
+    const float initial_speed = ac->state().velocity_NED_mps().norm();
+
+    for (int i = 1; i <= 10; ++i) {
+        ac->step(i * 0.1, cmd, wind, 1.225f);
+    }
+
+    const float final_speed = ac->state().velocity_NED_mps().norm();
+    EXPECT_LT(final_speed, initial_speed) << "speed should decrease with zero thrust";
+}
+
+TEST(AircraftTest, StraightAndLevel_SpeedApproximatelyConstant) {
+    // Thrust ≈ 989 N balances drag at 55 m/s for the GA config.
+    // Over 5 steps of 0.1 s, speed should change by less than 5%.
+    auto ac = makeAircraft(989.0f);
+
+    liteaerosim::AircraftCommand cmd;
+    cmd.n         = 1.0f;
+    cmd.throttle_nd = 0.5f;
+    Eigen::Vector3f wind = Eigen::Vector3f::Zero();
+
+    const float initial_speed = ac->state().velocity_NED_mps().norm();
+
+    for (int i = 1; i <= 5; ++i) {
+        ac->step(i * 0.1, cmd, wind, 1.225f);
+    }
+
+    const float final_speed = ac->state().velocity_NED_mps().norm();
+    const float rel_change  = std::abs(final_speed - initial_speed) / initial_speed;
+    EXPECT_LT(rel_change, 0.05f)
+        << "speed changed by " << (rel_change * 100.f) << "% (threshold: 5%)";
+}
