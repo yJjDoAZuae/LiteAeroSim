@@ -1,8 +1,14 @@
 #include "Aircraft.hpp"
+#include "liteaerosim.pb.h"
 #include "navigation/WGS84.hpp"
+#include "propulsion/PropulsionEDF.hpp"
+#include "propulsion/PropulsionJet.hpp"
+#include "propulsion/PropulsionProp.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
+#include <vector>
 
 namespace liteaerosim {
 
@@ -176,6 +182,11 @@ nlohmann::json Aircraft::serializeJson() const {
 }
 
 void Aircraft::deserializeJson(const nlohmann::json& j) {
+    if (j.at("schema_version").get<int>() != 1)
+        throw std::runtime_error("Aircraft::deserializeJson: unsupported schema_version");
+    if (j.at("type").get<std::string>() != "Aircraft")
+        throw std::runtime_error("Aircraft::deserializeJson: unexpected type");
+
     _airframe = AirframePerformance::deserializeJson(j.at("airframe"));
     _inertia  = Inertia::deserializeJson(j.at("inertia"));
 
@@ -192,6 +203,82 @@ void Aircraft::deserializeJson(const nlohmann::json& j) {
 
     if (_propulsion) {
         _propulsion->deserializeJson(j.at("propulsion"));
+    }
+}
+
+// Helper: parse bytes into a proto sub-message of type T.
+template <typename T>
+static T parseSubMessage(const std::vector<uint8_t>& bytes) {
+    T msg;
+    msg.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()));
+    return msg;
+}
+
+// Helper: serialize a proto sub-message to bytes.
+template <typename T>
+static std::vector<uint8_t> serializeSubMessage(const T& msg) {
+    const std::string s = msg.SerializeAsString();
+    return std::vector<uint8_t>(s.begin(), s.end());
+}
+
+std::vector<uint8_t> Aircraft::serializeProto() const {
+    las_proto::AircraftState proto;
+    proto.set_schema_version(1);
+
+    *proto.mutable_kinematic_state()  = parseSubMessage<las_proto::KinematicState>(_state.serializeProto());
+    *proto.mutable_initial_state()    = parseSubMessage<las_proto::KinematicState>(_initial_state.serializeProto());
+    if (_allocator) *proto.mutable_allocator()         = parseSubMessage<las_proto::LoadFactorAllocatorState>(_allocator->serializeProto());
+    if (_liftCurve) *proto.mutable_lift_curve()        = parseSubMessage<las_proto::LiftCurveParams>(_liftCurve->serializeProto());
+    if (_aeroPerf)  *proto.mutable_aero_performance()  = parseSubMessage<las_proto::AeroPerformanceParams>(_aeroPerf->serializeProto());
+    *proto.mutable_airframe() = parseSubMessage<las_proto::AirframePerformanceParams>(_airframe.serializeProto());
+    *proto.mutable_inertia()  = parseSubMessage<las_proto::InertiaParams>(_inertia.serializeProto());
+
+    if (_propulsion) {
+        if (auto* jet = dynamic_cast<propulsion::PropulsionJet*>(_propulsion.get()))
+            *proto.mutable_jet()  = parseSubMessage<las_proto::PropulsionJetState>(jet->serializeProto());
+        else if (auto* edf = dynamic_cast<propulsion::PropulsionEDF*>(_propulsion.get()))
+            *proto.mutable_edf()  = parseSubMessage<las_proto::PropulsionEdfState>(edf->serializeProto());
+        else if (auto* prop = dynamic_cast<propulsion::PropulsionProp*>(_propulsion.get()))
+            *proto.mutable_prop() = parseSubMessage<las_proto::PropulsionPropState>(prop->serializeProto());
+    }
+
+    const std::string s = proto.SerializeAsString();
+    return std::vector<uint8_t>(s.begin(), s.end());
+}
+
+void Aircraft::deserializeProto(const std::vector<uint8_t>& bytes) {
+    las_proto::AircraftState proto;
+    if (!proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())))
+        throw std::runtime_error("Aircraft::deserializeProto: failed to parse bytes");
+    if (proto.schema_version() != 1)
+        throw std::runtime_error("Aircraft::deserializeProto: unsupported schema_version");
+
+    _airframe = AirframePerformance::deserializeProto(serializeSubMessage(proto.airframe()));
+    _inertia  = Inertia::deserializeProto(serializeSubMessage(proto.inertia()));
+
+    _liftCurve.emplace(LiftCurveModel::deserializeProto(serializeSubMessage(proto.lift_curve())));
+    _aeroPerf.emplace(aerodynamics::AeroPerformance::deserializeProto(serializeSubMessage(proto.aero_performance())));
+
+    _allocator.emplace(*_liftCurve, 1.0f, -0.1f);
+    _allocator->deserializeProto(serializeSubMessage(proto.allocator()));
+
+    _state.deserializeProto(serializeSubMessage(proto.kinematic_state()));
+    _initial_state.deserializeProto(serializeSubMessage(proto.initial_state()));
+
+    if (_propulsion) {
+        switch (proto.propulsion_case()) {
+            case las_proto::AircraftState::kJet:
+                _propulsion->deserializeProto(serializeSubMessage(proto.jet()));
+                break;
+            case las_proto::AircraftState::kEdf:
+                _propulsion->deserializeProto(serializeSubMessage(proto.edf()));
+                break;
+            case las_proto::AircraftState::kProp:
+                _propulsion->deserializeProto(serializeSubMessage(proto.prop()));
+                break;
+            default:
+                break;
+        }
     }
 }
 

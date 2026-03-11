@@ -1,4 +1,4 @@
-// Tests for Aircraft — items 3 (class definition) and 4 (step() physics loop).
+// Tests for Aircraft — items 3 (class definition), 4 (step() physics loop), 5 (serialization).
 
 #include "Aircraft.hpp"
 #include "propulsion/V_Propulsion.hpp"
@@ -185,4 +185,85 @@ TEST(AircraftTest, StraightAndLevel_SpeedApproximatelyConstant) {
     const float rel_change  = std::abs(final_speed - initial_speed) / initial_speed;
     EXPECT_LT(rel_change, 0.05f)
         << "speed changed by " << (rel_change * 100.f) << "% (threshold: 5%)";
+}
+
+// ---------------------------------------------------------------------------
+// Item 5 — serialization
+// ---------------------------------------------------------------------------
+
+static liteaerosim::AircraftCommand levelCmd() {
+    liteaerosim::AircraftCommand cmd;
+    cmd.n           = 1.0f;
+    cmd.throttle_nd = 0.5f;
+    return cmd;
+}
+
+TEST(AircraftTest, JsonRoundTrip_StateMatchesAfterRestore) {
+    auto ac1 = makeAircraft(989.0f);
+
+    Eigen::Vector3f wind = Eigen::Vector3f::Zero();
+    for (int i = 1; i <= 10; ++i) {
+        ac1->step(i * 0.1, levelCmd(), wind, 1.225f);
+    }
+
+    const nlohmann::json snapshot = ac1->serializeJson();
+
+    auto prop2 = std::make_unique<StubPropulsion>(989.0f);
+    liteaerosim::Aircraft ac2(std::move(prop2));
+    ac2.deserializeJson(snapshot);
+
+    // One additional step on both; outputs must agree to float precision.
+    ac1->step(11 * 0.1, levelCmd(), wind, 1.225f);
+    ac2.step(11 * 0.1, levelCmd(), wind, 1.225f);
+
+    const Eigen::Vector3f v1 = ac1->state().velocity_NED_mps();
+    const Eigen::Vector3f v2 = ac2.state().velocity_NED_mps();
+    EXPECT_NEAR(v1.x(), v2.x(), 1e-4f);
+    EXPECT_NEAR(v1.y(), v2.y(), 1e-4f);
+    EXPECT_NEAR(v1.z(), v2.z(), 1e-4f);
+}
+
+TEST(AircraftTest, ProtoRoundTrip_StateMatchesAfterRestore) {
+    auto ac1 = makeAircraft(989.0f);
+
+    Eigen::Vector3f wind = Eigen::Vector3f::Zero();
+    for (int i = 1; i <= 10; ++i) {
+        ac1->step(i * 0.1, levelCmd(), wind, 1.225f);
+    }
+
+    const std::vector<uint8_t> bytes = ac1->serializeProto();
+
+    auto prop2 = std::make_unique<StubPropulsion>(989.0f);
+    liteaerosim::Aircraft ac2(std::move(prop2));
+    ac2.deserializeProto(bytes);
+
+    ac1->step(11 * 0.1, levelCmd(), wind, 1.225f);
+    ac2.step(11 * 0.1, levelCmd(), wind, 1.225f);
+
+    const Eigen::Vector3f v1 = ac1->state().velocity_NED_mps();
+    const Eigen::Vector3f v2 = ac2.state().velocity_NED_mps();
+    EXPECT_NEAR(v1.x(), v2.x(), 1e-4f);
+    EXPECT_NEAR(v1.y(), v2.y(), 1e-4f);
+    EXPECT_NEAR(v1.z(), v2.z(), 1e-4f);
+}
+
+TEST(AircraftTest, JsonSchemaVersionMismatchThrows) {
+    auto ac = makeAircraft();
+    nlohmann::json snapshot = ac->serializeJson();
+    snapshot["schema_version"] = 99;
+
+    auto prop = std::make_unique<StubPropulsion>();
+    liteaerosim::Aircraft ac2(std::move(prop));
+    EXPECT_THROW({ ac2.deserializeJson(snapshot); }, std::runtime_error);
+}
+
+TEST(AircraftTest, ProtoSchemaVersionMismatchThrows) {
+    auto ac = makeAircraft();
+    std::vector<uint8_t> bytes = ac->serializeProto();
+    // AircraftState field 1 = schema_version: tag 0x08 at bytes[0], value varint at bytes[1].
+    bytes[1] = static_cast<uint8_t>(99);
+
+    auto prop = std::make_unique<StubPropulsion>();
+    liteaerosim::Aircraft ac2(std::move(prop));
+    EXPECT_THROW({ ac2.deserializeProto(bytes); }, std::runtime_error);
 }

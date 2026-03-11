@@ -134,3 +134,22 @@ message PropulsionPropState {
     float          thrust_n       = 2;
     repeated float rotor_state    = 3;  // FilterSS2Clip state vector x: [x[0], x[1]]
 }
+
+// ---------------------------------------------------------------------------
+// AircraftState — full restart snapshot for Aircraft
+// ---------------------------------------------------------------------------
+message AircraftState {
+    int32                     schema_version   = 1;
+    KinematicState            kinematic_state  = 2;
+    KinematicState            initial_state    = 3;
+    LoadFactorAllocatorState  allocator        = 4;
+    LiftCurveParams           lift_curve       = 5;
+    AeroPerformanceParams     aero_performance = 6;
+    AirframePerformanceParams airframe         = 7;
+    InertiaParams             inertia          = 8;
+    oneof propulsion {
+        PropulsionJetState  jet  = 9;
+        PropulsionEdfState  edf  = 10;
+        PropulsionPropState prop = 11;
+    }
+}

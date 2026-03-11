@@ -8,9 +8,11 @@
 #include "airframe/Inertia.hpp"
 #include "propulsion/V_Propulsion.hpp"
 #include <Eigen/Dense>
+#include <cstdint>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <vector>
 
 namespace liteaerosim {
 
@@ -69,8 +71,10 @@ public:
     // Note: deserializeJson() restores _propulsion state via _propulsion->deserializeJson()
     // but does not reconstruct the propulsion model itself — the correct V_Propulsion
     // subclass must have been injected at construction before calling deserializeJson().
-    nlohmann::json serializeJson() const;
-    void           deserializeJson(const nlohmann::json& j);
+    nlohmann::json       serializeJson() const;
+    void                 deserializeJson(const nlohmann::json& j);
+    std::vector<uint8_t> serializeProto() const;
+    void                 deserializeProto(const std::vector<uint8_t>& bytes);
 
 private:
     KinematicState                                       _state;

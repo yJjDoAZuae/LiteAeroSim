@@ -526,7 +526,7 @@ flowchart LR
 | `_initial_state` | `KinematicState` | Value member — lives with `Aircraft` | Saved by `initialize()` for `reset()` |
 | `_liftCurve` | `std::optional<LiftCurveModel>` | Inline optional (no default ctor) | Emplaced by `initialize()` / `deserializeJson()`; stateless after construction |
 | `_allocator` | `std::optional<LoadFactorAllocator>` | Inline optional (no default ctor) | Holds `const&` to `_liftCurve` — `Aircraft` is non-movable to prevent dangling reference |
-| `_aeroPerf` | `AeroPerformance` | Value member | Stateless after construction |
+| `_aeroPerf` | `std::optional<AeroPerformance>` | Inline optional (no default ctor) | Emplaced by `initialize()` / `deserializeJson()`; stateless after construction |
 | `_airframe` | `AirframePerformance` | Value member | Envelope limits — clamped before `LoadFactorAllocator`; stateless |
 | `_inertia` | `Inertia` | Value member | Mass and inertia — `mass_kg` replaces bare scalar; `Ixx/Iyy/Izz` reserved for future 6-DOF moment equations |
 | `_propulsion` | `std::unique_ptr<V_Propulsion>` | Heap-allocated, owned | Injected at construction; non-null invariant |
@@ -600,23 +600,20 @@ self-contained — a caller must not need to call `initialize()` before or after
 | `AirframePerformance` | No | Config params only |
 | `Inertia` | No | Config params only |
 
-### Protobuf Message (to be added to `proto/liteaerosim.proto` when `Aircraft` is implemented)
+### Protobuf Message
+
+Defined in `proto/liteaerosim.proto`:
 
 ```proto
-message AircraftParams {
-    float dt_s = 1;
-}
-
 message AircraftState {
-    int32                    schema_version  = 1;
-    AircraftParams           params          = 2;
-    KinematicState           kinematic_state = 3;
-    LoadFactorAllocatorState allocator        = 4;
-    LiftCurveModelParams     lift_curve       = 5;
-    AeroPerformanceParams    aero_performance = 6;
-    AirframePerformanceParams airframe        = 7;
-    InertiaParams            inertia          = 8;
-
+    int32                     schema_version   = 1;
+    KinematicState            kinematic_state  = 2;
+    KinematicState            initial_state    = 3;
+    LoadFactorAllocatorState  allocator        = 4;
+    LiftCurveParams           lift_curve       = 5;
+    AeroPerformanceParams     aero_performance = 6;
+    AirframePerformanceParams airframe         = 7;
+    InertiaParams             inertia          = 8;
     oneof propulsion {
         PropulsionJetState  jet  = 9;
         PropulsionEdfState  edf  = 10;
@@ -625,10 +622,10 @@ message AircraftState {
 }
 ```
 
-The `oneof` discriminates the propulsion type at the proto level, mirroring the `"type"`
-string in the JSON schema. Each config struct (`LiftCurveModelParams`,
-`AeroPerformanceParams`, `AirframePerformanceParams`, `InertiaParams`) is a flat message
-of scalar fields with no nested state.
+The `oneof propulsion` field encodes both the propulsion type and its warm-start state in a
+single discriminated union — no separate `"type"` string is needed at the proto level. Each
+config struct (`LiftCurveParams`, `AeroPerformanceParams`, `AirframePerformanceParams`,
+`InertiaParams`) is a flat message of scalar fields with no nested state.
 
 ---
 
@@ -643,10 +640,10 @@ of scalar fields with no nested state.
 | Any malformed field | `initialize()` | throws `std::invalid_argument` |
 | Any command, any airspeed | `step()` | No throw; allocator clamps to envelope |
 | After `reset()` | `state()` | Returns initial `KinematicState` from `initialize()` |
-| Valid self-contained snapshot | `deserializeJson()` | Fully reconstituted; `step()` may be called without `initialize()` |
+| Valid self-contained snapshot | `deserializeJson()` / `deserializeProto()` | Fully reconstituted; `step()` may be called without `initialize()` |
 | Snapshot `"type"` = `"Aircraft"` | `deserializeJson()` | State restored; next `step()` output is identical |
 | Snapshot `"type"` ≠ `"Aircraft"` | `deserializeJson()` | throws `std::runtime_error` |
-| Schema version ≠ 1 | `deserializeJson()` | throws `std::runtime_error` |
+| Schema version ≠ 1 | `deserializeJson()` / `deserializeProto()` | throws `std::runtime_error` |
 
 ---
 
