@@ -1,10 +1,12 @@
-// Tests for Aircraft — items 3 (class definition), 4 (step() physics loop), 5 (serialization).
+// Tests for Aircraft — items 3 (class definition), 4 (step() physics loop),
+//                      5 (serialization), 1 (JSON initialization from fixture files).
 
 #include "Aircraft.hpp"
 #include "propulsion/V_Propulsion.hpp"
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <cstdint>
+#include <fstream>
 #include <memory>
 #include <vector>
 
@@ -266,4 +268,40 @@ TEST(AircraftTest, ProtoSchemaVersionMismatchThrows) {
     auto prop = std::make_unique<StubPropulsion>();
     liteaerosim::Aircraft ac2(std::move(prop));
     EXPECT_THROW({ ac2.deserializeProto(bytes); }, std::runtime_error);
+}
+
+// ---------------------------------------------------------------------------
+// Item 1 — JSON initialization from fixture files
+// ---------------------------------------------------------------------------
+
+static nlohmann::json loadFixture(const std::string& relative_path) {
+    std::ifstream f(std::string(LAS_TEST_DATA_DIR) + "/" + relative_path);
+    EXPECT_TRUE(f.is_open()) << "Could not open fixture: " << relative_path;
+    return nlohmann::json::parse(f);
+}
+
+TEST(AircraftTest, InitializeFromFixture_GeneralAviation) {
+    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_NO_THROW(ac->initialize(loadFixture("aircraft/general_aviation.json")));
+    EXPECT_FLOAT_EQ(ac->state().velocity_NED_mps().x(), 55.0f);
+}
+
+TEST(AircraftTest, InitializeFromFixture_JetTrainer) {
+    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_NO_THROW(ac->initialize(loadFixture("aircraft/jet_trainer.json")));
+    EXPECT_FLOAT_EQ(ac->state().velocity_NED_mps().x(), 150.0f);
+}
+
+TEST(AircraftTest, InitializeFromFixture_SmallUAS) {
+    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_NO_THROW(ac->initialize(loadFixture("aircraft/small_uas.json")));
+    EXPECT_FLOAT_EQ(ac->state().velocity_NED_mps().x(), 20.0f);
+}
+
+TEST(AircraftTest, InitializeWithMissingField_Throws) {
+    nlohmann::json config = loadFixture("aircraft/general_aviation.json");
+    config.erase("inertia");
+
+    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_THROW(ac->initialize(config), std::exception);
 }

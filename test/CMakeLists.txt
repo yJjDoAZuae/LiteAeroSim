@@ -26,6 +26,11 @@ target_include_directories(liteaerosim_test PRIVATE
 
 target_compile_features(liteaerosim_test PRIVATE cxx_std_17)
 
+# Absolute path to the test data directory, available as LAS_TEST_DATA_DIR in all test files.
+target_compile_definitions(liteaerosim_test PRIVATE
+    LAS_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/test/data"
+)
+
 # liteaerosim brings in Eigen, JSON, and trochoids transitively (PRIVATE).
 # Eigen3::Eigen and nlohmann_json::nlohmann_json are listed explicitly here
 # so that test files may include their headers directly (e.g. for test fixtures
