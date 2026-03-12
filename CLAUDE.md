@@ -128,3 +128,4 @@ cmake/               CMake helpers
 | Schema version | Field `"schema_version"` (int) in every serialized object |
 | New dependency | Check license first; use FetchContent if source is available |
 | Angular velocity notation | $\boldsymbol{\omega}_{A/B}^C$: rotation of frame $A$ relative to frame $B$, expressed in frame $C$ |
+| Aspect ratio in math | `$A\!\!R$` (double negative kern) — not plain `$A$` |

@@ -51,117 +51,83 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ---
 
-## 2. `Atmosphere` — International Standard Atmosphere Model
+## 1. `Atmosphere` — ISA + Non-Standard Day + Humidity
 
-`Atmosphere` provides density, temperature, and pressure as functions of geopotential
-altitude. It is a stateless value-type (no `step()`, no serialization). All dependent
-subsystems receive density as a parameter rather than holding a reference to `Atmosphere`.
+Design authority: [`docs/architecture/environment.md`](../architecture/environment.md).
 
-### Interface sketch
+`Atmosphere` is a stateless value type configured once per scenario with a temperature
+deviation (∆ISA) and a relative humidity. It outputs the full thermodynamic state at a
+given geometric altitude.
 
-```cpp
-// include/environment/Atmosphere.hpp
-namespace liteaerosim::environment {
+### Outputs (`AtmosphericState`)
 
-struct AtmosphericState {
-    float temperature_k;    // static temperature (K)
-    float pressure_pa;      // static pressure (Pa)
-    float density_kgm3;     // air density (kg/m³)
-    float speed_of_sound_mps;
-};
+`temperature_k`, `pressure_pa`, `density_kgm3`, `speed_of_sound_mps`,
+`relative_humidity_nd`, `density_altitude_m`.
 
-class Atmosphere {
-public:
-    // Returns ISA state at the given geopotential altitude.
-    static AtmosphericState isa(float altitude_m);
+### Physics summary
 
-    // Returns density ratio σ = rho / rho_SL.
-    static float densityRatio(float altitude_m);
-};
-
-} // namespace liteaerosim::environment
-```
+- Three ISA layers to 32 000 m (troposphere, tropopause, lower stratosphere).
+- Geometric → geopotential altitude conversion using $R_E = 6\,356\,766\,\text{m}$.
+- Non-standard day: $T(h) = T_\text{ISA}(h) + \Delta T$; pressure follows the ISA profile.
+- Moist-air density via virtual temperature $T_v \approx T(1 + 0.608\,q)$; saturation
+  vapor pressure from the Buck (1981) equation.
+- Speed of sound: $c = \sqrt{\gamma R_d T_v}$.
+- Density altitude: tropospheric closed-form; stratospheric numerical bisection.
 
 ### Tests
 
-- At 0 m: temperature = 288.15 K, pressure = 101 325 Pa, density = 1.225 kg/m³ (within 0.01%).
-- At 11 000 m (tropopause): temperature = 216.65 K (within 0.1%).
-- `densityRatio(0)` = 1.0.
-- `densityRatio(5000)` matches the ISA table value to within 0.1%.
-- Density is strictly monotonically decreasing up to 20 000 m.
+See [environment.md — Test Requirements](../architecture/environment.md) (`Atmosphere_test.cpp` section).
 
 ### CMake
 
-Add `src/environment/Atmosphere.cpp` to the `liteaerosim` target.
+Add `src/environment/Atmosphere.cpp` to `liteaerosim`.
 Add `test/Atmosphere_test.cpp` to the test executable.
 
 ---
 
-## 3. `Wind` and `Gust` — Ambient Wind and Turbulence Models
+## 2. `Wind`, `Turbulence`, and `Gust` — Atmospheric Disturbance Models
 
-`Wind` provides a spatially and temporally varying wind vector in NED coordinates. `Gust`
-provides a transient velocity disturbance (discrete gust or Dryden turbulence). Both are
-Domain Layer components that produce a `wind_NED_mps` vector consumed by `Aircraft::step()`.
+Design authority: [`docs/architecture/environment.md`](../architecture/environment.md).
 
-### `Wind` interface sketch
+### `Wind`
 
-```cpp
-// include/environment/Wind.hpp
-namespace liteaerosim::environment {
+Stateless. Supports constant and altitude-varying profiles (power-law, logarithmic).
+Outputs `wind_NED_mps` at any geometric altitude. Configured by `WindConfig`.
 
-class Wind {
-public:
-    // Returns the ambient wind vector in NED frame at the given position and time.
-    Eigen::Vector3f wind_NED_mps(const Eigen::Vector3f& position_NED_m, double time_s) const;
+### `Turbulence`
 
-    void setConstant(const Eigen::Vector3f& wind_NED_mps);
-    // Future: wind field, measured profile, etc.
-};
+Stateful (`DynamicBlock`-compatible). Dryden continuous turbulence per MIL-HDBK-1797
+Appendix C. Outputs body-frame translational ($u_{wg}$, $v_{wg}$, $w_{wg}$) and angular
+($p_{wg}$, $q_{wg}$, $r_{wg}$) velocity disturbances. Intensity: Light / Moderate /
+Severe. Filter coefficients update when altitude or airspeed changes significantly. JSON
+round-trip serialization.
 
-} // namespace liteaerosim::environment
-```
+### `Gust`
 
-### `Gust` interface sketch
+Stateful. Discrete 1-cosine gust per MIL-SPEC-8785C §3.9.1. Triggered at a specified
+simulation time; outputs a body-frame velocity vector over the gust duration. Supports
+vertical, lateral, and longitudinal components.
 
-```cpp
-// include/environment/Gust.hpp
-namespace liteaerosim::environment {
+### `EnvironmentState`
 
-// Discrete (1-cosine) gust model per MIL-SPEC-8785C.
-class Gust {
-public:
-    // Configure a discrete gust starting at trigger_time_s.
-    void set(float amplitude_mps, float gust_length_m, float airspeed_mps, double trigger_time_s);
+Compound struct passed to `Aircraft::step()` containing `AtmosphericState`, `wind_NED_mps`,
+`TurbulenceVelocity`, and `gust_body_mps`. The scenario loop assembles it each timestep.
 
-    // Returns the instantaneous gust velocity contribution (m/s) in the body axis.
-    float step(double time_s, float airspeed_mps);
+### Tests
 
-    void reset();
-};
-
-} // namespace liteaerosim::environment
-```
-
-### Tests — `Wind`
-
-- `setConstant({5, 0, 0})`: `wind_NED_mps(any_pos, any_time)` returns `{5, 0, 0}`.
-- Default-constructed wind returns `{0, 0, 0}`.
-
-### Tests — `Gust`
-
-- Before trigger time, `step()` returns 0.
-- At peak (half-gust length), output equals `amplitude_mps`.
-- After gust has fully passed (time beyond end of gust), output returns to 0.
-- Total impulse (integral of `step()` over gust duration) is consistent with `amplitude_mps * gust_length_m / airspeed_mps` analytically.
+See [environment.md — Test Requirements](../architecture/environment.md)
+(`Wind_test.cpp`, `Turbulence_test.cpp`, `Gust_test.cpp` sections).
 
 ### CMake
 
-Add `src/environment/Wind.cpp` and `src/environment/Gust.cpp` to `liteaerosim`.
-Add `test/Wind_test.cpp` and `test/Gust_test.cpp` to the test executable.
+Add `src/environment/Wind.cpp`, `src/environment/Turbulence.cpp`,
+`src/environment/Gust.cpp` to `liteaerosim`.
+Add `test/Wind_test.cpp`, `test/Turbulence_test.cpp`, `test/Gust_test.cpp` to the test
+executable.
 
 ---
 
-## 4. `Terrain` — Elevation Model
+## 3. `Terrain` — Elevation Model
 
 `Terrain` provides ground elevation (meters above mean sea level) at a given latitude and
 longitude. The Domain Layer uses it to compute height above ground (HAG) and to detect
@@ -206,7 +172,7 @@ Add `test/Terrain_test.cpp` to the test executable.
 
 ---
 
-## 5. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
+## 4. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
 
 Air data sensors derive indicated and calibrated quantities from the true atmospheric state
 and aircraft kinematics. They model systematic bias and measurement noise. All sensors
@@ -252,7 +218,7 @@ Add `test/SensorAirData_test.cpp` and `test/SensorAngle_test.cpp` to the test ex
 
 ---
 
-## 6. `SensorRadAlt` — Radar / Laser Altimeter
+## 5. `SensorRadAlt` — Radar / Laser Altimeter
 
 `SensorRadAlt` outputs height above ground (HAG) derived from `Terrain::heightAboveGround_m`.
 `SensorForwardTerrainProfile` returns a look-ahead terrain elevation vector along the
@@ -276,7 +242,7 @@ Add `test/SensorRadAlt_test.cpp` to the test executable.
 
 ---
 
-## 7. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 6. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
 A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
 cross-track error, along-track distance, and desired heading at a query position. The
@@ -331,7 +297,7 @@ Add `test/Path_test.cpp` to the test executable.
 
 ---
 
-## 8. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 7. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
 Guidance laws convert path and altitude errors into commanded load factors for `Aircraft::step()`.
 They live in the Domain Layer and have no I/O. Each is a stateful element (contains filter
@@ -372,7 +338,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 9. Autopilot — Outer Loop Command Generation
+## 8. Autopilot — Outer Loop Command Generation
 
 `Autopilot` combines `PathGuidance`, `VerticalGuidance`, and `ParkTracking` into a single
 class that consumes the `KinematicState` and `PathResponse` and produces an `AircraftCommand`
@@ -423,7 +389,7 @@ Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
-## 10. Plot Visualization — Python Post-Processing Tools
+## 9. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -457,7 +423,7 @@ dev = [
 
 ---
 
-## 11. Manual Input — Joystick and Keyboard
+## 10. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -498,7 +464,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 12. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 11. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
