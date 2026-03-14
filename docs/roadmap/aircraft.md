@@ -14,7 +14,7 @@ writing production code.
 ## Current State
 
 | Component | File | Status |
-|-----------|------|--------|
+| ----------- | ------ | -------- |
 | `KinematicState` | `include/KinematicState.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `LiftCurveModel` | `include/aerodynamics/LiftCurveModel.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `LoadFactorAllocator` | `include/aerodynamics/LoadFactorAllocator.hpp` | ✅ Implemented + serialization (JSON + proto) |
@@ -46,7 +46,7 @@ writing production code.
 Design authority for all delivered items: [`docs/architecture/aircraft.md`](../architecture/aircraft.md).
 
 | # | Item | Tests |
-|---|------|-------|
+| --- | ------ | ------- |
 | 1 | `AirframePerformance` — field renames, serialization (JSON + proto), `aircraft_config_v1` schema | `AirframePerformance_test.cpp` — 6 tests |
 | 2 | `Inertia` — serialization (JSON + proto), `aircraft_config_v1` schema | `Inertia_test.cpp` — 6 tests |
 | 3 | `Aircraft` class — `AircraftCommand`, `initialize()`, `reset()`, `state()` | `Aircraft_test.cpp` — 3 tests |
@@ -116,12 +116,12 @@ derivation chain in `aerodynamics.md` §§1–8.
 - **AR**: computed `ar` matches $b^2 / S$ for the test wing.
 - **MAC**: computed `mac_m` matches the closed-form $\bar{c} = \tfrac{2}{3} c_\text{root} (1 + \lambda + \lambda^2)/(1 + \lambda)$.
 - **$C_{L_\alpha}$**: unswept wing at $M = 0$ matches $2\pi A\!\!R / (A\!\!R + 2)$ to within 0.5%.
-- **$C_{L_\text{max}}$**: equals $C_{l_{\max,2D}} \cos\Lambda_{c/4}$ for a swept wing.
-- **$e$**: Hoerner value for $A\!\!R = 8$, $\Lambda_{c/4} = 0$ matches $1/(1 + 0.007\pi \cdot 8)$ to within 0.1%.
+- **$C_{L_\text{max}}$**: equals $C_{l_{\max_{2D}}} \cos\Lambda_{QC}$ for a swept wing.
+- **$e$**: Hoerner value for $A\!\!R = 8$, $\Lambda_{QC} = 0$ matches $1/(1 + 0.007\pi \cdot 8)$ to within 0.1%.
 - **$C_{D_0}$**: component-buildup result for a known configuration is within 10% of a published reference value.
-- **$C_{Y_\beta}$**: negative (stabilizing); magnitude increases with $S_v / S$.
+- **$C_{Y_\beta}$**: negative (stabilizing); magnitude increases with $S_{VT} / S$.
 - **$C_{L_q}$**: tail-dominated configuration gives value in the range $[3, 12]$ rad⁻¹.
-- **$C_{Y_r}$**: positive; increases with $l_v$.
+- **$C_{Y_r}$**: positive; increases with $l_{VT}$.
 - **Round-trip**: `estimate()` applied to a reference UAV geometry produces an `AeroPerformance` that passes `AeroPerformance`'s existing JSON round-trip test.
 
 ### CMake

@@ -22,13 +22,13 @@ Flight* (3rd ed.).
 | $C_{L_\text{max}}$ | `cl_max` | `LiftCurveParams` | Peak lift coefficient |
 | $C_{L_\text{min}}$ | `cl_min` | `LiftCurveParams` | Minimum lift coefficient |
 | $\Delta\alpha_\text{stall}$ | `delta_alpha_stall` | `LiftCurveParams` | Positive stall region half-width (rad) |
-| $\Delta\alpha_\text{stall,neg}$ | `delta_alpha_stall_neg` | `LiftCurveParams` | Negative stall region half-width (rad) |
+| $\Delta\alpha_{\text{stall}_{neg}}$ | `delta_alpha_stall_neg` | `LiftCurveParams` | Negative stall region half-width (rad) |
 | $C_{L_\text{sep}}$ | `cl_sep` | `LiftCurveParams` | Positive post-stall plateau |
-| $C_{L_\text{sep,neg}}$ | `cl_sep_neg` | `LiftCurveParams` | Negative post-stall plateau |
+| $C_{L_{\text{sep}_{neg}}}$ | `cl_sep_neg` | `LiftCurveParams` | Negative post-stall plateau |
 | $C_{L_q}$ | `cl_q_nd` | `AeroPerformance` *(proposed)* | Pitch-rate damping derivative (rad⁻¹) |
 | $\bar{c}$ | `mac_m` | `AeroPerformance` *(proposed)* | Mean aerodynamic chord (m) |
 | $C_{Y_r}$ | `cy_r_nd` | `AeroPerformance` *(proposed)* | Yaw-rate lateral force derivative (rad⁻¹) |
-| $l_v$ | `fin_arm_m` | `AeroPerformance` *(proposed)* | Vertical tail moment arm (m) |
+| $l_{VT}$ | `fin_arm_m` | `AeroPerformance` *(proposed)* | Vertical tail moment arm (m) |
 
 *(Proposed)* fields are required by the rotational turbulence coupling defined in
 [`environment.md`](environment.md) but are not yet implemented in `AeroPerformance`.
@@ -45,27 +45,27 @@ Flight* (3rd ed.).
 | $S$ | Reference area | m² |
 | $\Lambda_0$ | Leading-edge sweep | rad |
 | $\lambda$ | Taper ratio $c_\text{tip}/c_\text{root}$ | — |
-| $x_\text{LE}$ | Body $x$ of root leading edge | m |
+| $x_{LE}$ | Body $x$ of root leading edge | m |
 
 ### Horizontal Tail
 
 | Symbol | Description | Unit |
 |--------|-------------|------|
-| $b_t$ | Span (tip-to-tip) | m |
-| $S_t$ | Reference area | m² |
-| $\Lambda_{0,t}$ | Leading-edge sweep | rad |
-| $\lambda_t$ | Taper ratio | — |
-| $x_{\text{LE},t}$ | Body $x$ of root leading edge | m |
+| $b_{HT}$ | Span (tip-to-tip) | m |
+| $S_{HT}$ | Reference area | m² |
+| $\Lambda_{0_{HT}}$ | Leading-edge sweep | rad |
+| $\lambda_{HT}$ | Taper ratio | — |
+| $x_{LE_{HT}}$ | Body $x$ of root leading edge | m |
 
 ### Vertical Tail
 
 | Symbol | Description | Unit |
 |--------|-------------|------|
-| $b_v$ | Height (root to tip) | m |
-| $S_v$ | Reference area | m² |
-| $\Lambda_{0,v}$ | Leading-edge sweep | rad |
-| $\lambda_v$ | Taper ratio | — |
-| $x_{\text{LE},v}$ | Body $x$ of root leading edge | m |
+| $b_{VT}$ | Height (root to tip) | m |
+| $S_{VT}$ | Reference area | m² |
+| $\Lambda_{0_{VT}}$ | Leading-edge sweep | rad |
+| $\lambda_{VT}$ | Taper ratio | — |
+| $x_{LE_{VT}}$ | Body $x$ of root leading edge | m |
 
 ### Fuselage
 
@@ -79,8 +79,8 @@ Flight* (3rd ed.).
 | Symbol | Description | Unit |
 |--------|-------------|------|
 | $(t/c)$ | Thickness-to-chord ratio of the wing section | — |
-| $C_{l_{\alpha,2D}}$ | 2D section lift slope (≈ $2\pi$ rad⁻¹ for thin airfoils) | rad⁻¹ |
-| $C_{l_{\max,2D}}$ | 2D section maximum lift coefficient | — |
+| $C_{l_{\alpha_{2D}}}$ | 2D section lift slope (≈ $2\pi$ rad⁻¹ for thin airfoils) | rad⁻¹ |
+| $C_{l_{\max_{2D}}}$ | 2D section maximum lift coefficient | — |
 
 ### Mass and CG
 
@@ -105,7 +105,7 @@ $$c_\text{root} = \frac{2S}{b(1+\lambda)}$$
 $$c_\text{tip} = \lambda\,c_\text{root}$$
 
 **Quarter-chord sweep** (standard sweep-conversion formula):
-$$\tan\Lambda_{c/4} = \tan\Lambda_0 - \frac{1}{A\!\!R}\cdot\frac{1-\lambda}{1+\lambda}$$
+$$\tan\Lambda_{QC} = \tan\Lambda_0 - \frac{1}{A\!\!R}\cdot\frac{1-\lambda}{1+\lambda}$$
 
 **Half-chord sweep:**
 $$\tan\Lambda_{c/2} = \tan\Lambda_0 - \frac{2}{A\!\!R}\cdot\frac{1-\lambda}{1+\lambda}$$
@@ -117,50 +117,50 @@ $$\bar{c} = \frac{2}{3}\,c_\text{root}\,\frac{1+\lambda+\lambda^2}{1+\lambda}$$
 $$\bar{y} = \frac{b}{6}\cdot\frac{1+2\lambda}{1+\lambda}$$
 
 **MAC leading-edge body $x$:**
-$$x_{\text{LE},\bar{c}} = x_\text{LE} + \bar{y}\tan\Lambda_0$$
+$$x_{LE_{\bar{c}}} = x_{LE} + \bar{y}\tan\Lambda_0$$
 
 **Wing aerodynamic center body $x$** (at quarter-chord of MAC):
-$$x_{ac,w} = x_{\text{LE},\bar{c}} + \frac{\bar{c}}{4}$$
+$$x_{ac_w} = x_{LE_{\bar{c}}} + \frac{\bar{c}}{4}$$
 
 ---
 
 ### 1.2 Horizontal Tail
 
-Apply identical formulas with subscript $t$:
+Apply identical formulas with subscript $HT$:
 
-$$A\!\!R_t = \frac{b_t^2}{S_t}, \quad
-c_{\text{root},t} = \frac{2S_t}{b_t(1+\lambda_t)}, \quad
-\bar{c}_t = \frac{2}{3}\,c_{\text{root},t}\,\frac{1+\lambda_t+\lambda_t^2}{1+\lambda_t}$$
+$$A\!\!R_{HT} = \frac{b_{HT}^2}{S_{HT}}, \quad
+c_{\text{root}_{HT}} = \frac{2S_{HT}}{b_{HT}(1+\lambda_{HT})}, \quad
+\bar{c}_{HT} = \frac{2}{3}\,c_{\text{root}_{HT}}\,\frac{1+\lambda_{HT}+\lambda_{HT}^2}{1+\lambda_{HT}}$$
 
-$$\tan\Lambda_{c/4,t} = \tan\Lambda_{0,t} - \frac{1}{A\!\!R_t}\cdot\frac{1-\lambda_t}{1+\lambda_t}$$
+$$\tan\Lambda_{QC_{HT}} = \tan\Lambda_{0_{HT}} - \frac{1}{A\!\!R_{HT}}\cdot\frac{1-\lambda_{HT}}{1+\lambda_{HT}}$$
 
-$$\bar{y}_t = \frac{b_t}{6}\cdot\frac{1+2\lambda_t}{1+\lambda_t}$$
+$$\bar{y}_{HT} = \frac{b_{HT}}{6}\cdot\frac{1+2\lambda_{HT}}{1+\lambda_{HT}}$$
 
 **Tail aerodynamic center body $x$:**
-$$x_{ac,t} = x_{\text{LE},t} + \bar{y}_t\tan\Lambda_{0,t} + \frac{\bar{c}_t}{4}$$
+$$x_{ac_{HT}} = x_{LE_{HT}} + \bar{y}_{HT}\tan\Lambda_{0_{HT}} + \frac{\bar{c}_{HT}}{4}$$
 
 **Tail moment arm:**
-$$l_t = x_{ac,t} - x_\text{CG}$$
+$$l_{HT} = x_{ac_{HT}} - x_\text{CG}$$
 
 ---
 
 ### 1.3 Vertical Tail
 
-Apply identical formulas with subscript $v$:
+Apply identical formulas with subscript $VT$:
 
-$$A\!\!R_v = \frac{b_v^2}{S_v}, \quad
-c_{\text{root},v} = \frac{2S_v}{b_v(1+\lambda_v)}, \quad
-\bar{c}_v = \frac{2}{3}\,c_{\text{root},v}\,\frac{1+\lambda_v+\lambda_v^2}{1+\lambda_v}$$
+$$A\!\!R_{VT} = \frac{b_{VT}^2}{S_{VT}}, \quad
+c_{\text{root}_{VT}} = \frac{2S_{VT}}{b_{VT}(1+\lambda_{VT})}, \quad
+\bar{c}_{VT} = \frac{2}{3}\,c_{\text{root}_{VT}}\,\frac{1+\lambda_{VT}+\lambda_{VT}^2}{1+\lambda_{VT}}$$
 
-$$\tan\Lambda_{c/4,v} = \tan\Lambda_{0,v} - \frac{1}{A\!\!R_v}\cdot\frac{1-\lambda_v}{1+\lambda_v}$$
+$$\tan\Lambda_{QC_{VT}} = \tan\Lambda_{0_{VT}} - \frac{1}{A\!\!R_{VT}}\cdot\frac{1-\lambda_{VT}}{1+\lambda_{VT}}$$
 
-$$\bar{y}_v = \frac{b_v}{6}\cdot\frac{1+2\lambda_v}{1+\lambda_v}$$
+$$\bar{y}_{VT} = \frac{b_{VT}}{6}\cdot\frac{1+2\lambda_{VT}}{1+\lambda_{VT}}$$
 
 **Vertical tail aerodynamic center body $x$:**
-$$x_{ac,v} = x_{\text{LE},v} + \bar{y}_v\tan\Lambda_{0,v} + \frac{\bar{c}_v}{4}$$
+$$x_{ac_{VT}} = x_{LE_{VT}} + \bar{y}_{VT}\tan\Lambda_{0_{VT}} + \frac{\bar{c}_{VT}}{4}$$
 
 **Vertical tail moment arm:**
-$$l_v = x_{ac,v} - x_\text{CG}$$
+$$l_{VT} = x_{ac_{VT}} - x_\text{CG}$$
 
 ---
 
@@ -179,7 +179,7 @@ $$C_{L_\alpha} \approx \frac{2\pi A\!\!R}{A\!\!R + 2}$$
 **Validity:** $0 \le M \le 0.6$; straight-tapered planform; linear-lift regime.
 
 > **Note:** The formula gives the isolated wing slope. For the complete aircraft, the tail
-> contribution adds approximately $\eta_t (S_t/S) C_{L_\alpha,t}$ where $\eta_t \approx 0.9$.
+> contribution adds approximately $\eta_{HT} (S_{HT}/S) C_{L_{\alpha_{HT}}}$ where $\eta_{HT} \approx 0.9$.
 > For the trim aero model the wing-alone value is used; tail effects are absorbed into the
 > Oswald efficiency and drag polar.
 
@@ -189,7 +189,7 @@ $$C_{L_\alpha} \approx \frac{2\pi A\!\!R}{A\!\!R + 2}$$
 
 ### 3.1 Peak Lift Coefficient $C_{L_\text{max}}$
 
-$$C_{L_\text{max}} = C_{l_{\max,2D}}\cos\Lambda_{c/4}$$
+$$C_{L_\text{max}} = C_{l_{\max_{2D}}}\cos\Lambda_{QC}$$
 
 This is the standard leading-edge suction correction for swept wings (Raymer §12.2).
 
@@ -220,7 +220,7 @@ $$\Delta\alpha_\text{stall} \approx 0.05 \text{ to } 0.10 \text{ rad}  \quad (3�
 Thin, highly swept wings stall more abruptly; use a smaller value ($\approx 0.03$ rad).
 Thick, washout-optimized wings stall more gently; use $\approx 0.10$ rad.
 
-$\Delta\alpha_\text{stall,neg}$ is taken equal to $\Delta\alpha_\text{stall}$ for symmetric
+$\Delta\alpha_{\text{stall}_{neg}}$ is taken equal to $\Delta\alpha_\text{stall}$ for symmetric
 sections, or slightly smaller in magnitude for cambered sections.
 
 ### 3.4 Post-Stall Plateau $C_{L_\text{sep}}$
@@ -229,7 +229,7 @@ The separated-flow plateau is empirically $50\%$ to $70\%$ of $C_{L_\text{max}}$
 
 $$C_{L_\text{sep}} \approx 0.6\,C_{L_\text{max}}$$
 
-Similarly: $C_{L_\text{sep,neg}} \approx 0.6\,C_{L_\text{min}}$ (maintaining the sign).
+Similarly: $C_{L_{\text{sep}_{neg}}} \approx 0.6\,C_{L_\text{min}}$ (maintaining the sign).
 
 ---
 
@@ -247,10 +247,10 @@ For a straight-tapered, moderate-sweep wing in isolation:
 
 $$e \approx \frac{1}{1 + 0.007\pi A\!\!R}$$
 
-This is the Hoerner leading-edge suction correction and applies for $A\!\!R < 12$, $\Lambda_{c/4} < 30°$.
+This is the Hoerner leading-edge suction correction and applies for $A\!\!R < 12$, $\Lambda_{QC} < 30°$.
 
 For higher sweep, apply a correction (Raymer Eq. 12.49):
-$$e = e_0 \cdot \cos(\Lambda_{c/4} - 0.09)$$
+$$e = e_0 \cdot \cos(\Lambda_{QC} - 0.09)$$
 where $e_0$ is the unswept value above and the angle is in radians.
 
 **Typical range:** $e = 0.70$ to $0.90$ for conventional configurations.
@@ -298,8 +298,8 @@ $$FF_f = 1 + \frac{60}{\lambda_f^3} + \frac{\lambda_f}{400}, \quad \lambda_f = \
 | Component | $S_\text{wet}$ |
 |-----------|----------------|
 | Wing (both sides, exposed) | $2.003\,S$ for $(t/c) \approx 0.12$ (Raymer Eq. 12.6) |
-| Horizontal tail | $2.003\,S_t$ |
-| Vertical tail | $2.003\,S_v$ |
+| Horizontal tail | $2.003\,S_{HT}$ |
+| Vertical tail | $2.003\,S_{VT}$ |
 | Fuselage (cylindrical approx.) | $\pi\,d_f\,l_f\left(1 - \frac{2}{\lambda_f}\right)^{2/3}\left(1 + \frac{1}{\lambda_f^2}\right)$ |
 
 **Miscellaneous drag** $C_{D_\text{misc}}$ covers cooling inlets, antennas, landing-gear
@@ -312,27 +312,27 @@ $0.005$ for a clean UAV configuration.
 
 The dominant contribution is from the vertical tail (Etkin & Reid §3.9):
 
-$$C_{Y_\beta} = -\eta_v\,\frac{S_v}{S}\,C_{L_{\alpha,v}}\left(1 + \frac{d\sigma}{d\beta}\right)$$
+$$C_{Y_\beta} = -\eta_{VT}\,\frac{S_{VT}}{S}\,C_{L_{\alpha_{VT}}}\left(1 + \frac{d\sigma}{d\beta}\right)$$
 
 where:
 
 | Symbol | Description | Typical value |
 |--------|-------------|---------------|
-| $\eta_v$ | Tail efficiency (dynamic pressure ratio) | 0.85 to 0.95 |
-| $C_{L_{\alpha,v}}$ | Vertical tail 3D lift slope (rad⁻¹) — from §2.1 applied to vertical tail | — |
+| $\eta_{VT}$ | Tail efficiency (dynamic pressure ratio) | 0.85 to 0.95 |
+| $C_{L_{\alpha_{VT}}}$ | Vertical tail 3D lift slope (rad⁻¹) — from §2.1 applied to vertical tail | — |
 | $d\sigma/d\beta$ | Sidewash gradient at the vertical tail | ≈ 0 for conventional rear-fuselage location |
 
 The fuselage contribution is destabilizing (positive) and typically small:
 
-$$C_{Y_{\beta,\text{fus}}} \approx +\frac{k_2 - k_1}{2}\cdot\frac{S_\text{fus,side}}{S\,b}\cdot b$$
+$$C_{Y_{\beta_\text{fus}}} \approx +\frac{k_2 - k_1}{2}\cdot\frac{S_{\text{fus}_{side}}}{S\,b}\cdot b$$
 
 where $k_2 - k_1 \approx 0.5$ for a typical fuselage fineness ratio and
-$S_\text{fus,side} = l_f d_f$.  This term is often neglected for aircraft with large
+$S_{\text{fus}_{side}} = l_f d_f$.  This term is often neglected for aircraft with large
 vertical tails.
 
 **Combined estimate:**
 
-$$C_{Y_\beta} \approx -\eta_v\,\frac{S_v}{S}\,C_{L_{\alpha,v}}$$
+$$C_{Y_\beta} \approx -\eta_{VT}\,\frac{S_{VT}}{S}\,C_{L_{\alpha_{VT}}}$$
 
 $C_{Y_\beta}$ is negative for a statically stable configuration (sideslip to the right
 generates a restoring leftward force).
@@ -346,21 +346,21 @@ $\hat{q} = q\bar{c}/(2V_a)$.
 
 ### 7.1 Wing Contribution (DATCOM §5.2.1.2)
 
-$$C_{L_q,\text{wing}} = C_{L_\alpha}\left[\frac{A\!\!R + 2\cos\Lambda_{c/4}}{2(A\!\!R + 4\cos\Lambda_{c/4})}\cdot\frac{A\!\!R}{\cos\Lambda_{c/4}} + \frac{1+2\lambda}{3(1+\lambda)}\tan^2\Lambda_{c/4}\right]$$
+$$C_{L_{q_\text{wing}}} = C_{L_\alpha}\left[\frac{A\!\!R + 2\cos\Lambda_{QC}}{2(A\!\!R + 4\cos\Lambda_{QC})}\cdot\frac{A\!\!R}{\cos\Lambda_{QC}} + \frac{1+2\lambda}{3(1+\lambda)}\tan^2\Lambda_{QC}\right]$$
 
-For an unswept wing ($\Lambda_{c/4} = 0$):
+For an unswept wing ($\Lambda_{QC} = 0$):
 
-$$C_{L_q,\text{wing}} = C_{L_\alpha}\cdot\frac{A\!\!R(A\!\!R+2)}{2(A\!\!R+4)}$$
+$$C_{L_{q_\text{wing}}} = C_{L_\alpha}\cdot\frac{A\!\!R(A\!\!R+2)}{2(A\!\!R+4)}$$
 
 ### 7.2 Tail Contribution
 
-$$C_{L_q,\text{tail}} = 2\,\eta_t\,C_{L_{\alpha,t}}\,\frac{l_t\,S_t}{S\,\bar{c}}$$
+$$C_{L_{q_\text{tail}}} = 2\,\eta_{HT}\,C_{L_{\alpha_{HT}}}\,\frac{l_{HT}\,S_{HT}}{S\,\bar{c}}$$
 
-This term dominates for conventional tailed aircraft because $l_t \gg \bar{c}$.
+This term dominates for conventional tailed aircraft because $l_{HT} \gg \bar{c}$.
 
 ### 7.3 Combined
 
-$$C_{L_q} = C_{L_q,\text{wing}} + C_{L_q,\text{tail}}$$
+$$C_{L_q} = C_{L_{q_\text{wing}}} + C_{L_{q_\text{tail}}}$$
 
 **Typical range:** $3$ to $12\,\text{rad}^{-1}$ for UAVs.
 
@@ -368,10 +368,10 @@ $$C_{L_q} = C_{L_q,\text{wing}} + C_{L_q,\text{tail}}$$
 
 ## Part 8 — Yaw-Rate Lateral Derivative $C_{Y_r}$ *(proposed)*
 
-The yaw rate $r$ moves the vertical tail sideways at velocity $r\,l_v$, changing its
-effective sideslip angle by $\beta_v = r\,l_v / V_a$. The resulting side force is:
+The yaw rate $r$ moves the vertical tail sideways at velocity $r\,l_{VT}$, changing its
+effective sideslip angle by $\beta_{VT} = r\,l_{VT} / V_a$. The resulting side force is:
 
-$$C_{Y_r} = 2\,\eta_v\,C_{L_{\alpha,v}}\,\frac{l_v\,S_v}{S\,b}$$
+$$C_{Y_r} = 2\,\eta_{VT}\,C_{L_{\alpha_{VT}}}\,\frac{l_{VT}\,S_{VT}}{S\,b}$$
 
 $C_{Y_r}$ is positive (right yaw rate generates a rightward side-force from the tail).
 
@@ -387,17 +387,17 @@ requires.
 | $S$ | $S$ (direct) |
 | $A\!\!R$ | $b$, $S$ |
 | $\bar{c}$ | $b$, $S$, $\lambda$ |
-| $e$ | $A\!\!R$, $\Lambda_{c/4}$ |
+| $e$ | $A\!\!R$, $\Lambda_{QC}$ |
 | $C_{L_\alpha}$ | $A\!\!R$, $\Lambda_{c/2}$, $M$ |
-| $C_{L_\text{max}}$ | $C_{l_{\max,2D}}$, $\Lambda_{c/4}$ |
+| $C_{L_\text{max}}$ | $C_{l_{\max_{2D}}}$, $\Lambda_{QC}$ |
 | $C_{L_\text{min}}$ | $C_{L_\text{max}}$ |
 | $\Delta\alpha_\text{stall}$ | $C_{L_\text{max}}$, $C_{L_\alpha}$ (empirical) |
 | $C_{L_\text{sep}}$ | $C_{L_\text{max}}$ (empirical factor) |
-| $C_{D_0}$ | $(t/c)$, $\Lambda_{c/2}$, $S$, $l_f$, $d_f$, $S_t$, $S_v$, $\rho$, $V$ |
-| $C_{Y_\beta}$ | $S_v$, $S$, $A\!\!R_v$, $\Lambda_{0,v}$, $\lambda_v$, $\eta_v$ |
-| $C_{L_q}$ | $A\!\!R$, $\lambda$, $\Lambda_{c/4}$, $C_{L_\alpha}$, $l_t$, $S_t$, $\bar{c}$, $C_{L_{\alpha,t}}$, $\eta_t$ |
-| $C_{Y_r}$ | $S_v$, $S$, $b$, $l_v$, $C_{L_{\alpha,v}}$, $\eta_v$ |
-| $l_v$, $l_t$ | $x_\text{CG}$, $x_{\text{LE},t/v}$, $b_{t/v}$, $\lambda_{t/v}$, $\Lambda_{0,t/v}$ |
+| $C_{D_0}$ | $(t/c)$, $\Lambda_{c/2}$, $S$, $l_f$, $d_f$, $S_{HT}$, $S_{VT}$, $\rho$, $V$ |
+| $C_{Y_\beta}$ | $S_{VT}$, $S$, $A\!\!R_{VT}$, $\Lambda_{0_{VT}}$, $\lambda_{VT}$, $\eta_{VT}$ |
+| $C_{L_q}$ | $A\!\!R$, $\lambda$, $\Lambda_{QC}$, $C_{L_\alpha}$, $l_{HT}$, $S_{HT}$, $\bar{c}$, $C_{L_{\alpha_{HT}}}$, $\eta_{HT}$ |
+| $C_{Y_r}$ | $S_{VT}$, $S$, $b$, $l_{VT}$, $C_{L_{\alpha_{VT}}}$, $\eta_{VT}$ |
+| $l_{VT}$, $l_{HT}$ | $x_\text{CG}$, $x_{LE_{HT/VT}}$, $b_{HT/VT}$, $\lambda_{HT/VT}$, $\Lambda_{0_{HT/VT}}$ |
 
 ### Parameters That Cannot Be Derived from Geometry Alone
 
@@ -405,6 +405,6 @@ requires.
 |-----------|--------|------------------|
 | $C_{D_0}$ | Depends on surface finish, gaps, protuberances | Component buildup (§5.1) + empirical correction |
 | $e$ | Depends on detailed wake and tip shape | Hoerner estimate (§4.2); refine from flight test or CFD |
-| $C_{l_{\max,2D}}$ | Depends on airfoil profile selection | Look up from airfoil database (NACA, UIUC) |
-| $\eta_t$, $\eta_v$ | Depends on fuselage boundary layer thickness | Default $0.9$; refine from test |
+| $C_{l_{\max_{2D}}}$ | Depends on airfoil profile selection | Look up from airfoil database (NACA, UIUC) |
+| $\eta_{HT}$, $\eta_{VT}$ | Depends on fuselage boundary layer thickness | Default $0.9$; refine from test |
 | $\Delta\alpha_\text{stall}$ | Depends on stall character (abrupt vs. gentle) | Default $0.07$ rad; adjust from observed stall behavior |

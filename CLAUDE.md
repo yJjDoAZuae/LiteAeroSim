@@ -129,3 +129,5 @@ cmake/               CMake helpers
 | New dependency | Check license first; use FetchContent if source is available |
 | Angular velocity notation | $\boldsymbol{\omega}_{A/B}^C$: rotation of frame $A$ relative to frame $B$, expressed in frame $C$ |
 | Aspect ratio in math | `$A\!\!R$` (double negative kern) — not plain `$A$` |
+| Subscript chaining | Use multi-step subscripting: $x_{LE_{HT}}$ — not comma notation $x_{LE,HT}$ |
+| Airframe abbreviations | HT = horizontal tail, VT = vertical tail, LE = leading edge, TE = trailing edge, QC = quarter chord |
