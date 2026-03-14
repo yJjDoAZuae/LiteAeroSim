@@ -144,6 +144,48 @@ message FloatArray {
 }
 
 // ---------------------------------------------------------------------------
+// AtmosphereConfigParams — configuration for Atmosphere (stateless model)
+// ---------------------------------------------------------------------------
+message AtmosphereConfigParams {
+    int32 schema_version       = 1;
+    float delta_temperature_k  = 2;
+    float relative_humidity_nd = 3;
+}
+
+// ---------------------------------------------------------------------------
+// WindConfigParams — configuration for Wind (stateless model)
+// profile: 0=Constant, 1=PowerLaw, 2=Logarithmic (WindConfig::Profile cast to int32)
+// ---------------------------------------------------------------------------
+message WindConfigParams {
+    int32    schema_version       = 1;
+    Vector3f direction_ned_unit   = 2;
+    float    speed_mps            = 3;
+    float    reference_altitude_m = 4;
+    int32    profile              = 5;
+    float    hellmann_alpha_nd    = 6;
+    float    roughness_length_m   = 7;
+}
+
+// ---------------------------------------------------------------------------
+// TurbulenceState — config + Dryden filter warm-start state
+// intensity: 0=None, 1=Light, 2=Moderate, 3=Severe (TurbulenceIntensity cast to int32)
+// Six 2-element state arrays: u, v, w (translational), p, q, r (angular).
+// ---------------------------------------------------------------------------
+message TurbulenceState {
+    int32          schema_version = 1;
+    int32          intensity      = 2;
+    float          wingspan_m     = 3;
+    float          dt_s           = 4;
+    uint32         seed           = 5;
+    repeated float state_u        = 6;
+    repeated float state_v        = 7;
+    repeated float state_w        = 8;
+    repeated float state_p        = 9;
+    repeated float state_q        = 10;
+    repeated float state_r        = 11;
+}
+
+// ---------------------------------------------------------------------------
 // AircraftState — full restart snapshot for Aircraft
 // ---------------------------------------------------------------------------
 message AircraftState {

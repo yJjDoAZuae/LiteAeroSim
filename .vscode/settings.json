@@ -1,4 +1,23 @@
 {
+    "cSpell.words": [
+        "Dryden",
+        "Tustin",
+        "prewarping",
+        "DATCOM",
+        "Hoerner",
+        "Raymer",
+        "trochoids",
+        "nlohmann",
+        "liteaerosim",
+        "deserialize",
+        "deserializes",
+        "deserialized",
+        "deserializing",
+        "protobuf",
+        "mcap",
+        "ucrt",
+        "Coeff"
+    ],
     "files.associations": {
         "cmath": "cpp",
         "chrono": "cpp",

@@ -31,6 +31,13 @@ writing production code.
 | `MotorPiston` | `include/propulsion/MotorPiston.hpp` | ✅ Implemented — see [propulsion.md](../architecture/propulsion.md) |
 | `PropulsionProp` | `include/propulsion/PropulsionProp.hpp` | ✅ Implemented + serialization (JSON + proto) — see [propulsion.md](../architecture/propulsion.md) |
 | `Aircraft` | `include/Aircraft.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `Atmosphere` | `include/environment/Atmosphere.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `AtmosphericState` | `include/environment/AtmosphericState.hpp` | ✅ Implemented |
+| `Wind` | `include/environment/Wind.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `Turbulence` | `include/environment/Turbulence.hpp` | ✅ Implemented + serialization (JSON) |
+| `Gust` | `include/environment/Gust.hpp` | ✅ Implemented |
+| `TurbulenceVelocity` | `include/environment/TurbulenceVelocity.hpp` | ✅ Implemented |
+| `EnvironmentState` | `include/environment/EnvironmentState.hpp` | ✅ Implemented |
 
 ---
 
@@ -48,86 +55,83 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 6 | JSON initialization — fixture-file tests (3 configs) and missing-field error path | `Aircraft_test.cpp` — 4 tests |
 | 7 | `Logger` design — architecture, data model, MCAP + CSV formats, C++ interface reference | [`docs/architecture/logger.md`](../architecture/logger.md) |
 | 8 | `Logger` implementation — `Logger`, `LogSource`, `LogReader`; MCAP + `FloatArray` proto; 6 tests | `test/Logger_test.cpp` — 6 tests |
+| 9 | Environment model design — `Atmosphere` (ISA + ∆ISA + humidity), `Wind`, `Turbulence` (Dryden), `Gust` (1-cosine); rotational turbulence coupling to trim aero model defined | [`docs/architecture/environment.md`](../architecture/environment.md) |
+| 10 | Aerodynamic coefficient estimation — derivation of all trim aero model inputs from wing/tail/fuselage geometry; DATCOM lift slope, Hoerner Oswald, Raymer $C_{D_0}$ buildup, $C_{L_q}$, $C_{Y_\beta}$, $C_{Y_r}$ | [`docs/algorithms/aerodynamics.md`](../algorithms/aerodynamics.md) |
+| 11 | `Atmosphere` — ISA 3-layer + ΔT + humidity + density altitude; JSON + proto serialization | `Atmosphere_test.cpp` — 12 tests |
+| 12 | `Wind` (Constant/PowerLaw/Log), `Turbulence` (Dryden 6-filter, Tustin-discretized), `Gust` (1-cosine MIL-SPEC-8785C); JSON serialization | `Wind_test.cpp` — 6 tests, `Turbulence_test.cpp` — 5 tests, `Gust_test.cpp` — 6 tests |
 
 ---
 
-## 1. `Atmosphere` — ISA + Non-Standard Day + Humidity
+## 1. `AeroCoeffEstimator` — Geometry-to-Coefficient Derivation
 
-Design authority: [`docs/architecture/environment.md`](../architecture/environment.md).
+Design authority: [`docs/algorithms/aerodynamics.md`](../algorithms/aerodynamics.md).
 
-`Atmosphere` is a stateless value type configured once per scenario with a temperature
-deviation (∆ISA) and a relative humidity. It outputs the full thermodynamic state at a
-given geometric altitude.
+`AeroCoeffEstimator` is a stateless utility class that accepts a compact aircraft geometry
+description and returns a fully populated `AeroPerformance` and `LiftCurveModel`
+configuration. It implements the derivation chain in `aerodynamics.md` Parts 1–8. No I/O;
+no units other than SI.
 
-### Outputs (`AtmosphericState`)
+This item also adds the four proposed fields to `AeroPerformance`:
+`cl_q_nd`, `mac_m`, `cy_r_nd`, `fin_arm_m`.
 
-`temperature_k`, `pressure_pa`, `density_kgm3`, `speed_of_sound_mps`,
-`relative_humidity_nd`, `density_altitude_m`.
+### Input (`AircraftGeometry`)
 
-### Physics summary
+```cpp
+// include/aerodynamics/AircraftGeometry.hpp
+namespace liteaerosim::aerodynamics {
 
-- Three ISA layers to 32 000 m (troposphere, tropopause, lower stratosphere).
-- Geometric → geopotential altitude conversion using $R_E = 6\,356\,766\,\text{m}$.
-- Non-standard day: $T(h) = T_\text{ISA}(h) + \Delta T$; pressure follows the ISA profile.
-- Moist-air density via virtual temperature $T_v \approx T(1 + 0.608\,q)$; saturation
-  vapor pressure from the Buck (1981) equation.
-- Speed of sound: $c = \sqrt{\gamma R_d T_v}$.
-- Density altitude: tropospheric closed-form; stratospheric numerical bisection.
+struct SurfaceGeometry {
+    float span_m;               // tip-to-tip (or root-to-tip for vertical tail)
+    float area_m2;              // reference area
+    float le_sweep_rad;         // leading-edge sweep
+    float taper_ratio_nd;       // c_tip / c_root
+    float x_le_root_m;          // body x of root leading edge
+};
+
+struct AircraftGeometry {
+    SurfaceGeometry wing;
+    SurfaceGeometry h_tail;
+    SurfaceGeometry v_tail;
+    float fuselage_length_m;
+    float fuselage_diameter_m;
+    float thickness_ratio_nd;           // wing t/c
+    float section_cl_alpha_rad;         // 2D lift slope (≈ 2π)
+    float section_cl_max_2d_nd;         // 2D section Cl_max
+    float x_cg_m;                       // body x of center of gravity
+    float mach_nd           = 0.f;      // design Mach (0 → incompressible)
+    float tail_efficiency_nd = 0.9f;    // η_t and η_v
+    float cd_misc_nd        = 0.003f;   // miscellaneous drag increment
+};
+
+} // namespace liteaerosim::aerodynamics
+```
+
+### Output
+
+`estimate()` returns a `std::pair<AeroPerformance, LiftCurveParams>` populated from the
+derivation chain in `aerodynamics.md` §§1–8.
 
 ### Tests
 
-See [environment.md — Test Requirements](../architecture/environment.md) (`Atmosphere_test.cpp` section).
+- **AR**: computed `ar` matches $b^2 / S$ for the test wing.
+- **MAC**: computed `mac_m` matches the closed-form $\bar{c} = \tfrac{2}{3} c_\text{root} (1 + \lambda + \lambda^2)/(1 + \lambda)$.
+- **$C_{L_\alpha}$**: unswept wing at $M = 0$ matches $2\pi A\!\!R / (A\!\!R + 2)$ to within 0.5%.
+- **$C_{L_\text{max}}$**: equals $C_{l_{\max,2D}} \cos\Lambda_{c/4}$ for a swept wing.
+- **$e$**: Hoerner value for $A\!\!R = 8$, $\Lambda_{c/4} = 0$ matches $1/(1 + 0.007\pi \cdot 8)$ to within 0.1%.
+- **$C_{D_0}$**: component-buildup result for a known configuration is within 10% of a published reference value.
+- **$C_{Y_\beta}$**: negative (stabilizing); magnitude increases with $S_v / S$.
+- **$C_{L_q}$**: tail-dominated configuration gives value in the range $[3, 12]$ rad⁻¹.
+- **$C_{Y_r}$**: positive; increases with $l_v$.
+- **Round-trip**: `estimate()` applied to a reference UAV geometry produces an `AeroPerformance` that passes `AeroPerformance`'s existing JSON round-trip test.
 
 ### CMake
 
-Add `src/environment/Atmosphere.cpp` to `liteaerosim`.
-Add `test/Atmosphere_test.cpp` to the test executable.
+Add `src/aerodynamics/AeroCoeffEstimator.cpp` to `liteaerosim`.
+Add `test/AeroCoeffEstimator_test.cpp` to the test executable.
 
 ---
 
-## 2. `Wind`, `Turbulence`, and `Gust` — Atmospheric Disturbance Models
-
-Design authority: [`docs/architecture/environment.md`](../architecture/environment.md).
-
-### `Wind`
-
-Stateless. Supports constant and altitude-varying profiles (power-law, logarithmic).
-Outputs `wind_NED_mps` at any geometric altitude. Configured by `WindConfig`.
-
-### `Turbulence`
-
-Stateful (`DynamicBlock`-compatible). Dryden continuous turbulence per MIL-HDBK-1797
-Appendix C. Outputs body-frame translational ($u_{wg}$, $v_{wg}$, $w_{wg}$) and angular
-($p_{wg}$, $q_{wg}$, $r_{wg}$) velocity disturbances. Intensity: Light / Moderate /
-Severe. Filter coefficients update when altitude or airspeed changes significantly. JSON
-round-trip serialization.
-
-### `Gust`
-
-Stateful. Discrete 1-cosine gust per MIL-SPEC-8785C §3.9.1. Triggered at a specified
-simulation time; outputs a body-frame velocity vector over the gust duration. Supports
-vertical, lateral, and longitudinal components.
-
-### `EnvironmentState`
-
-Compound struct passed to `Aircraft::step()` containing `AtmosphericState`, `wind_NED_mps`,
-`TurbulenceVelocity`, and `gust_body_mps`. The scenario loop assembles it each timestep.
-
-### Tests
-
-See [environment.md — Test Requirements](../architecture/environment.md)
-(`Wind_test.cpp`, `Turbulence_test.cpp`, `Gust_test.cpp` sections).
-
-### CMake
-
-Add `src/environment/Wind.cpp`, `src/environment/Turbulence.cpp`,
-`src/environment/Gust.cpp` to `liteaerosim`.
-Add `test/Wind_test.cpp`, `test/Turbulence_test.cpp`, `test/Gust_test.cpp` to the test
-executable.
-
----
-
-## 3. `Terrain` — Elevation Model
+## 2. `Terrain` — Elevation Model
 
 `Terrain` provides ground elevation (meters above mean sea level) at a given latitude and
 longitude. The Domain Layer uses it to compute height above ground (HAG) and to detect
@@ -172,7 +176,7 @@ Add `test/Terrain_test.cpp` to the test executable.
 
 ---
 
-## 4. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
+## 3. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
 
 Air data sensors derive indicated and calibrated quantities from the true atmospheric state
 and aircraft kinematics. They model systematic bias and measurement noise. All sensors
@@ -218,7 +222,7 @@ Add `test/SensorAirData_test.cpp` and `test/SensorAngle_test.cpp` to the test ex
 
 ---
 
-## 5. `SensorRadAlt` — Radar / Laser Altimeter
+## 4. `SensorRadAlt` — Radar / Laser Altimeter
 
 `SensorRadAlt` outputs height above ground (HAG) derived from `Terrain::heightAboveGround_m`.
 `SensorForwardTerrainProfile` returns a look-ahead terrain elevation vector along the
@@ -242,7 +246,7 @@ Add `test/SensorRadAlt_test.cpp` to the test executable.
 
 ---
 
-## 6. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 5. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
 A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
 cross-track error, along-track distance, and desired heading at a query position. The
@@ -297,7 +301,7 @@ Add `test/Path_test.cpp` to the test executable.
 
 ---
 
-## 7. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 6. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
 Guidance laws convert path and altitude errors into commanded load factors for `Aircraft::step()`.
 They live in the Domain Layer and have no I/O. Each is a stateful element (contains filter
@@ -338,7 +342,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 8. Autopilot — Outer Loop Command Generation
+## 7. Autopilot — Outer Loop Command Generation
 
 `Autopilot` combines `PathGuidance`, `VerticalGuidance`, and `ParkTracking` into a single
 class that consumes the `KinematicState` and `PathResponse` and produces an `AircraftCommand`
@@ -389,7 +393,7 @@ Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
-## 9. Plot Visualization — Python Post-Processing Tools
+## 8. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -423,7 +427,7 @@ dev = [
 
 ---
 
-## 10. Manual Input — Joystick and Keyboard
+## 9. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -464,7 +468,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 11. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 10. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:

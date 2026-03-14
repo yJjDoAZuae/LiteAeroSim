@@ -8,6 +8,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Prevent CMake from using @response-files for include paths in compile_commands.json,
+# which VSCode IntelliSense cannot expand.
+set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_INCLUDES OFF)
+
 option(BUILD_SHARED_LIBS "Build libraries as shared instead of static" OFF)
 
 # Enable CTest at the project root so all subdirectories are registered
