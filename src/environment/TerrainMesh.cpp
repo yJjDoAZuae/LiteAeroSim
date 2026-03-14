@@ -1,6 +1,8 @@
 #define _USE_MATH_DEFINES
 #include "environment/TerrainMesh.hpp"
 #include "liteaerosim.pb.h"
+#include "tiny_gltf.h"
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <optional>
@@ -750,8 +752,209 @@ void TerrainMesh::deserializeLasTerrain(const std::vector<uint8_t>& data) {
     }
 }
 
-void TerrainMesh::exportGltf(const std::filesystem::path&, TerrainLod, const GeodeticPoint*) const {
-    throw std::runtime_error("TerrainMesh::exportGltf: not implemented until Step 11");
+// ---------------------------------------------------------------------------
+// Step 11 — exportGltf (glTF 2.0 / GLB)
+// ---------------------------------------------------------------------------
+
+void TerrainMesh::exportGltf(const std::filesystem::path& output_path,
+                              TerrainLod                   max_lod,
+                              const GeodeticPoint*         world_origin) const {
+    // Determine world origin: use provided value, or centroid of first cell found.
+    GeodeticPoint origin{0.0, 0.0, 0.f};
+    if (world_origin) {
+        origin = *world_origin;
+    } else if (!cells_.empty()) {
+        const GeodeticAABB& b = cells_.begin()->second.bounds();
+        origin.latitude_rad  = (b.lat_min_rad + b.lat_max_rad) * 0.5;
+        origin.longitude_rad = (b.lon_min_rad + b.lon_max_rad) * 0.5;
+        origin.height_wgs84_m = (b.height_min_m + b.height_max_m) * 0.5f;
+    }
+
+    double Xo, Yo, Zo;
+    geodeticToEcef(origin.latitude_rad, origin.longitude_rad,
+                   static_cast<double>(origin.height_wgs84_m), Xo, Yo, Zo);
+
+    tinygltf::Model model;
+    model.asset.version   = "2.0";
+    model.asset.generator = "LiteAeroSim";
+
+    tinygltf::Scene scene;
+    scene.name = "terrain";
+
+    // Single combined binary buffer; all buffer views index into buffer 0.
+    std::vector<uint8_t> bin_data;
+
+    for (const auto& [key, cell] : cells_) {
+        const auto lod_opt = selectTileLod(cell, max_lod);
+        if (!lod_opt) continue;
+        const TerrainTile& tile = cell.tile(*lod_opt);
+
+        const auto& verts  = tile.vertices();
+        const auto& facets = tile.facets();
+        const size_t n_verts = 3 * facets.size();  // vertex duplication for per-facet COLOR_0
+
+        // --- position buffer (float32, glTF Y-up: X=East, Y=Up, Z=-North) ---
+        std::vector<float> positions;
+        positions.reserve(n_verts * 3);
+        std::array<float, 3> pos_min = { FLT_MAX,  FLT_MAX,  FLT_MAX};
+        std::array<float, 3> pos_max = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+
+        // --- color buffer (uint8 RGBA) ---
+        std::vector<uint8_t> colors;
+        colors.reserve(n_verts * 4);
+
+        for (const auto& facet : facets) {
+            for (int vi = 0; vi < 3; ++vi) {
+                const TerrainVertex& v = verts[facet.v[vi]];
+                const float gx = v.east_m;   // glTF X = ENU East
+                const float gy = v.up_m;     // glTF Y = ENU Up
+                const float gz = -v.north_m; // glTF Z = ENU -North
+                positions.push_back(gx);
+                positions.push_back(gy);
+                positions.push_back(gz);
+                pos_min[0] = std::min(pos_min[0], gx);
+                pos_min[1] = std::min(pos_min[1], gy);
+                pos_min[2] = std::min(pos_min[2], gz);
+                pos_max[0] = std::max(pos_max[0], gx);
+                pos_max[1] = std::max(pos_max[1], gy);
+                pos_max[2] = std::max(pos_max[2], gz);
+                colors.push_back(facet.color.r);
+                colors.push_back(facet.color.g);
+                colors.push_back(facet.color.b);
+                colors.push_back(255u);
+            }
+        }
+
+        // Append position bytes to bin_data (4-byte aligned).
+        const size_t pos_byte_offset = bin_data.size();
+        const size_t pos_byte_len    = positions.size() * sizeof(float);
+        bin_data.resize(bin_data.size() + pos_byte_len);
+        std::memcpy(bin_data.data() + pos_byte_offset, positions.data(), pos_byte_len);
+        while (bin_data.size() % 4 != 0) bin_data.push_back(0);
+
+        // Append color bytes to bin_data (4-byte aligned).
+        const size_t col_byte_offset = bin_data.size();
+        const size_t col_byte_len    = colors.size();
+        bin_data.resize(bin_data.size() + col_byte_len);
+        std::memcpy(bin_data.data() + col_byte_offset, colors.data(), col_byte_len);
+        while (bin_data.size() % 4 != 0) bin_data.push_back(0);
+
+        // Buffer views.
+        const int pos_bv_idx = static_cast<int>(model.bufferViews.size());
+        {
+            tinygltf::BufferView bv;
+            bv.buffer     = 0;
+            bv.byteOffset = pos_byte_offset;
+            bv.byteLength = pos_byte_len;
+            bv.target     = TINYGLTF_TARGET_ARRAY_BUFFER;
+            model.bufferViews.push_back(std::move(bv));
+        }
+        const int col_bv_idx = static_cast<int>(model.bufferViews.size());
+        {
+            tinygltf::BufferView bv;
+            bv.buffer     = 0;
+            bv.byteOffset = col_byte_offset;
+            bv.byteLength = col_byte_len;
+            bv.target     = TINYGLTF_TARGET_ARRAY_BUFFER;
+            model.bufferViews.push_back(std::move(bv));
+        }
+
+        // Accessors.
+        const int pos_acc_idx = static_cast<int>(model.accessors.size());
+        {
+            tinygltf::Accessor acc;
+            acc.bufferView    = pos_bv_idx;
+            acc.byteOffset    = 0;
+            acc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT;
+            acc.type          = TINYGLTF_TYPE_VEC3;
+            acc.count         = n_verts;
+            acc.minValues     = {static_cast<double>(pos_min[0]),
+                                 static_cast<double>(pos_min[1]),
+                                 static_cast<double>(pos_min[2])};
+            acc.maxValues     = {static_cast<double>(pos_max[0]),
+                                 static_cast<double>(pos_max[1]),
+                                 static_cast<double>(pos_max[2])};
+            model.accessors.push_back(std::move(acc));
+        }
+        const int col_acc_idx = static_cast<int>(model.accessors.size());
+        {
+            tinygltf::Accessor acc;
+            acc.bufferView    = col_bv_idx;
+            acc.byteOffset    = 0;
+            acc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+            acc.type          = TINYGLTF_TYPE_VEC4;
+            acc.normalized    = true;
+            acc.count         = n_verts;
+            model.accessors.push_back(std::move(acc));
+        }
+
+        // Mesh + primitive.
+        const int mesh_idx = static_cast<int>(model.meshes.size());
+        {
+            tinygltf::Primitive prim;
+            prim.attributes["POSITION"] = pos_acc_idx;
+            prim.attributes["COLOR_0"]  = col_acc_idx;
+            prim.mode                   = TINYGLTF_MODE_TRIANGLES;
+            tinygltf::Mesh gltf_mesh;
+            gltf_mesh.primitives.push_back(std::move(prim));
+            model.meshes.push_back(std::move(gltf_mesh));
+        }
+
+        // Node: tile centroid as ENU offset from world origin, mapped to glTF axes.
+        const GeodeticPoint& c = tile.centroid();
+        double Xt, Yt, Zt;
+        geodeticToEcef(c.latitude_rad, c.longitude_rad,
+                       static_cast<double>(c.height_wgs84_m), Xt, Yt, Zt);
+        double east, north, up;
+        ecefOffsetToEnu(origin.latitude_rad, origin.longitude_rad,
+                        Xt - Xo, Yt - Yo, Zt - Zo,
+                        east, north, up);
+        // glTF: X=East, Y=Up, Z=-North
+        tinygltf::Node tile_node;
+        tile_node.mesh        = mesh_idx;
+        tile_node.translation = {east, up, -north};
+        const int tile_node_idx = static_cast<int>(model.nodes.size());
+        model.nodes.push_back(std::move(tile_node));
+        scene.nodes.push_back(tile_node_idx);
+    }
+
+    // Root node that groups all tile nodes and carries liteaerosim extras.
+    {
+        tinygltf::Value::Object extras;
+        extras["liteaerosim_terrain"]  = tinygltf::Value(true);
+        extras["schema_version"]       = tinygltf::Value(1);
+        extras["world_origin_lat_rad"] = tinygltf::Value(origin.latitude_rad);
+        extras["world_origin_lon_rad"] = tinygltf::Value(origin.longitude_rad);
+        extras["world_origin_height_m"]= tinygltf::Value(static_cast<double>(origin.height_wgs84_m));
+        extras["lod"]                  = tinygltf::Value(static_cast<int>(max_lod));
+
+        tinygltf::Node root;
+        root.name     = "terrain_root";
+        root.children = scene.nodes;
+        root.extras   = tinygltf::Value(std::move(extras));
+        const int root_idx = static_cast<int>(model.nodes.size());
+        model.nodes.push_back(std::move(root));
+        scene.nodes = {root_idx};
+    }
+
+    // Binary buffer (buffer 0).
+    {
+        tinygltf::Buffer buf;
+        buf.data = std::move(bin_data);
+        model.buffers.push_back(std::move(buf));
+    }
+
+    model.scenes.push_back(std::move(scene));
+    model.defaultScene = 0;
+
+    tinygltf::TinyGLTF writer;
+    const bool embed_images  = false;
+    const bool embed_buffers = true;
+    const bool pretty_print  = false;
+    const bool write_binary  = true;
+    writer.WriteGltfSceneToFile(&model, output_path.string(),
+                                embed_images, embed_buffers,
+                                pretty_print, write_binary);
 }
 
 } // namespace liteaerosim::environment

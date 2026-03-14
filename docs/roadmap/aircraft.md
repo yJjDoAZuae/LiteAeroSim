@@ -150,7 +150,7 @@ public:
 - `TerrainCell::tile(missing_lod)` throws `std::out_of_range`.
 - `finestAvailableLod()` / `coarsestAvailableLod()` correct for mixed population.
 
-**Core + transforms + LOS + serialization** (`test/TerrainMesh_test.cpp` — 26 tests):
+**Core + transforms + LOS + serialization + glTF export** (`test/TerrainMesh_test.cpp` — 30 tests):
 
 - `addCell()` + `cellAt()` round-trip; offset point within extent also finds cell.
 - `cellAt()` outside all cells returns `nullptr`.
@@ -219,19 +219,21 @@ public:
 | `include/environment/TerrainMesh.hpp` | ✅ Done — Steps 4–10 |
 | `include/environment/MeshQualityVerifier.hpp` | ✅ Done — Step 9 |
 | `include/environment/LodSelector.hpp` | ✅ Done — Step 7 |
-| `include/SimulationFrame.hpp` | Create — Domain Layer value object |
+| `include/SimulationFrame.hpp` | ✅ Done — Step 12 |
 | `src/environment/TerrainTile.cpp` | ✅ Done — Steps 3, 10 (proto serialization) |
 | `src/environment/TerrainCell.cpp` | ✅ Done |
-| `src/environment/TerrainMesh.cpp` | ✅ Done — Steps 4–10 |
+| `src/environment/TerrainMesh.cpp` | ✅ Done — Steps 4–11 |
 | `src/environment/LodSelector.cpp` | ✅ Done — Step 7 |
 | `src/environment/MeshQualityVerifier.cpp` | ✅ Done — Step 9 |
+| `src/environment/tinygltf_impl.cpp` | ✅ Done — Step 11 |
 | `test/TerrainTile_test.cpp` | ✅ Done — 8 tests |
-| `test/TerrainMesh_test.cpp` | ✅ Done — 26 tests (Steps 4–10); Step 11 tests still to add |
+| `test/TerrainMesh_test.cpp` | ✅ Done — 30 tests (Steps 4–11) |
 | `test/LodSelector_test.cpp` | ✅ Done — 5 tests |
 | `test/MeshQualityVerifier_test.cpp` | ✅ Done — 4 tests |
-| `test/TrajectoryFile_test.cpp` | Create — 2 tests |
-| `proto/liteaerosim.proto` | ✅ Done (Step 10) — `TerrainTileProto`, `TerrainMeshProto`, `TerrainMeshState` added; `TrajectoryFrame`/`TrajectoryFile` still pending |
-| `cmake/Dependencies.cmake` | Modify — add `tinygltf` FetchContent (MIT, header-only) |
+| `test/TrajectoryFile_test.cpp` | ✅ Done — 2 tests (Step 12) |
+| `proto/liteaerosim.proto` | ✅ Done (Steps 10, 12) — terrain + trajectory messages |
+| `CMakeLists.txt` | ✅ Done — Step 11 (tinygltf v2.9.3 FetchContent) |
+| `src/CMakeLists.txt` | ✅ Done — Step 11 (tinygltf_headers linked) |
 
 ---
 

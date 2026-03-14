@@ -240,3 +240,28 @@ message TerrainMeshState {
     int32  lod_min          = 3;
     int32  lod_max          = 4;
 }
+
+// ---------------------------------------------------------------------------
+// Game engine integration — TrajectoryFile and SimulationFrame (Step 12)
+// ---------------------------------------------------------------------------
+
+// Single frame of a recorded flight trajectory.
+message TrajectoryFrame {
+    double timestamp_s    = 1;
+    double latitude_rad   = 2;
+    double longitude_rad  = 3;
+    float  height_wgs84_m = 4;
+    float  q_w            = 5;  // body-to-NED attitude quaternion
+    float  q_x            = 6;
+    float  q_y            = 7;
+    float  q_z            = 8;
+}
+
+// Collection of trajectory frames with a shared world origin.
+message TrajectoryFile {
+    int32                    schema_version       = 1;
+    double                   world_origin_lat_rad = 2;
+    double                   world_origin_lon_rad = 3;
+    float                    world_origin_h_m     = 4;
+    repeated TrajectoryFrame frames               = 5;
+}

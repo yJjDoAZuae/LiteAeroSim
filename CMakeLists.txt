@@ -32,6 +32,7 @@ enable_testing()
 #   trochoids        | 38d23eb3346737fe9d6e9ff57c742113e29dfe4f | Clear BSD    | FetchContent (1b)
 #   protobuf         | v3.21.12                                 | BSD-3-Clause | find_package + FetchContent (1a)
 #   mcap             | releases/cpp/v1.4.0                      | MIT          | FetchContent (1b)
+#   tinygltf         | v2.9.3                                   | MIT          | FetchContent (1b)
 # ---------------------------------------------------------------------------
 include(FetchContent)
 
@@ -137,6 +138,31 @@ if(NOT mcap_POPULATED)
     target_compile_definitions(mcap_headers INTERFACE
         MCAP_COMPRESSION_NO_LZ4
         MCAP_COMPRESSION_NO_ZSTD
+    )
+endif()
+
+# --- tinygltf v2.9.3 (MIT) — glTF 2.0 / GLB export for game engine rendering ---
+# Pattern 1b: upstream CMakeLists.txt pulls in stb_image and optional draco;
+# we only need the header.  FetchContent_Populate + manual INTERFACE target.
+# stb_image disabled via compile definitions; nlohmann_json is already provided.
+# TINYGLTF_IMPLEMENTATION is defined in exactly one TU: src/environment/tinygltf_impl.cpp.
+FetchContent_Declare(
+    tinygltf
+    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
+    GIT_TAG        v2.9.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(tinygltf)
+if(NOT tinygltf_POPULATED)
+    FetchContent_Populate(tinygltf)
+    add_library(tinygltf_headers INTERFACE)
+    target_include_directories(tinygltf_headers SYSTEM INTERFACE
+        ${tinygltf_SOURCE_DIR}
+    )
+    target_compile_definitions(tinygltf_headers INTERFACE
+        TINYGLTF_NO_STB_IMAGE
+        TINYGLTF_NO_STB_IMAGE_WRITE
+        TINYGLTF_NO_EXTERNAL_IMAGE
     )
 endif()
 

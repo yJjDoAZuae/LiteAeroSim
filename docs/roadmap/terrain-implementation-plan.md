@@ -49,23 +49,25 @@ separate future steps.
 | `include/environment/TerrainMesh.hpp` | ✅ Done (Steps 4–6) |
 | `include/environment/LodSelector.hpp` | ✅ Done (Step 7) |
 | `include/environment/MeshQualityVerifier.hpp` | ✅ Done (Step 9) |
-| `include/SimulationFrame.hpp` | **Create** |
+| `include/SimulationFrame.hpp` | ✅ Done (Step 12) |
 | `src/environment/Terrain.cpp` | ✅ Done (Step 2) |
 | `src/environment/TerrainTile.cpp` | ✅ Done (Step 3, 10) |
 | `src/environment/TerrainCell.cpp` | ✅ Done (Step 3) |
-| `src/environment/TerrainMesh.cpp` | ✅ Done (Steps 4–10) |
+| `src/environment/TerrainMesh.cpp` | ✅ Done (Steps 4–11) |
 | `src/environment/LodSelector.cpp` | ✅ Done (Step 7) |
 | `src/environment/MeshQualityVerifier.cpp` | ✅ Done (Step 9) |
+| `src/environment/tinygltf_impl.cpp` | ✅ Done (Step 11) — TINYGLTF_IMPLEMENTATION TU |
 | `test/Terrain_test.cpp` | ✅ Done (Step 2) — 4 tests |
 | `test/TerrainTile_test.cpp` | ✅ Done (Step 3) — 8 tests |
-| `test/TerrainMesh_test.cpp` | ✅ Done (Steps 4–10, 26 tests); step 11 to be added |
+| `test/TerrainMesh_test.cpp` | ✅ Done (Steps 4–11, 30 tests) |
 | `test/LodSelector_test.cpp` | ✅ Done (Step 7) — 5 tests |
 | `test/MeshQualityVerifier_test.cpp` | ✅ Done (Step 9) — 4 tests |
-| `test/TrajectoryFile_test.cpp` | **Create** — 2 tests |
-| `proto/liteaerosim.proto` | ✅ Done (Step 10) — `TerrainTileProto`, `TerrainMeshProto`, `TerrainMeshState` added; `TrajectoryFrame`/`TrajectoryFile` still pending |
-| `cmake/Dependencies.cmake` | **Modify** — add `tinygltf` FetchContent block |
+| `test/TrajectoryFile_test.cpp` | ✅ Done (Step 12) — 2 tests |
+| `proto/liteaerosim.proto` | ✅ Done (Steps 10, 12) — terrain + trajectory messages added |
+| `CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf` v2.9.3 FetchContent block |
+| `src/CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf_headers` linked to `liteaerosim` |
 
-`CMakeLists.txt`, `src/CMakeLists.txt`, and `test/CMakeLists.txt` need **no changes**.
+`test/CMakeLists.txt` needs **no changes**.
 
 ---
 
@@ -476,7 +478,7 @@ Full specification in design authority §`.las_terrain` File Format.
 
 ---
 
-## Step 11 — `TerrainMesh::exportGltf()` (4 tests)
+## Step 11 — `TerrainMesh::exportGltf()` (4 tests) ✅
 
 ### Failing Tests (add to `test/TerrainMesh_test.cpp`)
 
@@ -501,7 +503,7 @@ Vertex duplication: 3 unique vertices per triangle (required for per-vertex `COL
 
 ---
 
-## Step 12 — `SimulationFrame` + `TrajectoryFile` (2 tests)
+## Step 12 — `SimulationFrame` + `TrajectoryFile` (2 tests) ✅
 
 ### Failing Tests — `test/TrajectoryFile_test.cpp`
 

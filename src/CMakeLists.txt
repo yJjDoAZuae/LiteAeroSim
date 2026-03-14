@@ -36,6 +36,7 @@ target_link_libraries(liteaerosim
         trochoids
         liteaerosim_proto
         mcap_headers
+        tinygltf_headers
 )
 
 target_compile_features(liteaerosim PUBLIC cxx_std_17)

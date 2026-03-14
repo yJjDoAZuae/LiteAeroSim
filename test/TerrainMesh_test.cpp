@@ -4,7 +4,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <sstream>
+#include <filesystem>
+#include <nlohmann/json.hpp>
 
 using namespace liteaerosim::environment;
 
@@ -360,4 +363,92 @@ TEST(TerrainMeshTest, TerrainMesh_EmptySerializeDeserialize) {
     TerrainMesh mesh2;
     mesh2.deserializeJson(j);
     EXPECT_EQ(mesh2.cellAt(0.0, 0.0), nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// Step 11 — glTF / GLB export
+// ---------------------------------------------------------------------------
+
+// Helper: read a binary file into a byte vector.
+static std::vector<uint8_t> readGlbBytes(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::vector<uint8_t>(std::istreambuf_iterator<char>(f), {});
+}
+
+// Helper: extract the JSON chunk string from a GLB byte stream.
+// GLB layout: [12-byte file header] [chunk0: 4-byte len, 4-byte type "JSON", N bytes content] ...
+static std::string glbJsonChunk(const std::vector<uint8_t>& glb) {
+    if (glb.size() < 20) return {};
+    uint32_t json_len = 0;
+    std::memcpy(&json_len, glb.data() + 12, 4);
+    const size_t json_start = 20;
+    if (glb.size() < json_start + json_len) return {};
+    return std::string(glb.begin() + json_start, glb.begin() + json_start + json_len);
+}
+
+// T1 — first 4 bytes are the GLB magic "glTF" (0x46546C67 little-endian).
+TEST(TerrainMeshTest, ExportGltf_GlbMagicBytes) {
+    const auto tmp = std::filesystem::temp_directory_path() / "las_test_magic.glb";
+    makeEquatorMesh().exportGltf(tmp, TerrainLod::L0_Finest);
+
+    const auto glb = readGlbBytes(tmp);
+    ASSERT_GE(glb.size(), 4u);
+    uint32_t magic = 0;
+    std::memcpy(&magic, glb.data(), 4);
+    EXPECT_EQ(magic, 0x46546C67u);
+}
+
+// T2 — root node extras contains "liteaerosim_terrain": true.
+TEST(TerrainMeshTest, ExportGltf_LiteaerosimExtrasPresent) {
+    const auto tmp = std::filesystem::temp_directory_path() / "las_test_extras.glb";
+    makeEquatorMesh().exportGltf(tmp, TerrainLod::L0_Finest);
+
+    const auto json_str = glbJsonChunk(readGlbBytes(tmp));
+    EXPECT_NE(json_str.find("liteaerosim_terrain"), std::string::npos);
+}
+
+// T3 — POSITION accessor element count == 3 × facet count.
+TEST(TerrainMeshTest, ExportGltf_PositionAccessorCount) {
+    // makeTriangleTile has 1 facet → expect 3 duplicated vertices.
+    const auto tmp = std::filesystem::temp_directory_path() / "las_test_pos.glb";
+    makeEquatorMesh().exportGltf(tmp, TerrainLod::L0_Finest);
+
+    const auto json_str = glbJsonChunk(readGlbBytes(tmp));
+    const nlohmann::json j = nlohmann::json::parse(json_str);
+
+    int position_count = 0;
+    for (const auto& mesh : j["meshes"]) {
+        for (const auto& prim : mesh["primitives"]) {
+            const auto& attrs = prim["attributes"];
+            if (attrs.contains("POSITION")) {
+                position_count += j["accessors"][attrs["POSITION"].get<int>()]["count"].get<int>();
+            }
+        }
+    }
+    EXPECT_EQ(position_count, 3);  // 1 facet × 3 vertices
+}
+
+// T4 — COLOR_0 accessor element count equals POSITION accessor element count.
+TEST(TerrainMeshTest, ExportGltf_ColorAccessorMatchesPosition) {
+    const auto tmp = std::filesystem::temp_directory_path() / "las_test_color.glb";
+    makeEquatorMesh().exportGltf(tmp, TerrainLod::L0_Finest);
+
+    const auto json_str = glbJsonChunk(readGlbBytes(tmp));
+    const nlohmann::json j = nlohmann::json::parse(json_str);
+
+    int position_count = 0;
+    int color_count    = 0;
+    for (const auto& mesh : j["meshes"]) {
+        for (const auto& prim : mesh["primitives"]) {
+            const auto& attrs = prim["attributes"];
+            if (attrs.contains("POSITION")) {
+                position_count += j["accessors"][attrs["POSITION"].get<int>()]["count"].get<int>();
+            }
+            if (attrs.contains("COLOR_0")) {
+                color_count += j["accessors"][attrs["COLOR_0"].get<int>()]["count"].get<int>();
+            }
+        }
+    }
+    EXPECT_GT(position_count, 0);
+    EXPECT_EQ(color_count, position_count);
 }
