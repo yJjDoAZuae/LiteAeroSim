@@ -91,7 +91,6 @@ antimeridian discontinuities.  Key capabilities:
   `queryGeodeticAABB()` (ingestion), `querySphere()`
 - LOD selection with hysteresis: `selectLodBySlantRange()` + stateful `LodSelector`
 - Line-of-sight: `lineOfSight()` via Möller–Trumbore ray–triangle intersection
-- Simplification: `TerrainSimplifier` (QEM with vertical error metric, boundary locking)
 - Quality verification: `MeshQualityVerifier`
 - Serialization: JSON + proto + `.las_terrain` binary
 - Game engine export: `exportGltf()` → Godot 4 / GLB (MIT, open source, zero cost)
@@ -134,9 +133,9 @@ public:
 
 | File | Action |
 | ---- | ------ |
-| `include/environment/Terrain.hpp` | Create — `V_Terrain` + `FlatTerrain` |
-| `src/environment/Terrain.cpp` | Create |
-| `test/Terrain_test.cpp` | Create — 4 tests |
+| `include/environment/Terrain.hpp` | ✅ Done |
+| `src/environment/Terrain.cpp` | ✅ Done |
+| `test/Terrain_test.cpp` | ✅ Done — 4 tests |
 
 ### Sub-deliverable 1b — Tests
 
@@ -179,13 +178,6 @@ public:
 - Transition to coarser when r exceeds `r_b × (1 + δ)`.
 - `LodSelector::reset()` clears committed state.
 
-**Simplification** (`test/TerrainSimplifier_test.cpp` — 4 tests):
-
-- Output `lod()` == input `lod() + 1`.
-- Output has fewer vertices than input.
-- Max vertical deviation ≤ `max_vertical_error_m`.
-- Boundary vertices of input are present in output (boundary locking).
-
 **Quality verification** (`test/MeshQualityVerifier_test.cpp` — 4 tests):
 
 - Equilateral mesh: `passes()` true, `min_interior_angle_deg` ≈ 60°.
@@ -217,28 +209,25 @@ public:
 
 | File | Action |
 | ---- | ------ |
-| `include/environment/GeodeticPoint.hpp` | Create |
-| `include/environment/TerrainVertex.hpp` | Create — float32 ENU offsets |
-| `include/environment/TerrainFacet.hpp` | Create — `FacetColor` + `TerrainFacet` |
-| `include/environment/GeodeticAABB.hpp` | Create |
-| `include/environment/LocalAABB.hpp` | Create — metric vehicle-centered AABB |
-| `include/environment/TerrainTile.hpp` | Create — `TerrainLod` enum + `TerrainTile` |
-| `include/environment/TerrainCell.hpp` | Create |
+| `include/environment/GeodeticPoint.hpp` | ✅ Done |
+| `include/environment/TerrainVertex.hpp` | ✅ Done — float32 ENU offsets |
+| `include/environment/TerrainFacet.hpp` | ✅ Done — `FacetColor` + `TerrainFacet` |
+| `include/environment/GeodeticAABB.hpp` | ✅ Done |
+| `include/environment/LocalAABB.hpp` | ✅ Done — metric vehicle-centered AABB |
+| `include/environment/TerrainTile.hpp` | ✅ Done — `TerrainLod` enum + `TerrainTile` |
+| `include/environment/TerrainCell.hpp` | ✅ Done |
 | `include/environment/TerrainMesh.hpp` | Create |
-| `include/environment/TerrainSimplifier.hpp` | Create |
 | `include/environment/MeshQualityVerifier.hpp` | Create |
 | `include/environment/LodSelector.hpp` | Create — hysteresis state |
 | `include/SimulationFrame.hpp` | Create — Domain Layer value object |
-| `src/environment/TerrainTile.cpp` | Create |
-| `src/environment/TerrainCell.cpp` | Create |
+| `src/environment/TerrainTile.cpp` | ✅ Done |
+| `src/environment/TerrainCell.cpp` | ✅ Done |
 | `src/environment/TerrainMesh.cpp` | Create |
 | `src/environment/LodSelector.cpp` | Create |
-| `src/environment/TerrainSimplifier.cpp` | Create |
 | `src/environment/MeshQualityVerifier.cpp` | Create |
-| `test/TerrainTile_test.cpp` | Create — 8 tests |
+| `test/TerrainTile_test.cpp` | ✅ Done — 8 tests |
 | `test/TerrainMesh_test.cpp` | Create — ~25 tests |
 | `test/LodSelector_test.cpp` | Create — 5 tests |
-| `test/TerrainSimplifier_test.cpp` | Create — 4 tests |
 | `test/MeshQualityVerifier_test.cpp` | Create — 4 tests |
 | `test/TrajectoryFile_test.cpp` | Create — 2 tests |
 | `proto/liteaerosim.proto` | Modify — add `TerrainTileProto`, `TerrainMeshState`, `TrajectoryFrame`, `TrajectoryFile` |

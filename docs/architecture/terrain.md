@@ -404,8 +404,8 @@ public:
     TerrainLod                          lod()      const;
     const GeodeticPoint&                centroid() const;
     const GeodeticAABB&                 bounds()   const;
-    std::span<const TerrainVertex>      vertices() const;
-    std::span<const TerrainFacet>       facets()   const;
+    const std::vector<TerrainVertex>&   vertices() const;
+    const std::vector<TerrainFacet>&    facets()   const;
 
     // Returns the geodetic position of face centroid i (reconstructed from ENU offsets).
     GeodeticPoint facetCentroid(std::size_t facet_index) const;
@@ -419,11 +419,11 @@ public:
     static TerrainTile    deserializeProto(const std::vector<uint8_t>&  bytes);
 
 private:
-    TerrainLod                 _lod;
-    GeodeticPoint              _centroid;
-    GeodeticAABB               _bounds;
-    std::vector<TerrainVertex> _vertices;
-    std::vector<TerrainFacet>  _facets;
+    TerrainLod                 lod_;
+    GeodeticPoint              centroid_;
+    GeodeticAABB               bounds_;
+    std::vector<TerrainVertex> vertices_;
+    std::vector<TerrainFacet>  facets_;
 };
 
 } // namespace liteaerosim::environment
@@ -450,7 +450,7 @@ public:
     const GeodeticAABB& bounds() const;
 
 private:
-    std::array<std::optional<TerrainTile>, 7> _tiles;  // indexed by TerrainLod
+    std::array<std::optional<TerrainTile>, 7> tiles_;  // indexed by TerrainLod
 };
 
 } // namespace liteaerosim::environment
@@ -835,7 +835,7 @@ public:
     [[nodiscard]] float elevation_m(double latitude_rad,
                                     double longitude_rad) const override;
 private:
-    float _elevation_m;
+    float elevation_m_;
 };
 ```
 

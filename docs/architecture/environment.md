@@ -51,7 +51,7 @@ flowchart TD
 |----|----------|-----------|
 | UC-E1 | Query atmospheric state at altitude | `Atmosphere::state(h_m)` |
 | UC-E2 | Query ambient wind vector | `Wind::wind_NED_mps(pos, time)` |
-| UC-E3 | Advance continuous turbulence | `Turbulence::step(airspeed_mps, altitude_m)` |
+| UC-E3 | Advance continuous turbulence | `Turbulence::step(altitude_m, airspeed_mps)` |
 | UC-E4 | Trigger and step a discrete gust | `Gust::trigger(…)`, `Gust::step(time_s, airspeed_mps)` |
 | UC-E5 | Initialize environment from config | `Atmosphere(config)`, `Wind(config)`, `Turbulence::initialize(config)` |
 | UC-E6 | Reset turbulence and gust | `Turbulence::reset()`, `Gust::reset()` |

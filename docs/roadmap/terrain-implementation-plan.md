@@ -7,7 +7,7 @@ Implement the full terrain subsystem per the design authority
 The roadmap splits the work as:
 
 - Item 1a: `V_Terrain` + `FlatTerrain` (prerequisite for sensors and guidance)
-- Item 1b: `TerrainMesh`, `TerrainTile`, `TerrainCell`, `LodSelector`, `TerrainSimplifier`,
+- Item 1b: `TerrainMesh`, `TerrainTile`, `TerrainCell`, `LodSelector`,
   `MeshQualityVerifier`, serialization, glTF export, and `SimulationFrame`/`TrajectoryFile`
 
 After plan approval, implementation stops here — sensor and guidance integration are
@@ -38,26 +38,26 @@ separate future steps.
 
 | File | Action |
 |------|--------|
-| `include/environment/GeodeticPoint.hpp` | **Create** |
-| `include/environment/TerrainVertex.hpp` | **Create** |
-| `include/environment/TerrainFacet.hpp` | **Create** |
-| `include/environment/GeodeticAABB.hpp` | **Create** |
-| `include/environment/LocalAABB.hpp` | **Create** |
-| `include/environment/Terrain.hpp` | **Create** — `V_Terrain` + `FlatTerrain` |
-| `include/environment/TerrainTile.hpp` | **Create** — includes `TerrainLod` enum class |
-| `include/environment/TerrainCell.hpp` | **Create** |
+| `include/environment/GeodeticPoint.hpp` | ✅ Done (Step 1) |
+| `include/environment/TerrainVertex.hpp` | ✅ Done (Step 1) |
+| `include/environment/TerrainFacet.hpp` | ✅ Done (Step 1) |
+| `include/environment/GeodeticAABB.hpp` | ✅ Done (Step 1) |
+| `include/environment/LocalAABB.hpp` | ✅ Done (Step 1) |
+| `include/environment/Terrain.hpp` | ✅ Done (Step 2) — `V_Terrain` + `FlatTerrain` |
+| `include/environment/TerrainTile.hpp` | ✅ Done (Step 3) — includes `TerrainLod` enum class |
+| `include/environment/TerrainCell.hpp` | ✅ Done (Step 3) |
 | `include/environment/TerrainMesh.hpp` | **Create** |
 | `include/environment/LodSelector.hpp` | **Create** |
 | `include/environment/MeshQualityVerifier.hpp` | **Create** |
 | `include/SimulationFrame.hpp` | **Create** |
-| `src/environment/Terrain.cpp` | **Create** |
-| `src/environment/TerrainTile.cpp` | **Create** |
-| `src/environment/TerrainCell.cpp` | **Create** |
+| `src/environment/Terrain.cpp` | ✅ Done (Step 2) |
+| `src/environment/TerrainTile.cpp` | ✅ Done (Step 3) |
+| `src/environment/TerrainCell.cpp` | ✅ Done (Step 3) |
 | `src/environment/TerrainMesh.cpp` | **Create** |
 | `src/environment/LodSelector.cpp` | **Create** |
 | `src/environment/MeshQualityVerifier.cpp` | **Create** |
-| `test/Terrain_test.cpp` | **Create** — 4 tests |
-| `test/TerrainTile_test.cpp` | **Create** — 8 tests |
+| `test/Terrain_test.cpp` | ✅ Done (Step 2) — 4 tests |
+| `test/TerrainTile_test.cpp` | ✅ Done (Step 3) — 8 tests |
 | `test/TerrainMesh_test.cpp` | **Create** — steps 4–8, 11–12; ~25 tests |
 | `test/LodSelector_test.cpp` | **Create** — 5 tests |
 | `test/MeshQualityVerifier_test.cpp` | **Create** — 4 tests |
@@ -69,7 +69,7 @@ separate future steps.
 
 ---
 
-## Step 1 — Plain Data-Model Headers (no tests — pure structs)
+## Step 1 — Plain Data-Model Headers (no tests — pure structs) ✅
 
 No tests required. These are pure aggregate types with no behavior.
 
@@ -165,7 +165,7 @@ enum class TerrainLod : int {
 
 ---
 
-## Step 2 — `V_Terrain` + `FlatTerrain` (roadmap 1a, 4 tests)
+## Step 2 — `V_Terrain` + `FlatTerrain` (roadmap 1a, 4 tests) ✅
 
 ### Failing Tests — `test/Terrain_test.cpp`
 
@@ -208,7 +208,7 @@ private:
 
 ---
 
-## Step 3 — `TerrainTile` + `TerrainCell` (8 tests)
+## Step 3 — `TerrainTile` + `TerrainCell` (8 tests) ✅
 
 ### Failing Tests — `test/TerrainTile_test.cpp`
 
