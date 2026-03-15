@@ -1858,16 +1858,7 @@ wheels = [
 name = "liteaerosim-tools"
 version = "0.1.0"
 source = { virtual = "." }
-
-[package.dev-dependencies]
-dev = [
-    { name = "black" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-terrain = [
+dependencies = [
     { name = "earthaccess", version = "0.14.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "earthaccess", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "ipywidgets" },
@@ -1885,17 +1876,17 @@ terrain = [
     { name = "trimesh" },
 ]
 
-[package.metadata]
-
-[package.metadata.requires-dev]
+[package.dev-dependencies]
 dev = [
-    { name = "black", specifier = ">=24.0" },
-    { name = "mypy", specifier = ">=1.0" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "ruff", specifier = ">=0.4" },
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
 ]
-terrain = [
+
+[package.metadata]
+requires-dist = [
     { name = "earthaccess", specifier = ">=0.8" },
     { name = "ipywidgets", specifier = ">=8.0" },
     { name = "numpy", specifier = ">=1.26" },
@@ -1906,6 +1897,15 @@ terrain = [
     { name = "requests", specifier = ">=2.31" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "trimesh", specifier = ">=4.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=24.0" },
+    { name = "mypy", specifier = ">=1.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "ruff", specifier = ">=0.4" },
 ]
 
 [[package]]
