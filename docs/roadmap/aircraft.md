@@ -40,6 +40,21 @@ writing production code.
 | `EnvironmentState` | `include/environment/EnvironmentState.hpp` | ✅ Implemented |
 | `SurfaceGeometry` / `AircraftGeometry` | `include/aerodynamics/AircraftGeometry.hpp` | ✅ Implemented |
 | `AeroCoeffEstimator` | `include/aerodynamics/AeroCoeffEstimator.hpp` | ✅ Implemented |
+| `V_Sensor` | `include/sensor/V_Sensor.hpp` | 🔲 Stub only |
+| `SensorAirData` | `include/sensor/SensorAirData.hpp` | 🔲 Stub only |
+| `SensorAA` | `include/sensor/SensorAA.hpp` | 🔲 Stub only |
+| `SensorAAR` | `include/sensor/SensorAAR.hpp` | 🔲 Stub only |
+| `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
+| `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
+| `SensorINS` | `include/sensor/SensorINS.hpp` | 🔲 Stub only |
+| `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
+| `V_PathSegment` | `include/path/V_PathSegment.hpp` | 🔲 Stub only |
+| `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | 🔲 Stub only |
+| `Path` | `include/path/Path.hpp` | 🔲 Stub only |
+| `PathGuidance` | `include/guidance/PathGuidance.hpp` | 🔲 Stub only |
+| `VerticalGuidance` | `include/guidance/VerticalGuidance.hpp` | 🔲 Stub only |
+| `ParkTracking` | `include/guidance/ParkTracking.hpp` | 🔲 Stub only |
+| `Autopilot` | `include/control/Autopilot.hpp` | 🔲 Stub only |
 
 ---
 
@@ -62,191 +77,18 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 11 | `Atmosphere` — ISA 3-layer + ΔT + humidity + density altitude; JSON + proto serialization | `Atmosphere_test.cpp` — 12 tests |
 | 12 | `Wind` (Constant/PowerLaw/Log), `Turbulence` (Dryden 6-filter, Tustin-discretized), `Gust` (1-cosine MIL-SPEC-8785C); JSON serialization | `Wind_test.cpp` — 6 tests, `Turbulence_test.cpp` — 5 tests, `Gust_test.cpp` — 6 tests |
 | 13 | `AeroCoeffEstimator` — geometry-to-coefficient derivation (Parts 1–8: AR, MAC, $C_{L_\alpha}$, $C_{L_\text{max}}$, Oswald $e$, $C_{D_0}$ buildup, $C_{L_q}$, $C_{Y_\beta}$, $C_{Y_r}$); `AeroPerformanceConfig` struct; four new `AeroPerformance` fields (`cl_q_nd`, `mac_m`, `cy_r_nd`, `fin_arm_m`); `AircraftGeometry`/`SurfaceGeometry` structs; `AeroPerformance` schema bumped to v2 | `AeroCoeffEstimator_test.cpp` — 11 tests |
+| 14 | `Terrain` subsystem — `V_Terrain`, `FlatTerrain`, `TerrainMesh` (7 LODs, LOS, glTF export), `LodSelector`, `MeshQualityVerifier`, `SimulationFrame`/`TrajectoryFile`; Python ingestion pipeline (download, mosaic, geoid correction, triangulate, colorize, simplify, verify, export) | C++: 53 tests across 6 test files; Python: 28 tests pass + 1 skip — see [`terrain-implementation-plan.md`](terrain-implementation-plan.md) |
 
 ---
 
-## 1. `Terrain` — Elevation Model and Multi-Resolution Mesh
+## 1. `SensorAirData` — Air Data System
 
-Design authority: [`docs/architecture/terrain.md`](../architecture/terrain.md).
-Implementation plan: [`docs/roadmap/terrain-implementation-plan.md`](terrain-implementation-plan.md).
+Stub header exists at `include/sensor/SensorAirData.hpp`. `V_Sensor` is the abstract base.
 
-This item delivers the full terrain subsystem in two sub-deliverables:
-
-**1a — `V_Terrain` + `FlatTerrain`** (prerequisite for sensors and guidance):
-
-`V_Terrain` is the abstract base defining the elevation query interface used throughout the
-Domain Layer.  `FlatTerrain` is the constant-elevation trivial implementation used in unit
-tests and flat-earth simulation scenarios.
-
-**1b — `TerrainMesh`** (multi-resolution mesh with LOD, simplification, and game engine integration):
-
-`TerrainMesh` is a concrete `V_Terrain` backed by a `TerrainCell` hash-map keyed on tile
-centroid position.  Seven LOD levels span 10 m – 10 km vertex spacing for a regional
-area ≤ 100 km.  Tile vertices are stored as float32 ENU offsets from a per-tile
-`GeodeticPoint` centroid (local grid encoding) — eliminating geodetic precision issues and
-antimeridian discontinuities.  Key capabilities:
-
-- Coordinate transforms: `toECEF()`, `toNED()`
-- Queries: `queryLocalAABB()` (metric, vehicle-centered — primary simulation interface),
-  `queryGeodeticAABB()` (ingestion), `querySphere()`
-- LOD selection with hysteresis: `selectLodBySlantRange()` + stateful `LodSelector`
-- Line-of-sight: `lineOfSight()` via Möller–Trumbore ray–triangle intersection
-- Quality verification: `MeshQualityVerifier`
-- Serialization: JSON + proto + `.las_terrain` binary
-- Game engine export: `exportGltf()` → Godot 4 / GLB (MIT, open source, zero cost)
-- Live rendering support: `SimulationFrame` value object + `TrajectoryFile` proto
-
-### Sub-deliverable 1a — Interface sketch
-
-```cpp
-// include/environment/Terrain.hpp
-namespace liteaerosim::environment {
-
-class V_Terrain {
-public:
-    [[nodiscard]] virtual float elevation_m(double latitude_rad,
-                                            double longitude_rad) const = 0;
-    [[nodiscard]] float heightAboveGround_m(float  altitude_m,
-                                            double latitude_rad,
-                                            double longitude_rad) const;
-    virtual ~V_Terrain() = default;
-};
-
-class FlatTerrain : public V_Terrain {
-public:
-    explicit FlatTerrain(float elevation_m = 0.f);
-    [[nodiscard]] float elevation_m(double latitude_rad,
-                                    double longitude_rad) const override;
-};
-
-} // namespace liteaerosim::environment
-```
-
-### Sub-deliverable 1a — Tests (4 tests, `test/Terrain_test.cpp`)
-
-- `FlatTerrain(300.f)`: `elevation_m()` returns 300 regardless of lat/lon.
-- `heightAboveGround_m(500.f, ...)` with `FlatTerrain(300.f)` returns 200.f.
-- `heightAboveGround_m(300.f, ...)` returns 0.f (exactly at terrain level).
-- `heightAboveGround_m(100.f, ...)` returns 0.f (below terrain — no negative output).
-
-### Sub-deliverable 1a — New files
-
-| File | Action |
-| ---- | ------ |
-| `include/environment/Terrain.hpp` | ✅ Done |
-| `src/environment/Terrain.cpp` | ✅ Done |
-| `test/Terrain_test.cpp` | ✅ Done — 4 tests |
-
-### Sub-deliverable 1b — Tests
-
-**Data model** (`test/TerrainTile_test.cpp` — 8 tests):
-
-- Constructor accessors (`lod`, `centroid`, `bounds`, `vertices`, `facets`) match construction args.
-- `facetCentroid(0)` for a right triangle returns the ENU-averaged centroid.
-- `facetNormal(0)` for a horizontal face has outward Z-component > 0.99.
-- JSON round-trip: all vertex ENU values and facet indices preserved ± 1e-4.
-- Schema version mismatch throws `std::runtime_error`.
-- `TerrainCell::addTile()` + `hasLod()` + `tile()` round-trip.
-- `TerrainCell::tile(missing_lod)` throws `std::out_of_range`.
-- `finestAvailableLod()` / `coarsestAvailableLod()` correct for mixed population.
-
-**Core + transforms + LOS + serialization + glTF export** (`test/TerrainMesh_test.cpp` — 30 tests):
-
-- `addCell()` + `cellAt()` round-trip; offset point within extent also finds cell.
-- `cellAt()` outside all cells returns `nullptr`.
-- `elevation_m()` at known vertex position returns stored height ± 0.01 m.
-- `elevation_m()` outside all cells returns 0.f.
-- `toECEF()`: vertex at (0°N, 0°E, 0 m) centroid → ECEF x ≈ 6,378,137 m ± 0.1 m.
-- `toECEF()`: vertex at (0°N, 90°E, 0 m) centroid → ECEF y ≈ 6,378,137 m ± 0.1 m.
-- `toNED()`: vertex at centroid → NED (0, 0, 0); vertex 100 m east → NED (0, 100, 0) ± 0.1 m.
-- `queryLocalAABB()`: returns tile within metric AABB; excludes tile 10 km away.
-- `queryGeodeticAABB()`: returns tile overlapping bounds; excludes non-overlapping tile.
-- `querySphere()`: returns tile within radius; excludes tile entirely outside.
-- `max_lod` filtering: only returns tiles at or coarser than requested LOD.
-
-**LOS** (`test/TerrainMesh_test.cpp` — 3 tests, ✅ Done):
-
-- Clear sky above flat terrain → `lineOfSight()` returns true.
-- Point below terrain elevation → returns false.
-- Ridge mesh between two points → returns false.
-
-**LOD selection** (`test/LodSelector_test.cpp` — 5 tests, ✅ Done):
-
-- `selectLodBySlantRange()`: L0 at r < 300 m; L1 at r = 500 m.
-- `LodSelector::select()` first call uses nominal formula.
-- No transition when r moves to just above nominal boundary but below hysteresis threshold.
-- Transition to coarser when r exceeds `r_b × (1 + δ)`.
-- `LodSelector::reset()` clears committed state.
-
-**Quality verification** (`test/MeshQualityVerifier_test.cpp` — 4 tests, ✅ Done):
-
-- Equilateral mesh: `passes()` true, `min_interior_angle_deg` ≈ 60°.
-- Zero-area triangle: `degenerate_facet_count > 0`; `passes()` false.
-- Single-triangle mesh: `open_boundary_edge_count == 3`.
-- Very thin triangle: `max_aspect_ratio > 15`; `passes()` false.
-
-**Serialization** (`test/TerrainMesh_test.cpp` — 5 tests, ✅ Done):
-
-- JSON round-trip: `TerrainMesh` with 2 tiles — tile count and centroid preserved.
-- Proto round-trip.
-- `.las_terrain` binary: write/read preserves all vertices and facet indices.
-- Schema version mismatch → `std::runtime_error`.
-- Empty `TerrainMesh` round-trips without error.
-
-**glTF / Godot 4 export** (add to `test/TerrainMesh_test.cpp` — 4 tests):
-
-- `exportGltf()` produces bytes with GLB magic `0x46546C67`.
-- JSON chunk contains `"liteaerosim_terrain": true` in root node `extras`.
-- `POSITION` accessor count == 3 × facet count (vertex duplication for per-facet color).
-- `COLOR_0` accessor count equals `POSITION` count.
-
-**Trajectory / live streaming** (`test/TrajectoryFile_test.cpp` — 2 tests):
-
-- `TrajectoryFile` with 100 frames survives proto round-trip; frame count and timestamps preserved.
-- All `TrajectoryFrame` fields survive round-trip within float/double precision.
-
-### Sub-deliverable 1b — New files
-
-| File | Action |
-| ---- | ------ |
-| `include/environment/GeodeticPoint.hpp` | ✅ Done |
-| `include/environment/TerrainVertex.hpp` | ✅ Done — float32 ENU offsets |
-| `include/environment/TerrainFacet.hpp` | ✅ Done — `FacetColor` + `TerrainFacet` |
-| `include/environment/GeodeticAABB.hpp` | ✅ Done |
-| `include/environment/LocalAABB.hpp` | ✅ Done — metric vehicle-centered AABB |
-| `include/environment/TerrainTile.hpp` | ✅ Done — `TerrainLod` enum + `TerrainTile` |
-| `include/environment/TerrainCell.hpp` | ✅ Done |
-| `include/environment/TerrainMesh.hpp` | ✅ Done — Steps 4–10 |
-| `include/environment/MeshQualityVerifier.hpp` | ✅ Done — Step 9 |
-| `include/environment/LodSelector.hpp` | ✅ Done — Step 7 |
-| `include/SimulationFrame.hpp` | ✅ Done — Step 12 |
-| `src/environment/TerrainTile.cpp` | ✅ Done — Steps 3, 10 (proto serialization) |
-| `src/environment/TerrainCell.cpp` | ✅ Done |
-| `src/environment/TerrainMesh.cpp` | ✅ Done — Steps 4–11 |
-| `src/environment/LodSelector.cpp` | ✅ Done — Step 7 |
-| `src/environment/MeshQualityVerifier.cpp` | ✅ Done — Step 9 |
-| `src/environment/tinygltf_impl.cpp` | ✅ Done — Step 11 |
-| `test/TerrainTile_test.cpp` | ✅ Done — 8 tests |
-| `test/TerrainMesh_test.cpp` | ✅ Done — 30 tests (Steps 4–11) |
-| `test/LodSelector_test.cpp` | ✅ Done — 5 tests |
-| `test/MeshQualityVerifier_test.cpp` | ✅ Done — 4 tests |
-| `test/TrajectoryFile_test.cpp` | ✅ Done — 2 tests (Step 12) |
-| `proto/liteaerosim.proto` | ✅ Done (Steps 10, 12) — terrain + trajectory messages |
-| `CMakeLists.txt` | ✅ Done — Step 11 (tinygltf v2.9.3 FetchContent) |
-| `src/CMakeLists.txt` | ✅ Done — Step 11 (tinygltf_headers linked) |
-
----
-
-## 2. Air Data Sensors — `SensorAirData`, `SensorAA`, `SensorAAR`
-
-Air data sensors derive indicated and calibrated quantities from the true atmospheric state
-and aircraft kinematics. They model systematic bias and measurement noise. All sensors
-consume the `KinematicState` and the `AtmosphericState` output of `Atmosphere`.
-
-### `SensorAirData` — Pitot-Static System
-
-Outputs: indicated airspeed (IAS), calibrated airspeed (CAS), equivalent airspeed (EAS),
-true airspeed (TAS), barometric altitude, outside air temperature.
+`SensorAirData` models the pitot-static system at the physical transducer level: a
+differential pressure sensor (dynamic pressure $q_c$) and an absolute pressure sensor
+(static pressure $P_s$). All derived quantities — IAS, CAS, EAS, TAS, barometric altitude,
+OAT — are computed from these two raw measurements and the `AtmosphericState`.
 
 ```cpp
 // include/sensor/SensorAirData.hpp
@@ -260,54 +102,70 @@ struct AirDataMeasurement {
 };
 ```
 
-### `SensorAA` — Angle-of-Attack Vane / `SensorAAR` — Sideslip Vane
-
-Each outputs a scalar angle in radians. Modeled with a first-order lag and additive bias.
-
 ### Tests — `SensorAirData`
 
 - At sea level ISA and `tas = 20 m/s`, IAS ≈ CAS ≈ EAS ≈ TAS to within 0.1 m/s.
 - At altitude (3000 m) and same TAS, IAS < TAS.
 - `baro_altitude_m` matches geometric altitude to within 10 m at ISA conditions.
-
-### Tests — `SensorAA` / `SensorAAR`
-
-- With zero lag (τ = 0), output equals the true angle immediately.
-- With finite lag, output converges toward the true angle with the correct time constant.
-- Bias shifts the mean output by the configured amount.
+- With additive differential-pressure noise σ, IAS noise propagates correctly to output.
+- With additive static-pressure noise σ, barometric altitude noise propagates correctly.
+- JSON and proto round-trips preserve sensor state (noise seeds, lag filter state).
 
 ### CMake
 
-Add sensor source files to `liteaerosim`.
-Add `test/SensorAirData_test.cpp` and `test/SensorAngle_test.cpp` to the test executable.
+Add `src/sensor/SensorAirData.cpp` to `liteaerosim`.
+Add `test/SensorAirData_test.cpp` to the test executable.
 
 ---
 
-## 3. `SensorRadAlt` — Radar / Laser Altimeter
+## 2. Autopilot Gain Design — Python Tooling
 
-`SensorRadAlt` outputs height above ground (HAG) derived from `Terrain::heightAboveGround_m`.
-`SensorForwardTerrainProfile` returns a look-ahead terrain elevation vector along the
-aircraft's projected track — used by terrain-following guidance.
+Python workflow that derives autopilot control gains from the aircraft model. This is a
+prerequisite for item 4 (`Autopilot`) — the C++ implementation is parameterized by gains
+computed here.
 
-### Tests — `SensorRadAlt`
+Scope to be defined when this item is scheduled. Expected to use Python control-system
+libraries (e.g. `python-control`, `scipy.signal`) applied to linearized models extracted
+from `Aircraft` trim and `AeroCoeffEstimator` outputs.
 
-- Over `FlatTerrain(0)` at 100 m altitude, output = 100 m (within noise bounds).
-- Output is 0 when the aircraft is on the ground.
-- When HAG exceeds the sensor's maximum range, output is clamped/saturated to `max_range_m`.
+---
 
-### Tests — `SensorForwardTerrainProfile`
+## 3. Autopilot — Inner Loop Knobs-Mode Tracking
 
-- Over flat terrain, all profile samples equal the terrain elevation at the current position.
-- Profile length and sample spacing match configuration parameters.
+Stub header exists at `include/control/Autopilot.hpp`.
+
+`Autopilot` implements the inner closed-loop layer. It tracks pilot-style set point commands
+corresponding to "knobs" modes — altitude hold, vertical speed hold, heading hold, and roll
+attitude hold — and produces an `AircraftCommand` for `Aircraft::step()`. Guidance (item 5)
+is the outer loop that wraps around it and supplies the set point commands. Control gains are
+derived by the Python gain design workflow (item 2).
+
+### Interface sketch
+
+_To be defined during design. Inputs will include `KinematicState`, `AtmosphericState`,
+and a set point struct (target altitude, target vertical speed, target heading, target roll
+attitude). Output is `AircraftCommand`._
+
+### Tests
+
+- Altitude hold: starting from a displaced altitude, output drives altitude error to zero
+  within the expected settling time.
+- Heading hold: starting from a heading offset, output drives heading error to zero without
+  overshoot beyond a specified bound.
+- Roll attitude hold: commanded roll angle is tracked with correct steady-state and transient.
+- Vertical speed hold: commanded climb rate is tracked correctly.
+- JSON and proto round-trips preserve filter states.
 
 ### CMake
 
-Add `src/sensor/SensorRadAlt.cpp` and `src/sensor/SensorForwardTerrainProfile.cpp` to `liteaerosim`.
-Add `test/SensorRadAlt_test.cpp` to the test executable.
+Add `src/control/Autopilot.cpp` to `liteaerosim`.
+Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
 ## 4. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+
+Stub headers exist in `include/path/` for all three classes.
 
 A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
 cross-track error, along-track distance, and desired heading at a query position. The
@@ -364,32 +222,41 @@ Add `test/Path_test.cpp` to the test executable.
 
 ## 5. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
-Guidance laws convert path and altitude errors into commanded load factors for `Aircraft::step()`.
-They live in the Domain Layer and have no I/O. Each is a stateful element (contains filter
-state) and implements `reset()`, `step()`, and JSON + proto serialization.
+Stub headers exist in `include/guidance/` for all three classes.
+
+Guidance is the outer loop that wraps around the `Autopilot`. It converts path and altitude
+errors into set point commands (target altitude, vertical speed, heading, roll attitude) that
+are fed to `Autopilot::step()`. Guidance classes live in the Domain Layer and have no I/O.
+Each is a stateful element (contains filter state) and implements `reset()`, `step()`, and
+JSON + proto serialization.
 
 ### `PathGuidance` — Lateral Path Tracking
 
-Implements a nonlinear guidance law (L1 or similar) that commands lateral load factor `n_y`
-to null cross-track error.
+Implements a nonlinear guidance law (L1 or similar) that commands a target heading or roll
+attitude set point to null cross-track error against a path segment.
 
 ### `VerticalGuidance` — Altitude / Climb-Rate Hold
 
-Commands normal load factor `n` to track a target altitude or climb rate profile.
+Commands target altitude or vertical speed set points to track a target altitude or climb
+rate profile.
 
 ### `ParkTracking` — Loiter / Station-Keep
 
-Commands the aircraft to orbit a fixed ground point at a specified radius and altitude.
+Commands the aircraft to orbit a fixed ground point at a specified radius and altitude by
+producing heading and altitude set point commands to `Autopilot`.
 
 ### Tests — `PathGuidance`
 
-- With zero cross-track error and correct heading, commanded `n_y` is near zero.
-- With a large cross-track error, `n_y` is bounded within `[-n_y_max, +n_y_max]`.
+- With zero cross-track error and correct heading, commanded heading set point matches
+  current heading (no corrective input).
+- With a large cross-track error, the commanded heading correction is bounded within a
+  specified maximum bank angle equivalent.
 
 ### Tests — `VerticalGuidance`
 
-- With aircraft at target altitude, commanded `n` converges to `1.0 g`.
-- With aircraft below target altitude, `n > 1.0 g`.
+- With aircraft at target altitude, commanded altitude set point matches current altitude
+  (no corrective input).
+- With aircraft below target altitude, commanded vertical speed set point is positive.
 
 ### Tests — Serialization
 
@@ -403,58 +270,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 6. Autopilot — Outer Loop Command Generation
-
-`Autopilot` combines `PathGuidance`, `VerticalGuidance`, and `ParkTracking` into a single
-class that consumes the `KinematicState` and `PathResponse` and produces an `AircraftCommand`
-for `Aircraft::step()`. It also manages mode selection (path-following vs. loiter vs. manual
-override).
-
-### Interface sketch
-
-```cpp
-// include/control/Autopilot.hpp
-namespace liteaerosim::control {
-
-enum class AutopilotMode { PathFollow, Loiter, ManualOverride };
-
-class Autopilot {
-public:
-    AircraftCommand step(const KinematicState& state,
-                         const path::PathResponse& path_resp,
-                         const Eigen::Vector3f& wind_NED_mps,
-                         float rho_kgm3,
-                         float throttle_nd);
-
-    void setMode(AutopilotMode mode);
-    AutopilotMode mode() const;
-
-    void reset();
-
-    nlohmann::json       serializeJson() const;
-    void                 deserializeJson(const nlohmann::json& j);
-    std::vector<uint8_t> serializeProto() const;
-    void                 deserializeProto(const std::vector<uint8_t>& bytes);
-};
-
-} // namespace liteaerosim::control
-```
-
-### Tests
-
-- In `PathFollow` mode with zero cross-track error and target altitude, `step()` produces
-  `n ≈ 1.0` and `n_y ≈ 0.0`.
-- Switching to `ManualOverride` causes `step()` to pass through the manual command unchanged.
-- JSON and proto round-trips preserve inner guidance filter states.
-
-### CMake
-
-Add `src/control/Autopilot.cpp` to `liteaerosim`.
-Add `test/Autopilot_test.cpp` to the test executable.
-
----
-
-## 7. Plot Visualization — Python Post-Processing Tools
+## 5. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -488,7 +304,7 @@ dev = [
 
 ---
 
-## 8. Manual Input — Joystick and Keyboard
+## 6. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -529,7 +345,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 9. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 7. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
@@ -578,3 +394,19 @@ public:
 
 Add `src/runner/SimRunner.cpp` to `liteaerosim`.
 Add `test/SimRunner_test.cpp` to the test executable.
+
+---
+
+## 8. Remaining Sensors
+
+Not blocking any higher-priority item. Stub headers exist in `include/sensor/`.
+Implement when needed; order within this group follows dependency.
+
+| Class | Depends on | Description |
+|---|---|---|
+| `SensorRadAlt` | Terrain (done) | Radar/laser altimeter — HAG from `Terrain::heightAboveGround_m` with noise and range saturation |
+| `SensorForwardTerrainProfile` | Terrain (done), Guidance | Forward terrain profiling sensor (multi-beam LIDAR / line-scan radar) for terrain-following guidance |
+| `SensorINS` | `KinematicState` (done) | Inertial navigation — integrates IMU to produce position, velocity, attitude; models bias drift |
+| `SensorAA` | `KinematicState` (done) | Passive angle/angle sensor (imaging type) — measures two LOS angles, no range |
+| `SensorAAR` | `KinematicState` (done) | Active angle/angle/range sensor (e.g. radar) — measures two LOS angles plus slant range |
+| `SensorTrackEstimator` | `SensorAA` or `SensorAAR` | Kinematic track estimator for a moving object observed via angle or angle/range measurements |
