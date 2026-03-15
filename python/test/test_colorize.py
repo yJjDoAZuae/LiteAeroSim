@@ -99,7 +99,7 @@ def test_solid_color_raster_all_facets_same_color(tmp_path: Path) -> None:
 
     tile = _make_tile_at_origin()
     imagery_path = tmp_path / "solid.tif"
-    # Sentinel2 scale: 1/10000. A raw value of 5000 → reflectance 0.5 → 127 in 8-bit.
+    # raw=5000 → reflectance 0.5 → 0.5*3.5=1.75 → clip to 1.0 → gamma → 255
     raw_val = 5000
     _write_rgb_raster(imagery_path, r_val=raw_val, g_val=raw_val, b_val=raw_val)
 
@@ -110,7 +110,9 @@ def test_solid_color_raster_all_facets_same_color(tmp_path: Path) -> None:
     assert np.all(result.colors[0] == result.colors[1]), (
         f"Expected all facets same color, got {result.colors}"
     )
-    expected = int(np.clip(raw_val * SCALE_FACTORS["sentinel2"] * 255.0, 0, 255))
+    from colorize import DISPLAY_GAIN, DISPLAY_GAMMA
+    lin = np.clip(raw_val * SCALE_FACTORS["sentinel2"] * DISPLAY_GAIN["sentinel2"], 0.0, 1.0)
+    expected = int(np.power(lin, 1.0 / DISPLAY_GAMMA["sentinel2"]) * 255.0)
     np.testing.assert_array_equal(result.colors[0], [expected, expected, expected])
 
 
@@ -135,15 +137,22 @@ def test_color_scaling_16bit_to_8bit(tmp_path: Path) -> None:
 
     tile = _make_tile_at_origin()
     imagery_path = tmp_path / "scaling.tif"
-    # Raw value 2000 with sentinel2 scale 1/10000 → reflectance 0.2 → 0.2*255 = 51.
+    # raw 2000/3000/4000 → reflectance 0.2/0.3/0.4 → ×gain 3.5 → gamma 2.2 corrected
     raw_r, raw_g, raw_b = 2000, 3000, 4000
     _write_rgb_raster(imagery_path, r_val=raw_r, g_val=raw_g, b_val=raw_b)
 
     result = colorize(tile, imagery_path, source="sentinel2")
 
+    from colorize import DISPLAY_GAIN, DISPLAY_GAMMA
     scale = SCALE_FACTORS["sentinel2"]
-    expected_r = int(np.clip(raw_r * scale * 255, 0, 255))
-    expected_g = int(np.clip(raw_g * scale * 255, 0, 255))
-    expected_b = int(np.clip(raw_b * scale * 255, 0, 255))
+    gain = DISPLAY_GAIN["sentinel2"]
+    inv_gamma = 1.0 / DISPLAY_GAMMA["sentinel2"]
 
-    np.testing.assert_array_equal(result.colors[0], [expected_r, expected_g, expected_b])
+    def _expected(raw: int) -> int:
+        lin = np.clip(raw * scale * gain, 0.0, 1.0)
+        return int(np.power(lin, inv_gamma) * 255.0)
+
+    np.testing.assert_array_equal(
+        result.colors[0],
+        [_expected(raw_r), _expected(raw_g), _expected(raw_b)],
+    )

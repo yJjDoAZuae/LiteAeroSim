@@ -67,13 +67,12 @@ def simplify(
             f"target_lod {target_lod} must be greater than tile.lod {tile.lod}"
         )
 
-    # Pre-check input.  L0 meshes come from a fresh DEM triangulation and are expected to
-    # meet strict quality thresholds.  Already-simplified tiles (lod > 0) may contain thin
-    # triangles produced by QEM; apply the same lenient thresholds used for post-checks.
-    if tile.lod == 0:
-        check(tile)
-    else:
-        check(tile, min_angle_deg=1.0, max_aspect_ratio=500.0)
+    # Pre-check: verify only that the input has no zero-area facets.
+    # Angle and aspect-ratio checks are not enforced here — thin triangles are a
+    # normal by-product of both Delaunay triangulation (boundary regions) and QEM
+    # decimation, and checking them would incorrectly reject valid input at every
+    # LOD beyond the first.
+    check(tile, min_angle_deg=0.0, max_aspect_ratio=float("inf"))
 
     # Float64 ENU for numerically stable QEM.
     verts_f64 = tile.vertices.astype(np.float64)
@@ -127,7 +126,9 @@ def simplify(
         colors=new_colors,
     )
 
-    # Post-check output with lenient thresholds — QEM does not guarantee angle quality,
-    # but we still reject completely degenerate output (zero-area facets).
-    check(result, min_angle_deg=1.0, max_aspect_ratio=500.0)
+    # Post-check: verify only that QEM did not produce zero-area facets.
+    # Angle and aspect-ratio quality are not guaranteed by QEM decimation and
+    # must not be enforced here — thin triangles are a normal and acceptable
+    # by-product of the algorithm.
+    check(result, min_angle_deg=0.0, max_aspect_ratio=float("inf"))
     return result

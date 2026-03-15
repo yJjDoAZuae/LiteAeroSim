@@ -22,11 +22,29 @@ _WGS84_A: float = 6_378_137.0
 _WGS84_F: float = 1.0 / 298.257223563
 _WGS84_E2: float = 2.0 * _WGS84_F - _WGS84_F**2
 
-# Surface reflectance scale factors: raw_integer * scale → reflectance [0, 1]
+# DN → linear reflectance [0, 1]
 SCALE_FACTORS: dict[str, float] = {
-    "sentinel2": 1.0 / 10000.0,  # Sentinel-2 L2A surface reflectance
-    "landsat9": 1.0 / 55000.0,  # Landsat C2L2 surface reflectance
-    "modis": 1.0 / 32767.0,  # MODIS MCD43A4 BRDF-adjusted reflectance
+    "sentinel2": 1.0 / 10000.0,  # Sentinel-2 L2A surface reflectance × 10000
+    "landsat9":  1.0 / 55000.0,  # Landsat C2L2 surface reflectance × 55000
+    "modis":     1.0 / 32767.0,  # MODIS MCD43A4 BRDF-adjusted reflectance × 32767
+}
+
+# Brightness gain applied to linear reflectance before gamma correction.
+# Natural land cover reflectance is typically 0.02–0.30; a gain of 3.5 (standard
+# Sentinel Hub true-color) maps this to ~0.07–1.0 before gamma, producing
+# display values in a natural brightness range.
+DISPLAY_GAIN: dict[str, float] = {
+    "sentinel2": 3.5,
+    "landsat9":  3.5,
+    "modis":     3.5,
+}
+
+# Display gamma (sRGB standard: 2.2).
+# Applied as: display_value = (reflectance * gain) ^ (1 / gamma)
+DISPLAY_GAMMA: dict[str, float] = {
+    "sentinel2": 2.2,
+    "landsat9":  2.2,
+    "modis":     2.2,
 }
 
 # Band indices (1-indexed, as used by rasterio) for R, G, B mapping.
@@ -87,6 +105,8 @@ def colorize(
         raise KeyError(f"Unsupported source '{source}'. Choose from: {list(SCALE_FACTORS)}")
 
     scale = SCALE_FACTORS[source]
+    gain = DISPLAY_GAIN[source]
+    inv_gamma = 1.0 / DISPLAY_GAMMA[source]
     r_band, g_band, b_band = BAND_ORDER[source]
 
     # Compute facet centroid ENU offsets (mean of 3 vertex ENU positions).
@@ -106,18 +126,41 @@ def colorize(
 
     with rasterio.open(imagery_path) as src:
         nodata = src.nodata
-        coords = list(zip(lon_arr.tolist(), lat_arr.tolist()))
-        # sample() returns an iterator of arrays; each element is a 1-D array of band values.
-        samples = list(src.sample(coords, indexes=[r_band, g_band, b_band]))
+        # Convert all geodetic coords to pixel indices in one vectorized call.
+        rows, cols = rasterio.transform.rowcol(src.transform, lon_arr, lat_arr)
+        rows = np.asarray(rows, dtype=np.intp)
+        cols = np.asarray(cols, dtype=np.intp)
 
-    for i, (r_raw, g_raw, b_raw) in enumerate(samples):
-        if nodata is not None and (r_raw == nodata or g_raw == nodata or b_raw == nodata):
-            new_colors[i] = _DEFAULT_GREY
-            continue
-        r8 = int(np.clip(float(r_raw) * scale * 255.0, 0.0, 255.0))
-        g8 = int(np.clip(float(g_raw) * scale * 255.0, 0.0, 255.0))
-        b8 = int(np.clip(float(b_raw) * scale * 255.0, 0.0, 255.0))
-        new_colors[i] = [r8, g8, b8]
+        # Mark facets whose centroid falls outside the raster extent.
+        in_bounds = (rows >= 0) & (rows < src.height) & (cols >= 0) & (cols < src.width)
+        rows_safe = np.clip(rows, 0, src.height - 1)
+        cols_safe = np.clip(cols, 0, src.width - 1)
+
+        # Read the three required bands into memory (H × W each).
+        r_data = src.read(r_band)
+        g_data = src.read(g_band)
+        b_data = src.read(b_band)
+
+    # Sample all facets at once via numpy fancy indexing.
+    r_raw = r_data[rows_safe, cols_safe].astype(np.float32)
+    g_raw = g_data[rows_safe, cols_safe].astype(np.float32)
+    b_raw = b_data[rows_safe, cols_safe].astype(np.float32)
+
+    # DN → reflectance → gain → gamma → uint8
+    # display = clip(DN * scale * gain, 0, 1) ^ (1/gamma) * 255
+    linear_scale = float(scale * gain)
+    r_lin = np.clip(r_raw * linear_scale, 0.0, 1.0)
+    g_lin = np.clip(g_raw * linear_scale, 0.0, 1.0)
+    b_lin = np.clip(b_raw * linear_scale, 0.0, 1.0)
+    new_colors[:, 0] = (np.power(r_lin, inv_gamma) * 255.0).astype(np.uint8)
+    new_colors[:, 1] = (np.power(g_lin, inv_gamma) * 255.0).astype(np.uint8)
+    new_colors[:, 2] = (np.power(b_lin, inv_gamma) * 255.0).astype(np.uint8)
+
+    # Replace nodata and out-of-bounds facets with default grey.
+    oob = ~in_bounds
+    if nodata is not None:
+        oob |= (r_raw == nodata) | (g_raw == nodata) | (b_raw == nodata)
+    new_colors[oob] = _DEFAULT_GREY
 
     import dataclasses
 

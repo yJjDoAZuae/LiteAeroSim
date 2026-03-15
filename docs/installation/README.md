@@ -92,15 +92,43 @@ Tests appear in the **Testing** panel (beaker icon) via CTest.
 
 ## 6. Python Environment (Optional)
 
+Python tooling uses [uv](https://docs.astral.sh/uv/). Install it if not already present:
+
+```powershell
+winget install astral-sh.uv
+```
+
+Then, from the `python/` directory:
+
 ```bash
 cd python
-pip install -e ".[dev]"
+
+# Install all dependencies (dev group includes JupyterLab and ipykernel)
+uv sync --group dev
+
+# One-time: install the custom Jupyter kernel spec
+uv run python scripts/install_kernel.py
 ```
 
 Run Python tests:
+
 ```bash
-pytest --cov=las --cov-report=term-missing
+uv run pytest
 ```
+
+Start JupyterLab:
+
+```bash
+uv run jupyter lab
+```
+
+### Re-running `install_kernel.py`
+
+The kernel spec lives inside `.venv` and is recreated automatically on `uv sync`.
+Re-run `install_kernel.py` only after a **full venv rebuild** — that is, after
+deleting `.venv` by hand or changing the Python version in `.python-version`.
+Routine `uv sync` (adding or updating packages) does not rebuild the venv and
+does not require re-running the script.
 
 ## Troubleshooting
 
