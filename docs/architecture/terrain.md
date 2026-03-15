@@ -954,13 +954,482 @@ $h_\text{WGS84} = H_\text{MSL} + N_\text{EGM2008}$.
 python/tools/terrain/
 ├── download.py         — authenticated download from Copernicus / EarthData APIs
 ├── mosaic.py           — merge and reproject GeoTIFF tiles to a common CRS
-├── geoid_correct.py    — apply EGM2008 correction to convert MSL → WGS84 heights
+├── geoid_correct.py    — EGM96/EGM2008 correction: orthometric → WGS84 ellipsoidal
 ├── triangulate.py      — build L0 TIN from elevation raster (Delaunay + boundary lock)
 ├── colorize.py         — sample imagery raster at facet centroids → FacetColor
 ├── simplify.py         — pyfqmr QEM (preserve_border=True) to generate L1–L6 from L0
-├── verify.py           — call MeshQualityVerifier on all tiles; fail on threshold breach
-├── export.py           — serialize TerrainMesh to .las_terrain binary format
-└── export_gltf.py      — call TerrainMesh::exportGltf() to produce per-LOD GLB files
+├── verify.py           — Python reimplementation of MeshQualityVerifier; fail on breach
+├── export.py           — serialize tiles to .las_terrain binary format
+└── export_gltf.py      — trimesh-based GLB export (Python-only; no pybind11 required)
+```
+
+**No pybind11 bindings are used.**  All Python tools work with the `TerrainTileData`
+dataclass (defined in `las_terrain.py`) and write outputs that the C++ simulation reads
+directly via `TerrainMesh::deserializeLasTerrain()`.
+
+#### Shared Data Type — `TerrainTileData`
+
+Defined in `las_terrain.py` and imported by all other tools.
+
+```python
+from __future__ import annotations
+import numpy as np
+from dataclasses import dataclass
+
+@dataclass
+class TerrainTileData:
+    lod:                  int        # 0–6 (TerrainLod enum value)
+    centroid_lat_rad:     float
+    centroid_lon_rad:     float
+    centroid_height_m:    float
+    lat_min_rad:          float
+    lat_max_rad:          float
+    lon_min_rad:          float
+    lon_max_rad:          float
+    height_min_m:         float
+    height_max_m:         float
+    vertices: np.ndarray             # (N, 3) float32 — ENU (east, north, up) offsets in meters
+    indices:  np.ndarray             # (F, 3) uint32  — vertex indices, CCW winding
+    colors:   np.ndarray             # (F, 3) uint8   — R8G8B8 representative color per facet
+```
+
+All ENU coordinates are float32 offsets from the tile centroid.  Centroid position and
+geodetic bounds are float64.  This mirrors the C++ `TerrainVertex` / `TerrainFacet`
+layout and maps directly to the `.las_terrain` binary format.
+
+---
+
+#### `las_terrain.py` — `.las_terrain` I/O
+
+Pure-Python reader and writer for the `.las_terrain` binary format.  No pybind11 or C++
+interop needed — the format is fully specified as struct-packed data (see §`.las_terrain`
+File Format below).
+
+```python
+from pathlib import Path
+from las_terrain import TerrainTileData, read_las_terrain, write_las_terrain
+
+def write_las_terrain(path: Path, tiles: list[TerrainTileData]) -> None:
+    """Write one or more tiles to a .las_terrain binary file."""
+
+def read_las_terrain(path: Path) -> list[TerrainTileData]:
+    """Read all tiles from a .las_terrain binary file.
+    Raises ValueError on magic/version mismatch."""
+```
+
+**Error handling:**
+
+- `write_las_terrain`: raises `ValueError` if `tiles` is empty; `IOError` on write failure.
+- `read_las_terrain`: raises `ValueError` if magic bytes ≠ `LAST` or `format_version` ≠ 1.
+
+---
+
+#### `download.py` — DEM and Imagery Download
+
+Downloads raw GeoTIFF tiles from Copernicus Data Space and NASA EarthData.  All network
+I/O is isolated here; all other tools consume local files only.
+
+```python
+from pathlib import Path
+
+BBox = tuple[float, float, float, float]  # (lon_min, lat_min, lon_max, lat_max) degrees
+
+def download_dem(
+    bbox_deg:   BBox,
+    output_dir: Path,
+    source:     str = "copernicus_dem_glo10",  # or "copernicus_dem_glo30", "nasadem", "srtm"
+) -> list[Path]:
+    """Download DEM tiles covering bbox_deg.  Returns paths of downloaded GeoTIFFs.
+    Copernicus sources use OAuth2 client credentials via $COPERNICUS_CLIENT_ID /
+    $COPERNICUS_CLIENT_SECRET environment variables.
+    NASA EarthData sources use an .netrc token via earthaccess.login()."""
+
+def download_imagery(
+    bbox_deg:   BBox,
+    output_dir: Path,
+    source:     str = "sentinel2",  # or "landsat9", "modis"
+    lod:        int = 0,
+) -> list[Path]:
+    """Download cloud-free imagery tiles covering bbox_deg at the resolution
+    recommended for lod (see §Imagery Data Sources).
+    Sentinel-2 uses Copernicus authentication.  Landsat/MODIS use earthaccess."""
+```
+
+**Authentication:**  Credentials are read from environment variables, never hard-coded.
+
+| Source | Credential | Variable |
+| ------ | ---------- | -------- |
+| Copernicus Data Space | OAuth2 client credentials | `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET` |
+| NASA EarthData | `.netrc` token | managed by `earthaccess.login()` |
+
+**Caching:**  Downloaded tiles are cached in `output_dir`.  If a file already exists with
+the expected name, the download is skipped.  This allows resuming interrupted downloads.
+
+**Error handling:**  `DownloadError` (subclass of `IOError`) raised on HTTP errors,
+authentication failure, or missing coverage.  Returns an empty list (rather than raising)
+if no tiles exist for the requested area.
+
+---
+
+#### `mosaic.py` — DEM Mosaic and Reprojection
+
+Merges multiple GeoTIFF tiles into one seamless raster and reprojects to WGS84 geographic
+coordinates (EPSG:4326) at a specified resolution.
+
+```python
+from pathlib import Path
+
+def mosaic_dem(
+    input_paths:             list[Path],
+    output_path:             Path,
+    target_epsg:             int   = 4326,
+    target_resolution_deg:   float | None = None,   # None → keep native resolution
+    resampling:              str   = "bilinear",
+) -> None:
+    """Merge and reproject input GeoTIFFs into a single output GeoTIFF.
+    Uses rasterio.merge.merge() + rasterio.warp.reproject().
+    Nodata values are propagated from source tiles."""
+
+def mosaic_imagery(
+    input_paths:           list[Path],
+    output_path:           Path,
+    target_epsg:           int   = 4326,
+    target_resolution_deg: float | None = None,
+    resampling:            str   = "nearest",
+) -> None:
+    """Same as mosaic_dem() but preserves all RGB/multispectral bands."""
+```
+
+**Algorithm:**
+
+1. Open all input GeoTIFFs with rasterio.
+2. Determine union bounding box and minimum native resolution.
+3. If `target_resolution_deg` is `None`, use the native resolution of the finest source.
+4. Call `rasterio.merge.merge()` to blend overlapping regions (first-source-wins).
+5. Reproject to `target_epsg` with `rasterio.warp.reproject()` using the specified resampling
+   kernel (`bilinear` for continuous elevation data; `nearest` for categorical imagery).
+6. Write output as a single-band (DEM) or three-band (imagery) Cloud-Optimised GeoTIFF.
+
+---
+
+#### `geoid_correct.py` — Orthometric → WGS84 Height Conversion
+
+Converts DEM raster heights from orthometric (mean sea level) to WGS84 ellipsoidal heights
+by applying the EGM96 or EGM2008 geoid undulation.  Copernicus DEM is already ellipsoidal
+and does **not** need this step.
+
+```python
+from pathlib import Path
+
+def apply_geoid_correction(
+    dem_path:    Path,
+    output_path: Path,
+    geoid:       str = "egm2008",  # or "egm96"
+) -> None:
+    """Add geoid undulation to every pixel of a DEM raster.
+    Uses pyproj.Transformer to look up undulation values from the PROJ datum grid.
+    Requires the proj-data package (installed by pyproj) to be present.
+    Output is a new GeoTIFF with WGS84 ellipsoidal heights."""
+
+def geoid_undulation(
+    lat_deg: float,
+    lon_deg: float,
+    geoid:   str = "egm2008",
+) -> float:
+    """Return the geoid undulation N (meters) at a single point.
+    h_WGS84 = H_MSL + N.
+    Uses pyproj CRS EPSG:9518 (WGS84 + EGM2008) → EPSG:4979 (WGS84 3D)."""
+```
+
+**Implementation:**  Uses `pyproj.Transformer` to convert between the compound CRS
+(geographic + vertical datum) and WGS84 3D.  The PROJ datum shift grids are downloaded
+automatically by `pyproj` / PROJ on first use (requires internet access; cached afterward).
+
+```python
+from pyproj import CRS, Transformer
+
+_GEOID_CRS = {
+    "egm2008": CRS.from_epsg(9518),  # WGS 84 / EGM2008 height
+    "egm96":   CRS.from_epsg(9707),  # WGS 84 / EGM96 height
+}
+_WGS84_3D = CRS.from_epsg(4979)     # WGS 84 (3D)
+
+def geoid_undulation(lat_deg: float, lon_deg: float, geoid: str = "egm2008") -> float:
+    t = Transformer.from_crs(_GEOID_CRS[geoid], _WGS84_3D, always_xy=True)
+    _, _, h_ellipsoidal = t.transform(lon_deg, lat_deg, 0.0)
+    return float(h_ellipsoidal)  # = N at H_MSL = 0
+```
+
+**Raster processing:**  `apply_geoid_correction()` uses `rasterio` to read the input
+raster in blocks, applies `geoid_undulation()` per pixel using `numpy` vectorisation
+(via `scipy.interpolate.RegularGridInterpolator` over a pre-sampled undulation grid for
+efficiency), and writes the corrected raster.
+
+---
+
+#### `triangulate.py` — L0 TIN from DEM Raster
+
+Builds the L0 tile by sampling a DEM raster on a regular grid and triangulating with
+Delaunay.  Boundary points shared with adjacent tiles are injected before triangulation
+to guarantee crack-free joins.
+
+```python
+from pathlib import Path
+import numpy as np
+from las_terrain import TerrainTileData
+
+def triangulate(
+    dem_path:          Path,
+    bbox_deg:          tuple[float, float, float, float],  # (lon_min, lat_min, lon_max, lat_max)
+    lod:               int               = 0,
+    boundary_points:   np.ndarray | None = None,           # (K, 2) float64 lon/lat of locked boundary verts
+) -> TerrainTileData:
+    """Build an L0 TIN from dem_path over bbox_deg.
+
+    Algorithm:
+    1. Sample DEM at a grid spacing that gives the target LOD vertex density
+       (~1 vertex per 10 m at L0, ~1 per 30 m at L1, etc.).
+    2. Inject boundary_points into the point set (if provided) without modification.
+    3. Run scipy.spatial.Delaunay on the (lon, lat) 2D projection.
+    4. Convert all points from geodetic (double) to ENU float32 offsets from the
+       tile centroid (= geographic center of bbox_deg).
+    5. Assign default color {128, 128, 128} to all facets.
+    6. Return TerrainTileData.
+
+    Raises:
+        ValueError: if dem_path does not cover bbox_deg.
+        ValueError: if the triangulation produces fewer than 2 facets.
+    """
+
+def lod_grid_spacing_deg(lod: int) -> float:
+    """Return the approximate grid sampling interval in degrees for the given LOD."""
+```
+
+**Grid spacing per LOD:**
+
+| LOD | Approx. vertex spacing | Grid interval |
+| --- | ---------------------- | ------------- |
+| 0   | 10 m                   | ~0.000090°    |
+| 1   | 30 m                   | ~0.000270°    |
+| 2   | 100 m                  | ~0.000900°    |
+| 3   | 300 m                  | ~0.002700°    |
+| 4   | 1,000 m                | ~0.009000°    |
+| 5   | 3,000 m                | ~0.027000°    |
+| 6   | 10,000 m               | ~0.090000°    |
+
+**ENU conversion:**  Each point $(lon_i, lat_i, h_i)$ is converted to an ECEF position,
+then projected into the tile centroid's local ENU frame using the standard rotation matrix.
+The ENU result is cast to float32 and stored in `vertices`.
+
+---
+
+#### `colorize.py` — Per-Facet Color from Imagery
+
+Assigns per-facet RGB colors to a `TerrainTileData` by sampling a source imagery raster.
+See §Facet Color Model for the full algorithm description and band-mapping table.
+
+```python
+from pathlib import Path
+from las_terrain import TerrainTileData
+
+SCALE_FACTORS: dict[str, float] = {
+    "sentinel2":   1.0 / 10000.0,   # Sentinel-2 L2A surface reflectance scale
+    "landsat9":    1.0 / 55000.0,   # Landsat C2L2 surface reflectance scale
+    "modis":       1.0 / 32767.0,   # MODIS MCD43A4 BRDF-adjusted reflectance scale
+}
+
+BAND_ORDER: dict[str, tuple[int, int, int]] = {
+    "sentinel2":  (4, 3, 2),   # B04, B03, B02 (1-indexed in rasterio)
+    "landsat9":   (4, 3, 2),   # Band 4, 3, 2
+    "modis":      (1, 4, 3),   # Band 1, 4, 3
+}
+
+def colorize(
+    tile:          TerrainTileData,
+    imagery_path:  Path,
+    source:        str = "sentinel2",
+) -> TerrainTileData:
+    """Return a new TerrainTileData with colors populated from imagery_path.
+
+    For each facet:
+    1. Compute the facet centroid in geodetic coordinates from the tile centroid
+       and the three vertex ENU offsets.
+    2. Sample imagery_path at the centroid (lon, lat) using rasterio.DatasetReader.sample().
+    3. Extract the R, G, B bands per BAND_ORDER[source].
+    4. Scale from raw integer to 8-bit: clamp(raw * SCALE_FACTORS[source] * 255, 0, 255).
+    5. If the sampled pixel is nodata, use the default grey {128, 128, 128}.
+
+    Returns a copy of tile with colors updated in-place on the colors array.
+    """
+```
+
+**Coordinate conversion for sampling:**  Vertex ENU offsets are converted back to geodetic
+using the inverse ENU→ECEF→geodetic transform before calling `rasterio.sample()`.  The
+centroid is the mean of the three vertex geodetic positions.
+
+---
+
+#### `simplify.py` — LOD Simplification
+
+Produces a coarser LOD tile from a finer one using QEM decimation.  See §Mesh Simplification
+for the full algorithm description and `max_vertical_error_m` table.
+
+```python
+from las_terrain import TerrainTileData
+
+class MeshQualityError(ValueError):
+    """Raised when a simplified tile fails quality thresholds."""
+
+# Default max_vertical_error_m per LOD transition (from §Mesh Simplification).
+DEFAULT_MAX_ERROR_M: dict[tuple[int, int], float] = {
+    (0, 1): 3.0,   (1, 2): 10.0,  (2, 3): 30.0,
+    (3, 4): 100.0, (4, 5): 300.0, (5, 6): 1000.0,
+}
+
+def simplify(
+    tile:                  TerrainTileData,
+    target_lod:            int,
+    max_vertical_error_m:  float | None = None,
+) -> TerrainTileData:
+    """Decimate tile to target_lod using pyfqmr QEM.
+
+    Steps:
+    1. Convert ENU float32 vertices to world-space float64 (ECEF) for accurate QEM.
+    2. Call pyfqmr.Simplify with preserve_border=True.
+       target_count = source_face_count × (spacing_ratio)²
+       where spacing_ratio = lod_spacing[source] / lod_spacing[target].
+    3. Terminate when max_vertical_error_m is reached (pyfqmr stopping criterion).
+    4. Transfer per-face colors from the source tile to the simplified mesh:
+       for each simplified facet centroid, find the nearest source facet centroid
+       using scipy.spatial.cKDTree and copy its color.
+    5. Convert simplified vertices back to ENU float32 offsets from the new centroid.
+    6. Call verify.check() on the result; raise MeshQualityError if it fails.
+    7. Return the new TerrainTileData at target_lod.
+
+    Raises:
+        ValueError: if target_lod <= tile.lod (cannot simplify to finer LOD).
+        MeshQualityError: if the simplified tile fails quality thresholds.
+    """
+```
+
+---
+
+#### `verify.py` — Python Quality Verification
+
+Python reimplementation of `MeshQualityVerifier`.  Angles and edge lengths are computed
+in ECEF space (matching the C++ implementation).  No pybind11 required.
+
+```python
+from dataclasses import dataclass
+from las_terrain import TerrainTileData
+
+@dataclass
+class MeshQualityReport:
+    min_interior_angle_deg: float   = 180.0
+    max_interior_angle_deg: float   = 0.0
+    mean_interior_angle_deg: float  = 60.0
+    min_edge_length_m:       float  = float("inf")
+    max_edge_length_m:       float  = 0.0
+    max_aspect_ratio:        float  = 0.0
+    degenerate_facet_count:  int    = 0
+    non_manifold_edge_count: int    = 0
+    open_boundary_edge_count: int   = 0
+
+class MeshQualityError(ValueError):
+    """Raised by check() when a tile fails quality thresholds."""
+
+def verify(tile: TerrainTileData) -> MeshQualityReport:
+    """Compute quality metrics for tile.
+    Angles and ECEF edge lengths are computed using numpy vectorised operations.
+    Edge valence is counted via collections.Counter on sorted (i, j) edge pairs."""
+
+def check(
+    tile:              TerrainTileData,
+    min_angle_deg:     float = 10.0,
+    max_aspect_ratio:  float = 15.0,
+) -> None:
+    """Run verify() and raise MeshQualityError if any threshold is exceeded.
+    Used as a guard in simplify() and after triangulate()."""
+```
+
+**Algorithm:**  Uses numpy for all inner loops.
+
+1. For each facet, compute ECEF positions of all 3 vertices.
+2. Compute the 3 edge vectors; compute interior angles via `arccos(dot(e_a, e_b))`.
+3. Compute facet area via `0.5 * |cross(e1, e2)|`; flag as degenerate if area < 1e-6 m².
+4. Compute aspect ratio as `max_edge² / (2 · area)` (consistent with C++ implementation).
+5. Count edge valence using `collections.Counter` keyed on `(min(i,j), max(i,j))`; edges
+   appearing once are open-boundary; edges appearing > 2 times are non-manifold.
+
+---
+
+#### `export.py` — `.las_terrain` Serialization
+
+Thin wrapper around `las_terrain.write_las_terrain()`.  Provides a CLI-friendly entry
+point that serializes all tiles for a given LOD level to a single file.
+
+```python
+from pathlib import Path
+from las_terrain import TerrainTileData, write_las_terrain
+
+def export_las_terrain(
+    tiles:       list[TerrainTileData],
+    output_path: Path,
+) -> None:
+    """Write tiles to a .las_terrain file.  Equivalent to calling write_las_terrain()
+    directly; provided for pipeline uniformity.
+
+    Raises:
+        ValueError: if tiles is empty.
+        IOError:    on write failure.
+    """
+```
+
+---
+
+#### `export_gltf.py` — GLB Export (trimesh-based)
+
+Exports tiles to a binary GLB file using **trimesh**.  This is a pure-Python
+implementation; it does not call `TerrainMesh::exportGltf()` and requires no pybind11
+bindings.  The axis convention matches the C++ export exactly: X=East, Y=Up, Z=−North.
+
+```python
+from pathlib import Path
+from las_terrain import TerrainTileData
+
+def export_gltf(
+    tiles:        list[TerrainTileData],
+    output_path:  Path,
+    world_origin: tuple[float, float, float] | None = None,  # (lat_rad, lon_rad, height_m)
+) -> None:
+    """Export tiles to a binary GLB file.
+
+    Per-facet COLOR_0: requires vertex duplication (3 unique vertices per triangle).
+    Vertex positions are ENU offsets from the tile centroid, transformed to glTF space:
+        glTF X = ENU East,  glTF Y = ENU Up,  glTF Z = −ENU North.
+
+    Node translations are ENU offsets of the tile centroid from world_origin
+    (or the first tile centroid if world_origin is None).
+
+    Root-level scene extras (embedded in the GLB JSON chunk):
+        {"liteaerosim_terrain": true, "schema_version": 1,
+         "world_origin_lat_rad": ..., "world_origin_lon_rad": ...,
+         "world_origin_height_m": ..., "lod": ...}
+
+    Implementation:
+    1. For each tile, build a trimesh.Trimesh with duplicated vertices (3 per facet)
+       and per-vertex colors set from the facet color repeated 3 times.
+    2. Apply glTF axis permutation: swap Y and Z, negate new Z.
+    3. Set the node translation to the tile centroid ENU offset from world_origin.
+    4. Merge all tile meshes into a single trimesh.scene.Scene.
+    5. Set scene.metadata["extras"] with liteaerosim_terrain fields.
+    6. Call trimesh.exchange.gltf.export_glb(scene) to produce bytes.
+    7. Write bytes to output_path.
+
+    Raises:
+        ValueError: if tiles is empty.
+        IOError:    on write failure.
+    """
 ```
 
 #### `.las_terrain` File Format

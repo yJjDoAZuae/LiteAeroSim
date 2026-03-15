@@ -66,6 +66,25 @@ separate future steps.
 | `proto/liteaerosim.proto` | ✅ Done (Steps 10, 12) — terrain + trajectory messages added |
 | `CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf` v2.9.3 FetchContent block |
 | `src/CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf_headers` linked to `liteaerosim` |
+| `python/tools/terrain/__init__.py` | **Create** (Step 14) |
+| `python/tools/terrain/las_terrain.py` | **Create** (Step 14) — pure-Python `.las_terrain` reader/writer |
+| `python/tools/terrain/download.py` | **Create** (Step 15) |
+| `python/tools/terrain/mosaic.py` | **Create** (Step 15) |
+| `python/tools/terrain/geoid_correct.py` | **Create** (Step 15) |
+| `python/tools/terrain/triangulate.py` | **Create** (Step 16) |
+| `python/tools/terrain/colorize.py` | **Create** (Step 17) |
+| `python/tools/terrain/simplify.py` | **Create** (Step 18) |
+| `python/tools/terrain/verify.py` | **Create** (Step 19) |
+| `python/tools/terrain/export_gltf.py` | **Create** (Step 20) |
+| `python/test/test_las_terrain.py` | **Create** (Step 14) — 4 tests |
+| `python/test/test_geoid_correct.py` | **Create** (Step 15) — 3 tests |
+| `python/test/test_triangulate.py` | **Create** (Step 16) — 4 tests |
+| `python/test/test_colorize.py` | **Create** (Step 17) — 3 tests |
+| `python/test/test_simplify.py` | **Create** (Step 18) — 4 tests |
+| `python/test/test_verify.py` | **Create** (Step 19) — 4 tests |
+| `python/test/test_export_gltf.py` | **Create** (Step 20) — 3 tests |
+| `python/test/test_pipeline.py` | **Create** (Step 21) — 1 integration test |
+| `python/pyproject.toml` | **Modify** (Step 14) — add terrain tool dependencies |
 
 `test/CMakeLists.txt` needs **no changes**.
 
@@ -554,13 +573,307 @@ message TrajectoryFile {
 
 ---
 
-## Step 13 — Build and Verify
+## Step 13 — C++ Build and Verify ✅
 
 ```bash
 cmd.exe /c "set PATH=C:\msys64\ucrt64\bin;%PATH% && cmake --build build && build\test\liteaerosim_test.exe --gtest_filter=TerrainTest.*:TerrainTileTest.*:TerrainMeshTest.*:LodSelectorTest.*:MeshQualityVerifierTest.*:TrajectoryFileTest.*"
 ```
 
-All new tests pass. Pre-existing `FilterTFTest` failures unchanged.
+All C++ tests pass. Pre-existing `FilterTFTest` failures unchanged.
+
+---
+
+## Step 14 — Python Package Scaffold + `.las_terrain` I/O
+
+### Key Design Decision
+
+The Python tools write and read `.las_terrain` using a pure-Python implementation of the
+binary format (no pybind11 needed — the format is simple struct-packed data).
+`las_terrain.py` is the **single source of truth** for Python-side serialization and is
+the foundation all subsequent tools depend on.
+
+### `python/pyproject.toml` additions
+
+Add to `[project.dependencies]`:
+
+```toml
+rasterio>=1.3          # GeoTIFF I/O, reprojection, raster sampling
+scipy>=1.11            # Delaunay triangulation (triangulate.py)
+numpy>=1.26            # array operations throughout
+pyproj>=3.6            # CRS transformations (mosaic.py, geoid_correct.py)
+pyfqmr>=0.2            # QEM decimation (simplify.py)
+trimesh>=4.0           # mesh I/O, GLB export (simplify.py, export_gltf.py)
+requests>=2.31         # authenticated API downloads (download.py)
+earthaccess>=0.8       # NASA EarthData token management (download.py)
+```
+
+Add to `[project.optional-dependencies]` `dev`:
+
+```toml
+pytest>=8
+pytest-cov>=5
+```
+
+### `python/tools/terrain/las_terrain.py`
+
+Public API:
+```python
+def write_las_terrain(path: Path, tiles: list[TerrainTileData]) -> None: ...
+def read_las_terrain(path: Path) -> list[TerrainTileData]: ...
+
+@dataclass
+class TerrainTileData:
+    lod: int
+    centroid_lat_rad: float; centroid_lon_rad: float; centroid_height_m: float
+    lat_min_rad: float; lat_max_rad: float
+    lon_min_rad: float; lon_max_rad: float
+    height_min_m: float; height_max_m: float
+    vertices: np.ndarray   # shape (N, 3), float32 — east, north, up
+    indices:  np.ndarray   # shape (F, 3), uint32
+    colors:   np.ndarray   # shape (F, 3), uint8  — R, G, B per facet
+```
+
+Binary layout: struct-packed per §`.las_terrain` File Format in `terrain.md`.
+
+### Failing Tests — `python/test/test_las_terrain.py` (4 tests)
+
+- **T1** `test_round_trip_single_tile` — write one tile, read back; vertex values match to float32 precision
+- **T2** `test_round_trip_two_tiles` — two tiles; tile count and centroids preserved
+- **T3** `test_magic_bytes` — first 4 bytes of file are `LAST` (0x4C415354 LE)
+- **T4** `test_schema_version_mismatch_raises` — read file with format_version ≠ 1 raises `ValueError`
+
+---
+
+## Step 15 — DEM Download, Mosaic, and Geoid Correction
+
+### `python/tools/terrain/download.py`
+
+Downloads elevation and imagery tiles from:
+
+- **Copernicus Data Space** (Sentinel-2 L2A, Copernicus DEM GLO-30) — OAuth2 token via `requests`
+- **NASA EarthData** (SRTM, Landsat-8/9, MODIS MCD43A4) — bearer token via `earthaccess`
+
+Public API:
+
+```python
+def download_dem(bbox_deg: tuple[float,float,float,float],
+                 output_dir: Path,
+                 source: str = "copernicus_dem") -> list[Path]: ...
+
+def download_imagery(bbox_deg: tuple[float,float,float,float],
+                     output_dir: Path,
+                     source: str = "sentinel2",
+                     lod: int = 0) -> list[Path]: ...
+```
+
+### `python/tools/terrain/mosaic.py`
+
+Merges and reprojects downloaded GeoTIFF tiles to a common CRS and resolution.
+
+```python
+def mosaic_dem(input_paths: list[Path],
+               output_path: Path,
+               target_epsg: int = 4326,
+               target_resolution_deg: float | None = None) -> None: ...
+```
+
+Uses rasterio.merge and rasterio.warp.reproject.
+
+### `python/tools/terrain/geoid_correct.py`
+
+Converts raster heights from geoid (mean sea level) to ellipsoidal (WGS84) by adding the
+EGM2008 geoid undulation.  Undulation values are sampled from the 1-arcminute EGM2008
+grid shipped as a small bundled data file (`python/tools/terrain/data/egm2008_1min.npz`).
+
+```python
+def apply_geoid_correction(dem_path: Path, output_path: Path) -> None: ...
+def geoid_undulation(lat_deg: float, lon_deg: float) -> float: ...
+```
+
+### Failing Tests — `python/test/test_geoid_correct.py` (3 tests)
+
+- **T1** `test_undulation_equator_prime_meridian` — geoid undulation at (0°, 0°) ≈ 17.2 m ± 0.5 m
+- **T2** `test_corrected_height_equals_msl_plus_undulation` — synthetic raster: output = input + undulation ± 0.1 m
+- **T3** `test_mosaic_preserves_bbox` — merged raster covers union of input bounding boxes
+
+---
+
+## Step 16 — L0 TIN Triangulation
+
+### `python/tools/terrain/triangulate.py`
+
+Builds an L0 TIN from a DEM raster using Delaunay triangulation.  Boundary vertices are
+locked to ensure adjacent tiles share identical edge positions.
+
+```python
+def triangulate(dem_path: Path,
+                output_tile: Path,
+                lod: int = 0,
+                max_edge_length_m: float = 1000.0,
+                boundary_points: np.ndarray | None = None) -> TerrainTileData: ...
+```
+
+Algorithm:
+
+1. Sample DEM on a regular grid with spacing ≈ target LOD vertex spacing.
+2. Add boundary points from `boundary_points` argument (shared with adjacent tiles) if provided.
+3. Run `scipy.spatial.Delaunay` on the (lat, lon) 2D point set.
+4. Convert each point to ENU float32 offset from tile centroid.
+5. Return `TerrainTileData` with all facets assigned default color `{128, 128, 128}`.
+
+### Failing Tests — `python/test/test_triangulate.py` (4 tests)
+
+- **T1** `test_flat_raster_produces_valid_mesh` — 5×5 grid → 32 triangles; all vertices at correct ENU z
+- **T2** `test_vertex_count_equals_grid_points` — N×M raster → N×M vertices (before Delaunay)
+- **T3** `test_boundary_vertices_locked` — boundary points appear verbatim in output vertex list
+- **T4** `test_output_passesqualityverifier` — triangulated tile passes Python quality check (min_angle ≥ 10°, max_aspect_ratio ≤ 15)
+
+---
+
+## Step 17 — Facet Colorization
+
+### `python/tools/terrain/colorize.py`
+
+Assigns per-facet RGB colors by sampling the source imagery raster at each facet centroid
+(mean of 3 vertex lat/lon positions in geodetic space).
+
+```python
+def colorize(tile: TerrainTileData,
+             imagery_path: Path,
+             source: str = "sentinel2") -> TerrainTileData: ...
+```
+
+For each facet:
+
+1. Compute centroid lat/lon from the tile's `centroid_lat_rad`/`centroid_lon_rad` plus ENU offsets.
+2. Sample imagery raster with `rasterio.DatasetReader.sample()`.
+3. Scale from source 16-bit integer to 8-bit using product reflectance scale factor.
+4. Facets with no coverage (cloud mask, out-of-bounds): default `{128, 128, 128}`.
+
+### Failing Tests — `python/test/test_colorize.py` (3 tests)
+
+- **T1** `test_solid_color_raster_all_facets_same_color` — constant-value raster → all facets identical color
+- **T2** `test_cloud_masked_pixel_returns_default_grey` — raster with nodata at centroid position → `{128, 128, 128}`
+- **T3** `test_color_scaling_16bit_to_8bit` — known 16-bit value with known scale factor → expected 8-bit result
+
+---
+
+## Step 18 — LOD Simplification
+
+### `python/tools/terrain/simplify.py`
+
+Produces L1–L6 tiles from an L0 tile using QEM (quadric error metric) decimation via
+pyfqmr.  `preserve_border=True` locks all tile-boundary vertices.
+
+```python
+def simplify(tile: TerrainTileData,
+             target_lod: int,
+             max_vertical_error_m: float | None = None) -> TerrainTileData: ...
+```
+
+`max_vertical_error_m` defaults per the transition table in §Mesh Simplification in
+`terrain.md`.  After decimation, per-face colors are transferred from the nearest L0 facet
+centroid using trimesh's KD-tree proximity.  The result is passed through `verify()` (Step 19);
+tiles that fail quality thresholds raise `MeshQualityError`.
+
+### Failing Tests — `python/test/test_simplify.py` (4 tests)
+
+- **T1** `test_simplify_reduces_face_count` — L0 → L1; output face count < input face count
+- **T2** `test_boundary_vertices_preserved` — all boundary vertices of L0 appear in L1 output
+- **T3** `test_color_transferred_to_simplified_mesh` — non-grey color in L0 is present in L1 facets
+- **T4** `test_degenerate_input_raises` — tile with zero-area facets raises `MeshQualityError`
+
+---
+
+## Step 19 — Python Quality Verification
+
+### `python/tools/terrain/verify.py`
+
+Reimplements `MeshQualityVerifier` in Python/numpy.  This is intentionally a Python-only
+reimplementation — no pybind11 bindings needed — because the verification runs offline in
+the ingestion pipeline, not in the simulation loop.
+
+```python
+@dataclass
+class MeshQualityReport:
+    min_interior_angle_deg: float
+    max_aspect_ratio: float
+    degenerate_facet_count: int
+    open_boundary_edge_count: int
+
+class MeshQualityError(ValueError): ...
+
+def verify(tile: TerrainTileData) -> MeshQualityReport: ...
+def check(tile: TerrainTileData,
+          min_angle_deg: float = 10.0,
+          max_aspect_ratio: float = 15.0) -> None: ...  # raises MeshQualityError on failure
+```
+
+Angles and edge lengths are computed in ECEF (matching C++ `MeshQualityVerifier`).
+
+### Failing Tests — `python/test/test_verify.py` (4 tests)
+
+- **T1** `test_equilateral_mesh_passes` — equilateral triangle tile: `min_interior_angle_deg` ≈ 60 ± 0.1; `check()` does not raise
+- **T2** `test_degenerate_facet_detected` — collinear vertices → `degenerate_facet_count == 1`; `check()` raises `MeshQualityError`
+- **T3** `test_open_boundary_edges` — single triangle tile → `open_boundary_edge_count == 3`
+- **T4** `test_thin_triangle_fails_aspect_ratio` — base 1000 m, height 10 m → `max_aspect_ratio > 15`; `check()` raises
+
+---
+
+## Step 20 — GLB Export
+
+### `python/tools/terrain/export_gltf.py`
+
+Exports a `TerrainTileData` (or list of tiles) to a binary GLB file using **trimesh**.
+Axis convention matches the C++ `exportGltf()` implementation: X=East, Y=Up, Z=−North.
+Per-facet color is baked to per-vertex `COLOR_0` (3 vertices per triangle).
+
+```python
+def export_gltf(tiles: list[TerrainTileData],
+                output_path: Path,
+                world_origin: tuple[float, float, float] | None = None) -> None: ...
+```
+
+The `world_origin` is (lat_rad, lon_rad, height_m); tile node translations are ENU offsets
+from this origin.  If `None`, the first tile centroid is used.
+
+The root scene extras carry:
+
+```json
+{"liteaerosim_terrain": true, "schema_version": 1,
+ "world_origin_lat_rad": ..., "world_origin_lon_rad": ..., "world_origin_height_m": ...}
+```
+
+### Failing Tests — `python/test/test_export_gltf.py` (3 tests)
+
+- **T1** `test_glb_magic_bytes` — first 4 bytes of output file are `b"glTF"` (`0x67 0x6C 0x54 0x46`)
+- **T2** `test_position_accessor_count` — POSITION accessor element count == 3 × facet count
+- **T3** `test_extras_present` — GLB JSON chunk contains `"liteaerosim_terrain"`
+
+---
+
+## Step 21 — Full Pipeline Integration Test
+
+### Failing Test — `python/test/test_pipeline.py` (1 test)
+
+- **T1** `test_synthetic_pipeline_end_to_end` — synthetic 5×5 km flat DEM at the equator:
+  1. `triangulate()` → L0 tile
+  2. `simplify()` → L1 tile (face count < L0)
+  3. `colorize()` → all facets white (solid-color imagery)
+  4. `export.write_las_terrain()` → file size > 0; `read_las_terrain()` recovers both tiles
+  5. `export_gltf()` → output file has GLB magic bytes and POSITION count == 3 × facet count
+
+All intermediate quality checks pass.
+
+---
+
+## Step 22 — Python Build and Verify
+
+```bash
+cd python && uv run pytest test/ -v --tb=short
+```
+
+All new Python tests pass.
 
 ---
 
