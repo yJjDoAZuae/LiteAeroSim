@@ -67,8 +67,13 @@ def simplify(
             f"target_lod {target_lod} must be greater than tile.lod {tile.lod}"
         )
 
-    # Pre-check input — raises MeshQualityError for degenerate input.
-    check(tile)
+    # Pre-check input.  L0 meshes come from a fresh DEM triangulation and are expected to
+    # meet strict quality thresholds.  Already-simplified tiles (lod > 0) may contain thin
+    # triangles produced by QEM; apply the same lenient thresholds used for post-checks.
+    if tile.lod == 0:
+        check(tile)
+    else:
+        check(tile, min_angle_deg=1.0, max_aspect_ratio=500.0)
 
     # Float64 ENU for numerically stable QEM.
     verts_f64 = tile.vertices.astype(np.float64)

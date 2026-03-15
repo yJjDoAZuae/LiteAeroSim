@@ -20,6 +20,8 @@ terrain = [
     "trimesh>=4.0",
     "requests>=2.31",
     "earthaccess>=0.8",
+    "pyvista[all]>=0.44",
+    "ipywidgets>=8.0",
 ]
 
 [tool.pytest.ini_options]
