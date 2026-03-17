@@ -40,14 +40,20 @@ writing production code.
 | `EnvironmentState` | `include/environment/EnvironmentState.hpp` | ✅ Implemented |
 | `SurfaceGeometry` / `AircraftGeometry` | `include/aerodynamics/AircraftGeometry.hpp` | ✅ Implemented |
 | `AeroCoeffEstimator` | `include/aerodynamics/AeroCoeffEstimator.hpp` | ✅ Implemented |
-| `V_Sensor` | `include/sensor/V_Sensor.hpp` | 🔲 Stub only |
+| `DynamicElement` | `include/DynamicElement.hpp` | 🔲 Planned — see [dynamic_element.md](../architecture/dynamic_element.md) |
 | `SensorAirData` | `include/sensor/SensorAirData.hpp` | 🔲 Stub only |
+| `SensorGnss` | `include/sensor/SensorGnss.hpp` | 🔲 Stub only |
+| `SensorLaserAlt` | `include/sensor/SensorLaserAlt.hpp` | 🔲 Stub only |
+| `SensorMag` | `include/sensor/SensorMag.hpp` | 🔲 Stub only |
+| `SensorInsSimulation` | `include/sensor/SensorInsSimulation.hpp` | 🔲 Stub only |
 | `SensorAA` | `include/sensor/SensorAA.hpp` | 🔲 Stub only |
 | `SensorAAR` | `include/sensor/SensorAAR.hpp` | 🔲 Stub only |
 | `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
 | `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
-| `SensorINS` | `include/sensor/SensorINS.hpp` | 🔲 Stub only |
 | `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
+| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | 🔲 Stub only — see [navigation_filter.md](../architecture/navigation_filter.md) |
+| `WindEstimator` | `include/estimation/WindEstimator.hpp` | 🔲 Stub only — see [wind_estimator.md](../architecture/wind_estimator.md) |
+| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | 🔲 Stub only — see [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
 | `V_PathSegment` | `include/path/V_PathSegment.hpp` | 🔲 Stub only |
 | `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | 🔲 Stub only |
 | `Path` | `include/path/Path.hpp` | 🔲 Stub only |
@@ -81,9 +87,28 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ---
 
-## 1. `SensorAirData` — Air Data System
+## 1. `DynamicElement` Refactoring
 
-Stub header exists at `include/sensor/SensorAirData.hpp`. `V_Sensor` is the abstract base.
+Unify the `DynamicBlock`, `V_Sensor`, and `V_Propulsion` base class hierarchies under a
+single `DynamicElement` root. Design authority: [dynamic_element.md](../architecture/dynamic_element.md).
+Migration is mechanical with no behavioral changes.
+
+| Step | Action |
+| --- | --- |
+| 1 | Create `DynamicElement` (`include/DynamicElement.hpp`, `src/DynamicElement.cpp`) |
+| 2 | Rename `DynamicBlock` → `SisoElement`; merge `SISOBlock`; derive from `DynamicElement`; rename `serialize()` → `serializeJson()` / `deserialize()` → `deserializeJson()` on all subclasses |
+| 3 | Migrate `Filter` to derive from `SisoElement`; retire `DynamicFilterBlock`; rename `resetInput()`/`resetOutput()` → `resetToInput()`/`resetToOutput()`; move `FilterSS2`, `FilterSS2Clip`, `FilterTF`, `FilterTF2`, `FilterFIR` under `Filter` |
+| 4 | Rename `DynamicLimitBlock` → `LimitElement` |
+| 5 | Migrate all sensor classes (`SensorAirData`, `SensorGnss`, etc.) to derive from `DynamicElement` directly; delete `include/sensor/V_Sensor.hpp` |
+| 6 | Migrate all propulsion classes to derive from `DynamicElement` directly; add `initialize(json)` / NVI pattern; delete `include/propulsion/V_Propulsion.hpp`, `V_Motor.hpp` |
+| 7 | Evaluate `include/guidance/`, `include/aerodynamics/`, `include/environment/`, `include/path/` — migrate qualifying classes |
+
+---
+
+## 2. `SensorAirData` — Air Data System
+
+Stub header exists at `include/sensor/SensorAirData.hpp`. `liteaerosim::DynamicElement` is the
+abstract base (see [dynamic_element.md](../architecture/dynamic_element.md)).
 
 `SensorAirData` models the pitot-static system at the physical transducer level: a
 differential pressure sensor (dynamic pressure $q_c$) and an absolute pressure sensor
@@ -118,7 +143,7 @@ Add `test/SensorAirData_test.cpp` to the test executable.
 
 ---
 
-## 2. Autopilot Gain Design — Python Tooling
+## 3. Autopilot Gain Design — Python Tooling
 
 Python workflow that derives autopilot control gains from the aircraft model. This is a
 prerequisite for item 4 (`Autopilot`) — the C++ implementation is parameterized by gains
@@ -130,15 +155,15 @@ from `Aircraft` trim and `AeroCoeffEstimator` outputs.
 
 ---
 
-## 3. Autopilot — Inner Loop Knobs-Mode Tracking
+## 4. Autopilot — Inner Loop Knobs-Mode Tracking
 
 Stub header exists at `include/control/Autopilot.hpp`.
 
 `Autopilot` implements the inner closed-loop layer. It tracks pilot-style set point commands
 corresponding to "knobs" modes — altitude hold, vertical speed hold, heading hold, and roll
-attitude hold — and produces an `AircraftCommand` for `Aircraft::step()`. Guidance (item 5)
+attitude hold — and produces an `AircraftCommand` for `Aircraft::step()`. Guidance (item 6)
 is the outer loop that wraps around it and supplies the set point commands. Control gains are
-derived by the Python gain design workflow (item 2).
+derived by the Python gain design workflow (item 3).
 
 ### Interface sketch
 
@@ -163,7 +188,7 @@ Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
-## 4. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 5. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
 Stub headers exist in `include/path/` for all three classes.
 
@@ -220,7 +245,7 @@ Add `test/Path_test.cpp` to the test executable.
 
 ---
 
-## 5. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 6. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
 Stub headers exist in `include/guidance/` for all three classes.
 
@@ -270,7 +295,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 5. Plot Visualization — Python Post-Processing Tools
+## 7. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -304,7 +329,7 @@ dev = [
 
 ---
 
-## 6. Manual Input — Joystick and Keyboard
+## 8. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -345,7 +370,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 7. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 9. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
@@ -397,16 +422,32 @@ Add `test/SimRunner_test.cpp` to the test executable.
 
 ---
 
-## 8. Remaining Sensors
+## 10. Remaining Sensor Models
 
 Not blocking any higher-priority item. Stub headers exist in `include/sensor/`.
 Implement when needed; order within this group follows dependency.
 
-| Class | Depends on | Description |
+| Class | Depends on | Hardware modeled |
 |---|---|---|
-| `SensorRadAlt` | Terrain (done) | Radar/laser altimeter — HAG from `Terrain::heightAboveGround_m` with noise and range saturation |
+| `SensorMag` | `KinematicState` (done) | Triaxial magnetometer — body-frame field with hard-iron bias and soft-iron distortion |
+| `SensorGnss` | `KinematicState` (done) | GNSS receiver — WGS84 position, NED velocity, SOG/COG, fix type, DOP |
+| `SensorLaserAlt` | Terrain (done) | Laser altimeter — single-beam slant range and AGL altitude |
+| `SensorRadAlt` | Terrain (done) | Radar altimeter — HAG from `Terrain::heightAboveGround_m` with noise and range saturation |
+| `SensorInsSimulation` | `KinematicState` (done), `NavigationFilter` types | INS simulation replacement — truth-plus-error model producing `InsMeasurement` |
 | `SensorForwardTerrainProfile` | Terrain (done), Guidance | Forward terrain profiling sensor (multi-beam LIDAR / line-scan radar) for terrain-following guidance |
-| `SensorINS` | `KinematicState` (done) | Inertial navigation — integrates IMU to produce position, velocity, attitude; models bias drift |
 | `SensorAA` | `KinematicState` (done) | Passive angle/angle sensor (imaging type) — measures two LOS angles, no range |
 | `SensorAAR` | `KinematicState` (done) | Active angle/angle/range sensor (e.g. radar) — measures two LOS angles plus slant range |
 | `SensorTrackEstimator` | `SensorAA` or `SensorAAR` | Kinematic track estimator for a moving object observed via angle or angle/range measurements |
+
+---
+
+## 11. Estimation Subsystem
+
+Flight code estimation algorithms. Stub headers exist in `include/estimation/` (to be
+created). Each derives from `DynamicElement` directly. Design authorities listed below.
+
+| Class | Depends on | Design authority |
+|---|---|---|
+| `NavigationFilter` | `SensorGnss`, `SensorAirData`, `SensorMag` | [navigation_filter.md](../architecture/navigation_filter.md) |
+| `WindEstimator` | `NavigationFilter` or `SensorInsSimulation`, `SensorAirData` | [wind_estimator.md](../architecture/wind_estimator.md) |
+| `FlowAnglesEstimator` | `WindEstimator`, `SensorAirData` | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |

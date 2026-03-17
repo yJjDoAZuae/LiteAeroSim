@@ -2,6 +2,27 @@
 
 ## Development Philosophy
 
+### Project Lifecycle Phase
+
+LiteAeroSim is in **initial development**. Every interface, data structure, and serialized
+format is subject to change without notice. This phase ends when the project transitions
+to a maintenance workflow with published APIs and persistent serialized data.
+
+Consequences for the current phase:
+
+| Rule | Rationale |
+| ---- | --------- |
+| **Never increment `schema_version`** — all serialized objects use `schema_version = 1`. | There are no deployed serialized files that need migration. Incrementing would add complexity with no benefit. |
+| **Never add backward-compatibility shims** — when an API changes, update every call site directly and delete the old form completely. | No external consumers exist. Compatibility layers are dead weight. |
+| **Never reference a previous design in documentation or comments** — describe only the current state. | History lives in version control. Stale design notes mislead future readers. |
+
+Architecture note: the `schema_version` field and the versioned serialization infrastructure
+are retained in every serialized class. When the project eventually transitions to a
+maintenance phase, `schema_version` will be incremented on breaking changes and a migration
+path will be required. The machinery is already in place; only the policy changes.
+
+---
+
 ### Test-Driven Development (TDD)
 
 All new functionality must follow the **Red-Green-Refactor** cycle:

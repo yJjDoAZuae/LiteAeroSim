@@ -126,14 +126,17 @@ $$
 // include/environment/AtmosphereConfig.hpp
 struct AtmosphereConfig {
     float delta_temperature_k     = 0.f;   // ISA temperature deviation ∆T (K); positive = warm day
+    float surface_pressure_pa     = 101325.f; // actual sea-level pressure (Pa); ISA standard = 101 325 Pa.
+                                              // Set to QNH × 100 when QNH is given in hPa.
     float relative_humidity_nd    = 0.f;   // 0 = dry air, 1 = fully saturated
     int   schema_version          = 1;
 };
 ```
 
 `delta_temperature_k` shifts the static temperature at every altitude by a fixed amount.
-Pressure is not affected — it is determined by the weight of the atmosphere above and is
-treated as the ISA pressure at that geopotential altitude (standard aviation convention).
+`surface_pressure_pa` is the actual sea-level pressure; it scales the pressure at every
+altitude multiplicatively (see Non-Standard Day Pressure below). The two offsets are
+independent: a warm, high-pressure day has both $\Delta T > 0$ and $P_{sfc} > P_0$.
 
 ### Pre-computation Strategy
 
@@ -190,24 +193,70 @@ $$
 T(h) = T_\text{ISA}(h) + \Delta T
 $$
 
+#### Field Temperature Factory
+
+`configFromFieldTemperature()` converts a real-world surface temperature observation (e.g.,
+from a METAR) into the `delta_temperature_k` needed to reproduce that temperature at the
+observation site.
+
+Given a field temperature $T_{field}$ measured at terrain elevation $h_{terrain}$ at position
+$(\varphi, \lambda)$:
+
+$$
+\Delta T = T_{field} - T_{ISA}(h_{terrain})
+$$
+
+where $T_{ISA}(h_{terrain})$ is the standard ISA temperature at the geopotential altitude
+corresponding to $h_{terrain}$ (the same `isa_temperature_k(to_geopotential_m(h))` used
+everywhere else in `Atmosphere`). The terrain elevation is obtained from the supplied
+`V_Terrain` reference via `terrain.elevation_m(latitude_rad, longitude_rad)`.
+
+With the resulting $\Delta T$ stored as `delta_temperature_k`, a subsequent call to
+`Atmosphere::state(h)` will reproduce $T_{field}$ exactly when queried at $h_{terrain}$.
+At all other altitudes the temperature offset is applied uniformly per the non-standard day
+temperature model.
+
+#### Non-Standard Day Pressure
+
+The `surface_pressure_pa` config field sets $P_{sfc}$ directly (absolute value, Pa). The
+pressure column scales multiplicatively: the ratio between pressures at any two altitudes
+depends only on the lapse-rate structure, not on the absolute boundary pressure. Substituting
+$P_{sfc}$ for $P_0$ as the tropospheric boundary condition:
+
+$$
+P(h) = P_{sfc} \cdot \frac{P_{ISA}(h)}{P_0}
+$$
+
+This relation holds for all three ISA layers because each layer's formula takes the form
+$P(h) = P_b \cdot f(h)$; scaling $P_b$ at each layer boundary by $P_{sfc}/P_0$ propagates
+identically to all higher layers.
+
+$\Delta T$ has no effect on pressure — this preserves the physical meaning of pressure
+altitude (barometric altitude assumes ISA temperature). The non-standard surface pressure
+affects the actual pressure seen by a static port, and therefore shifts the barometric
+altitude reading unless the altimeter Kollsman setting is updated to match (see
+`docs/algorithms/air_data.md §Barometric Altitude`).
+
 #### Pressure
 
-Pressure uses the **ISA temperature profile only** (ignoring the $\Delta T$ offset), which
-preserves the physical meaning of pressure altitude.
+Pressure uses the **ISA temperature profile** (ignoring the $\Delta T$ offset) scaled by
+the surface pressure ratio:
 
 Gradient layer:
 
 $$
-P(h) = P_b \left(\frac{T_\text{ISA}(h)}{T_b}\right)^{g_0 / (R_d \cdot L)}
+P(h) = P_b \left(\frac{T_\text{ISA}(h)}{T_b}\right)^{g_0 / (R_d \cdot L)} \cdot \frac{P_{sfc}}{P_0}
 $$
 
 Isothermal layer:
 
 $$
-P(h) = P_b \exp\!\left(\frac{-g_0 \cdot (h - h_b)}{R_d \cdot T_b}\right)
+P(h) = P_b \exp\!\left(\frac{-g_0 \cdot (h - h_b)}{R_d \cdot T_b}\right) \cdot \frac{P_{sfc}}{P_0}
 $$
 
-Constants: $g_0 = 9.806\,65\,\text{m/s}^2$, $R_d = 287.058\,\text{J\,kg}^{-1}\text{K}^{-1}$.
+The $P_{sfc}/P_0$ factor is common to all layers (applied once to the final result; the
+intra-layer boundary pressures $P_b$ use standard ISA values). Constants: $g_0 = 9.806\,65\,\text{m/s}^2$,
+$R_d = 287.058\,\text{J\,kg}^{-1}\text{K}^{-1}$.
 
 Sea-level standards: $T_0 = 288.15\,\text{K}$, $P_0 = 101\,325\,\text{Pa}$,
 $\rho_0 = 1.225\,\text{kg/m}^3$.
@@ -280,6 +329,7 @@ bisection on the isothermal-layer density formula.
 #pragma once
 #include "environment/AtmosphericState.hpp"
 #include "environment/AtmosphereConfig.hpp"
+#include "environment/Terrain.hpp"
 
 namespace liteaerosim::environment {
 
@@ -302,6 +352,18 @@ public:
     // Serialization.
     nlohmann::json serializeJson() const;
     void deserializeJson(const nlohmann::json& j);
+
+    // Factory: builds an AtmosphereConfig from a field temperature observation.
+    // Queries terrain elevation at (latitude_rad, longitude_rad) and derives
+    // delta_temperature_k = field_temperature_k - T_ISA(terrain_elevation).
+    // Optional surface_pressure_pa and relative_humidity_nd are passed through unchanged.
+    static AtmosphereConfig configFromFieldTemperature(
+        float         field_temperature_k,
+        double        latitude_rad,
+        double        longitude_rad,
+        const V_Terrain& terrain,
+        float         surface_pressure_pa  = 101325.f,
+        float         relative_humidity_nd = 0.f);
 
 private:
     AtmosphereConfig config_;
@@ -779,11 +841,16 @@ not implement serialization — it is re-configured by the scenario on restore.
 - Density is strictly monotonically decreasing from 0 to 20 000 m (ISA).
 - ISA+20 at SL: temperature is 308.15 K; pressure equals ISA SL value; density is lower.
 - ISA+20 density altitude at SL is greater than 0 m.
+- Non-standard pressure at SL: `surface_pressure_pa = 101825 Pa`, ISA temperature: pressure = 101 825 Pa within 0.01%; temperature unchanged; density higher than ISA SL; density altitude below 0 m.
+- Non-standard pressure at 3000 m: pressure = ISA(3000) × 101825/101325 within 0.01%.
+- `surface_pressure_pa = 101325 Pa`: produces identical output to the ISA standard.
 - At 50% RH, SL, ISA: density is less than dry ISA density; speed of sound is greater than dry value.
 - At 100% RH, density is strictly less than 50% RH density.
 - `density_altitude_m` is monotonically increasing with `delta_temperature_k` at fixed altitude.
 - JSON round-trip: `deserializeJson(serializeJson())` recovers identical `AtmosphericState` at 3000 m.
 - Schema version mismatch throws `std::runtime_error`.
+- `configFromFieldTemperature`: given a `FlatTerrain` at elevation 500 m and a field temperature of 295 K, the resulting `Atmosphere::state(500)` returns temperature = 295 K within 0.01 K.
+- `configFromFieldTemperature` with sea-level `FlatTerrain` (0 m) and field temperature 288.15 K produces `delta_temperature_k = 0` exactly.
 
 ### `Wind_test.cpp`
 

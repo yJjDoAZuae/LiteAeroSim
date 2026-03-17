@@ -154,6 +154,7 @@ message AtmosphereConfigParams {
     int32 schema_version       = 1;
     float delta_temperature_k  = 2;
     float relative_humidity_nd = 3;
+    float surface_pressure_pa  = 4;   // actual sea-level pressure (Pa); 0 = use ISA default 101325
 }
 
 // ---------------------------------------------------------------------------
