@@ -2,12 +2,7 @@
 
 This document is the design authority for `DynamicElement`, the unified abstract base class
 for all stateful, time-evolving components in LiteAeroSim. It defines the lifecycle
-contract, the NVI pattern, the logging interface, and the migration plan for consolidating
-the currently inconsistent family of base classes (`DynamicBlock`, `V_Sensor`,
-`V_Propulsion`).
-
-This document also describes how `SisoElement` and `Filter` sit alongside the composable
-`SISOBlock` hierarchy.
+contract, the NVI pattern, and the logging interface.
 
 ---
 
@@ -16,27 +11,10 @@ This document also describes how `SisoElement` and `Filter` sit alongside the co
 LiteAeroSim contains several families of components that share an identical behavioral
 contract: they maintain internal state, receive time-stepped inputs, and produce
 time-correlated outputs whose characteristics are determined by their dynamic properties.
-This includes sensors, estimators, control filters, propulsion models, and environment
-models such as Dryden turbulence filters.
-
-Each of these families currently defines its own base class independently. Those bases are
-mutually inconsistent:
-
-| Base | `initialize()` | NVI | Serialization naming | Logging |
-| --- | --- | --- | --- | --- |
-| `DynamicBlock` | `initialize(json)` | Yes | `serialize()` / `deserialize()` | `attachLogger` / `onLog` |
-| `V_Sensor` | `initialize(json)` | Yes | `serializeJson()` / `deserializeJson()` | None |
-| `V_Propulsion` | None | No | `serializeJson()` / `deserializeJson()` | None |
-
-Consequences of this inconsistency:
-
-- Any cross-cutting concern (logging, telemetry, watchdog, replay) must be added to every
-  base class separately.
-- Generic tooling (scenario replay, Monte-Carlo harness, snapshot comparison) cannot hold
-  a heterogeneous collection of dynamic components through a common base pointer.
-- The `V_` naming convention is non-standard and not recognized outside this codebase.
-
-A unified root base class eliminates all three problems.
+A unified root base class allows cross-cutting concerns (logging, telemetry, watchdog,
+replay) to be added once and generic tooling (scenario replay, Monte-Carlo harness,
+snapshot comparison) to hold a heterogeneous collection of dynamic components through a
+common base pointer.
 
 ---
 
@@ -48,94 +26,13 @@ The name is drawn from the same usage as "circuit element," "finite element," an
 element" — a fundamental building block in a larger interconnected system. "Dynamic"
 distinguishes it from static configuration structs and data-only value objects.
 
-The alternative term "block" was ruled out due to its connotation with concurrent /
-multithreaded execution. "Component" and "module" were ruled out as too generic in a
-mixed-language codebase.
-
 Categorical identity (sensor, estimator, propulsion) is expressed through namespace
 (`liteaerosim::sensor`, `liteaerosim::estimation`, `liteaerosim::propulsion`) rather than
-through thin base classes. Thin categorical base classes add a level of inheritance depth
-with no behavioral content and no meaningful interface; namespaces communicate the same
-category information with less overhead.
+through thin base classes.
 
 ---
 
-## `SISOBlock`, `SisoElement`, and `Filter`
-
-### Tier 1 — Composable SISO interface (no lifecycle)
-
-`SISOBlock` is the minimal composable SISO interface: `step(float u)`, `in()`, `out()`.
-It carries no lifecycle and is designed to be embedded in any context — simulation loop,
-flight code, or unit test — without requiring initialization. `FilterSS` derives from
-`SISOBlock` and provides a complete, self-contained first-order state-space filter that
-works correctly from construction without any lifecycle call.
-
-`SISOBlock` is not part of the `DynamicElement` tree. It represents a separate, minimal
-interface tier that can be used anywhere lifecycle machinery is unnecessary or undesirable.
-
-### Tier 2 — `SisoElement` (merges `DynamicBlock` and `SISOBlock`)
-
-`SisoElement` is the fully-capable SISO dynamic element. It derives from both
-`DynamicElement` (lifecycle) and `SISOBlock` (SISO step interface):
-
-```cpp
-class SisoElement : public liteaerosim::DynamicElement,
-                    public liteaerosim::SISOBlock { ... };
-```
-
-Merging `DynamicBlock` into `SisoElement` means every SISO component in the tree
-automatically carries the full lifecycle — useful for control elements embedded in larger
-`DynamicElement` owners (`Autopilot`, `NavigationFilter`, `PropulsionProp`) that serialize
-their own state. Embedded uses that do not need lifecycle simply do not call `initialize()`
-or `serializeJson()`.
-
-Both parents are pure abstract interfaces with no shared state; the multiple inheritance
-introduces no ambiguity. `SisoElement` is the only class in the hierarchy that inherits
-from both.
-
-### `Filter` (under `SisoElement`)
-
-`Filter` extends `SisoElement` with filter-specific query and control methods: `order()`,
-`dcGain()`, `resetToInput()`, `resetToOutput()`, `errorCode()`. `Filter` is the abstract
-base for all filter implementations (`FilterSS2`, `FilterSS2Clip`, `FilterTF`, `FilterTF2`,
-`FilterFIR`).
-
-Once `Filter` derives from `SisoElement` (and therefore from `DynamicElement`), the
-existing `DynamicFilterBlock` class becomes redundant — it adds the same filter-specific API
-on top of `DynamicBlock` that `Filter` adds on top of `SisoElement`. `DynamicFilterBlock`
-is retired and its subclasses move under `Filter`.
-
-One naming inconsistency is resolved in this migration: `Filter` currently uses
-`resetInput()`/`resetOutput()`, while `DynamicFilterBlock` uses `resetToInput()`/
-`resetToOutput()`. The `resetTo*` form is more explicit and is adopted as the canonical
-name; `Filter` is updated accordingly.
-
-### `LimitElement` (under `SisoElement`)
-
-`LimitElement` replaces `DynamicLimitBlock`. It extends `SisoElement` with limit-control
-methods (`enableLower()`, `setUpper()`, `isLimited()`, etc.) and is the parent of `Limit`,
-`RateLimit`, and related elements. No interface change beyond the rename.
-
----
-
-## Why No Common `step()` Signature
-
-`SisoElement` can define a common `step(float u) -> float` because all SISO control
-elements share the same I/O type. No other category shares a common I/O type:
-
-- A sensor `step()` takes hardware-specific inputs (atmospheric state, kinematic state,
-  terrain query) and returns a sensor-specific measurement struct.
-- An estimator `step()` takes a heterogeneous mix of measurement structs and returns an
-  estimate struct.
-- A propulsion `step()` takes throttle, airspeed, and density and returns thrust.
-
-`DynamicElement` therefore provides only the lifecycle and logging contract. The simulation
-loop holds concrete types (or category-namespace base pointers) and calls typed `step()`
-directly.
-
----
-
-## Class Interface
+## `DynamicElement` Interface
 
 ```cpp
 // include/DynamicElement.hpp
@@ -145,32 +42,14 @@ directly.
 
 namespace liteaerosim {
 
-/// Abstract base for all stateful, time-evolving simulation components.
-///
-/// Lifecycle (in order):
-///   initialize(config) — one-time setup from JSON config
-///   reset()            — return to post-initialize state; may be called
-///                        between runs without re-reading config
-///   step(...)  × N     — advance one timestep; signature defined by each
-///                        concrete class; not declared on this base
-///   serializeJson() / deserializeJson() — checkpoint at any point after initialize()
-///
-/// initialize() and deserializeJson() validate "schema_version" in the JSON
-/// object before forwarding to the protected hook; throw std::runtime_error on
-/// mismatch.
-///
-/// Proto serialization is not declared on this base because proto message types
-/// are component-specific. Each concrete class declares serializeProto() /
-/// deserializeProto() with the appropriate message type.
 class DynamicElement {
 public:
     virtual ~DynamicElement() = default;
 
     void initialize(const nlohmann::json& config);
-    void reset();
+    virtual void reset();
     [[nodiscard]] nlohmann::json serializeJson() const;
     void deserializeJson(const nlohmann::json& state);
-
     void attachLogger(ILogger* logger) noexcept;
 
 protected:
@@ -182,17 +61,108 @@ protected:
     virtual int            schemaVersion()                     const   = 0;
     virtual const char*    typeName()                          const   = 0;
 
-private:
     ILogger* logger_ = nullptr;
+
+private:
+    void validateSchema(const nlohmann::json& state) const;
 };
 
 } // namespace liteaerosim
 ```
 
-`schemaVersion()` and `typeName()` are pure-virtual on the base so that every concrete
-class is required to declare them explicitly. The base injects both into every serialized
-snapshot so that diagnostics tools can identify and version-check any snapshot without
-knowing the concrete type.
+`initialize()` and `deserializeJson()` validate `"schema_version"` before forwarding to
+the hook; they throw `std::runtime_error` on mismatch. `schemaVersion()` and `typeName()`
+are pure-virtual so every concrete class is required to declare them explicitly. The base
+injects both into every serialized snapshot so that diagnostic tools can identify and
+version-check any snapshot without knowing the concrete type.
+
+Proto serialization is not declared on this base because proto message types are
+component-specific. Each concrete class declares `serializeProto()` /
+`deserializeProto()` with the appropriate message type.
+
+---
+
+## `SisoElement`
+
+`SisoElement` is the abstract base for all single-input, single-output dynamic elements.
+It derives from `DynamicElement` and adds the SISO step interface:
+
+```cpp
+// include/SisoElement.hpp
+class SisoElement : public DynamicElement {
+public:
+    [[nodiscard]] float in()  const { return in_; }
+    [[nodiscard]] float out() const { return out_; }
+    operator float()          const { return out_; }
+
+    float step(float u);   // NVI entry point — calls onStep(), then onLog()
+    void  reset() override; // zeros in_ and out_, then calls onReset()
+
+protected:
+    float in_  = 0.0f;
+    float out_ = 0.0f;
+
+    virtual float onStep(float u) = 0;
+    void onReset() override {}
+};
+```
+
+The public `step(float u)` is the NVI entry point: it records `in_` and `out_`, calls
+`onStep()` for the subclass-defined update, then calls `onLog()` if a logger is attached.
+`reset()` zeros `in_` and `out_` before calling `onReset()`.
+
+Every SISO element in the codebase — filters, limiters, integrators, derivatives, unwrap
+— derives from `SisoElement`. This gives every element a uniform lifecycle and makes it
+holdable through a `DynamicElement` base pointer.
+
+---
+
+## `Filter` (under `SisoElement`)
+
+`Filter` extends `SisoElement` with filter-specific API: `order()`, `dcGain()`,
+`resetToInput()`, `resetToOutput()`, `errorCode()`. `Filter` is the abstract base for all
+filter implementations.
+
+`Filter` provides default no-op implementations of the `DynamicElement` lifecycle hooks
+so that filters that do not yet implement the full lifecycle can still compile. The intent
+is that all filters eventually implement the full lifecycle.
+
+### Filter implementations
+
+| Class | Lifecycle status |
+| --- | --- |
+| `FilterSS2` | Full `DynamicElement` lifecycle — `onInitialize`, `onSerializeJson`, `onDeserializeJson`, `onStep` all implemented |
+| `FilterSS2Clip` | Overrides `step()` directly; lifecycle hooks not yet implemented |
+| `FilterTF` | Overrides `step()` directly; lifecycle hooks not yet implemented |
+| `FilterTF2` | Overrides `step()` directly; lifecycle hooks not yet implemented |
+| `FilterFIR` | Overrides `step()` directly; lifecycle hooks not yet implemented |
+| `FilterSS` | Overrides `step()` directly; lifecycle hooks not yet implemented |
+
+---
+
+## `Propulsion` (under `DynamicElement`)
+
+`Propulsion` derives from `DynamicElement` directly and adds the propulsion-specific
+`step(throttle, tas, rho)` signature, `thrust_n()` accessor, and proto serialization
+methods. All concrete propulsion models (`PropulsionJet`, `PropulsionEDF`, `PropulsionProp`,
+`MotorElectric`, `MotorPiston`) derive from `Propulsion` and implement the full lifecycle.
+
+`Motor` is a stateless abstract interface — it does not derive from `DynamicElement`.
+
+---
+
+## Control Sub-elements
+
+`Limit`, `Integrator`, `Derivative`, and `Unwrap` all derive from `SisoElement`. Each
+carries the full `DynamicElement` lifecycle: `initialize()`, `reset()`, `serializeJson()`,
+`deserializeJson()`. These elements are used both standalone and embedded within larger
+elements such as `SISOPIDFF`; both use cases benefit from a uniform lifecycle.
+
+`SISOPIDFF` is a plain aggregate struct that composes `SisoElement`-derived members
+(`FilterSS2Clip`, `Integrator`, `Derivative`, `Limit`, `Gain`) and manages their lifecycle
+directly. It does not itself derive from `DynamicElement`.
+
+`Gain` is a template and does not derive from `SisoElement`.
 
 ---
 
@@ -203,155 +173,115 @@ knowing the concrete type.
 ```text
 liteaerosim::DynamicElement
 │
-├── liteaerosim::SisoElement          (derives from both DynamicElement and SISOBlock)
-│   ├── liteaerosim::control::Filter  (adds filter API; replaces DynamicFilterBlock)
-│   │   ├── FilterSS2
-│   │   ├── FilterSS2Clip
-│   │   ├── FilterTF
-│   │   ├── FilterTF2
-│   │   └── FilterFIR
-│   ├── liteaerosim::control::LimitElement  (adds limit API; replaces DynamicLimitBlock)
-│   │   ├── Limit
-│   │   └── RateLimit
-│   ├── Integrator
-│   ├── Gain
-│   ├── Derivative
-│   ├── Unwrap
-│   ├── SISOPIDFF
-│   └── (other SISO control elements)
+├── liteaerosim::SisoElement
+│   ├── liteaerosim::control::Filter
+│   │   ├── FilterSS2                 (full lifecycle)
+│   │   ├── FilterSS2Clip             (lifecycle not yet implemented)
+│   │   ├── FilterTF                  (lifecycle not yet implemented)
+│   │   ├── FilterTF2                 (lifecycle not yet implemented)
+│   │   ├── FilterFIR                 (lifecycle not yet implemented)
+│   │   └── FilterSS                  (lifecycle not yet implemented)
+│   ├── liteaerosim::control::LimitBase
+│   │   └── Limit
+│   ├── liteaerosim::control::Integrator
+│   ├── liteaerosim::control::Derivative
+│   └── liteaerosim::control::Unwrap
 │
-├── liteaerosim::sensor::SensorAirData
-├── liteaerosim::sensor::SensorGnss
-├── liteaerosim::sensor::SensorLaserAlt
-├── liteaerosim::sensor::SensorMag
-├── liteaerosim::sensor::SensorRadAlt
-├── liteaerosim::sensor::SensorAA
-├── liteaerosim::sensor::SensorAAR
-├── liteaerosim::sensor::SensorTrackEstimator
-├── liteaerosim::sensor::SensorForwardTerrainProfile
-├── liteaerosim::sensor::SensorInsSimulation
+├── liteaerosim::propulsion::Propulsion
+│   ├── PropulsionJet
+│   ├── PropulsionEDF
+│   ├── PropulsionProp
+│   ├── MotorElectric
+│   └── MotorPiston
 │
-├── liteaerosim::estimation::NavigationFilter
-├── liteaerosim::estimation::WindEstimator
-├── liteaerosim::estimation::FlowAnglesEstimator
+├── liteaerosim::sensor::SensorAirData    (stub)
+├── liteaerosim::sensor::SensorGnss       (stub)
+├── liteaerosim::sensor::SensorLaserAlt   (stub)
+├── liteaerosim::sensor::SensorMag        (stub)
+├── liteaerosim::sensor::SensorRadAlt     (stub)
+├── liteaerosim::sensor::SensorAA         (stub)
+├── liteaerosim::sensor::SensorAAR        (stub)
+├── liteaerosim::sensor::SensorTrackEstimator          (stub)
+├── liteaerosim::sensor::SensorForwardTerrainProfile   (stub)
+├── liteaerosim::sensor::SensorInsSimulation           (stub)
 │
-├── liteaerosim::propulsion::PropulsionJet
-├── liteaerosim::propulsion::PropulsionEDF
-├── liteaerosim::propulsion::PropulsionProp
-├── liteaerosim::propulsion::MotorElectric
-└── liteaerosim::propulsion::MotorPiston
+├── liteaerosim::estimation::NavigationFilter    (stub)
+├── liteaerosim::estimation::WindEstimator       (stub)
+└── liteaerosim::estimation::FlowAnglesEstimator (stub)
 ```
 
-Categorical identity is expressed through namespace only. There are no thin categorical
-base classes for sensors, estimators, or propulsion models.
+---
 
-### SISOBlock / FilterSS tree (not under DynamicElement)
+## Serialization Contract
 
-```text
-liteaerosim::SISOBlock
-├── liteaerosim::SisoElement     (also derives from DynamicElement — see above)
-└── liteaerosim::control::FilterSS
+Every `DynamicElement` subclass serializes a complete, self-describing JSON snapshot.
+
+### Rules
+
+| Rule | Detail |
+| --- | --- |
+| All values in SI units | `"wn_rad_s"` not `"wn_hz"`; `"dt_s"` not `"dt_ms"` |
+| Field names encode units | `"altitude_m"`, `"roll_rate_rad_s"`, `"thrust_n"` |
+| `schema_version` always present | Integer; base class injects it; `onSerializeJson()` must not duplicate it |
+| `type` always present | String from `typeName()`; base class injects it; `onSerializeJson()` must not duplicate it |
+| Round-trip lossless | `deserializeJson(serializeJson())` must yield identical state |
+| Schema version checked on load | Base class validates; throws `std::runtime_error` on mismatch |
+
+### Example snapshot
+
+```json
+{
+    "schema_version": 1,
+    "type": "FilterSS2",
+    "in": 0.0,
+    "out": 0.0,
+    "state": { "x0": 0.0, "x1": 0.0 },
+    "params": {
+        "design":    "low_pass_second",
+        "dt_s":      0.01,
+        "wn_rad_s":  6.2832,
+        "zeta":      0.7071,
+        "tau_zero_s": 0.0
+    }
+}
 ```
 
-`SisoElement` appears in both trees because it inherits from both roots. `FilterSS` is
-Tier 1 only — it has no lifecycle and is not a `DynamicElement`.
+---
 
-**Subsystems not yet evaluated** — the following subsystems contain classes that may be
-dynamic elements and should be reviewed against this hierarchy before implementation:
-`include/guidance/`, `include/aerodynamics/` (`AeroCoeffEstimator`),
-`include/environment/` (`Turbulence`, `Gust`), `include/path/` (`V_PathSegment`).
+## Logging Interface
+
+Logging is injected via a pointer to `ILogger`. The base class calls `onLog()` at the end
+of every `step()` when a logger is attached. Elements are not required to implement
+`onLog()` — the default is a no-op.
+
+```cpp
+class ILogger {
+public:
+    virtual ~ILogger() = default;
+    virtual void log(std::string_view channel, float value_si) = 0;
+    virtual void log(std::string_view channel, const nlohmann::json& snapshot) = 0;
+};
+```
+
+Loggers are attached at scenario setup time, not in constructors.
 
 ---
 
 ## Schema Version Convention
 
-Schema version validation moves from each individual base class into
-`DynamicElement::initialize()` and `DynamicElement::deserializeJson()`. Each concrete class
-continues to supply its own `kSchemaVersion_` constant and implements `schemaVersion()` to
-return it. Behavior is unchanged; the check fires once in the root base rather than in each
-family's base.
+Each concrete class supplies its own `kSchemaVersion_` constant and implements
+`schemaVersion()` to return it. Schema version is always `1` during initial development;
+it will be incremented when fields change after the project transitions to a maintenance
+phase.
 
 ---
 
-## Migration Plan
+## Files
 
-The migration is purely mechanical — no behavioral change at any step. Each step is
-independently buildable and testable.
-
-### Step 1 — Create `DynamicElement`
-
-- Create `include/DynamicElement.hpp` and `src/DynamicElement.cpp`
-- Implement `initialize()`, `reset()`, `serializeJson()`, `deserializeJson()`,
-  `attachLogger()` — logic taken verbatim from `DynamicBlock`'s existing implementations
-- No test file: `DynamicElement` is abstract; its contract is verified by every concrete
-  subclass's existing tests
-
-### Step 2 — Rename `DynamicBlock` → `SisoElement`; merge `SISOBlock`
-
-- Rename `DynamicBlock` to `SisoElement`; update all references
-- Change declaration to `class SisoElement : public DynamicElement, public SISOBlock`
-- Remove duplicated lifecycle logic from `SisoElement` (now inherited from `DynamicElement`)
-- Remove `attachLogger` / `onLog` from `SisoElement` (now inherited from `DynamicElement`)
-- Rename `serialize()` → `serializeJson()`, `deserialize()` → `deserializeJson()` on
-  `SisoElement` and all subclasses
-- Update all call sites in test files
-- `SISOBlock` header (`include/SISOBlock.hpp`) is retained as the interface type; its
-  former role as a standalone composable element is unchanged
-
-### Step 3 — Migrate `Filter`; retire `DynamicFilterBlock`
-
-- Change `Filter` to derive from `SisoElement` instead of `SISOBlock` directly
-- Rename `resetInput()`/`resetOutput()` → `resetToInput()`/`resetToOutput()` on `Filter`
-- Move `FilterSS2`, `FilterSS2Clip`, `FilterTF`, `FilterTF2`, `FilterFIR` from
-  `DynamicFilterBlock` to `Filter` directly (parent change only; no interface change)
-- Delete `include/control/DynamicFilterBlock.hpp` and `src/control/DynamicFilterBlock.cpp`
-  (if it exists as a separate translation unit)
-- Update all `#include "control/DynamicFilterBlock.hpp"` directives
-
-### Step 4 — Rename `DynamicLimitBlock` → `LimitElement`
-
-- Rename `DynamicLimitBlock` to `LimitElement`; update all references and `#include`s
-
-### Step 5 — Migrate `V_Sensor`; delete `V_Sensor.hpp`
-
-- Change all sensor classes (`SensorAirData`, `SensorGnss`, etc.) to derive from
-  `DynamicElement` directly (namespace `liteaerosim::sensor`)
-- Remove `include "sensor/V_Sensor.hpp"` from all sensor headers; add `include "DynamicElement.hpp"`
-- Delete `include/sensor/V_Sensor.hpp`
-
-### Step 6 — Migrate `V_Propulsion`; delete `V_Propulsion.hpp` and `V_Motor.hpp`
-
-- Change all propulsion models to derive from `DynamicElement` directly
-  (namespace `liteaerosim::propulsion`)
-- Add `initialize(json)` to all propulsion models; move construction-time config into
-  `onInitialize()`; switch from direct virtual methods to the NVI pattern
-- Delete `include/propulsion/V_Propulsion.hpp`, `include/propulsion/V_Motor.hpp`
-- Update `docs/architecture/propulsion.md` base class names and lifecycle section
-
-### Step 7 — Evaluate remaining subsystems
-
-Review `include/guidance/`, `include/aerodynamics/`, `include/environment/`, and
-`include/path/` against the `DynamicElement` contract. For each class that qualifies,
-derive it from `DynamicElement` directly under the appropriate namespace.
-
----
-
-## Files Created / Modified
-
-| File | Action |
+| File | Contents |
 | --- | --- |
-| `include/DynamicElement.hpp` | **Create** |
-| `src/DynamicElement.cpp` | **Create** |
-| `include/DynamicBlock.hpp` | **Rename** → `include/SisoElement.hpp` |
-| `src/DynamicBlock.cpp` | **Rename** → `src/SisoElement.cpp` |
-| `include/control/DynamicFilterBlock.hpp` | **Delete** (Filter takes its role) |
-| `include/control/DynamicLimitBlock.hpp` | **Rename** → `include/control/LimitElement.hpp` |
-| `include/control/Filter.hpp` | **Modify** (derive from SisoElement; rename reset methods) |
-| All `SisoElement` subclass headers and sources | **Modify** (rename serialize methods) |
-| All sensor class headers | **Modify** (drop V_Sensor; derive from DynamicElement directly) |
-| All propulsion class headers and sources | **Modify** (add initialize, NVI, drop V_Propulsion) |
-| `include/sensor/V_Sensor.hpp` | **Delete** |
-| `include/propulsion/V_Propulsion.hpp` | **Delete** |
-| `include/propulsion/V_Motor.hpp` | **Delete** |
-| `docs/architecture/sensor.md` | **Modify** (update base class name) |
-| `docs/architecture/propulsion.md` | **Modify** (update base class names, lifecycle) |
+| `include/DynamicElement.hpp` | Root abstract base |
+| `src/DynamicElement.cpp` | `initialize`, `reset`, `serializeJson`, `deserializeJson`, `attachLogger` |
+| `include/SisoElement.hpp` | SISO NVI wrapper over `DynamicElement` |
+| `src/SisoElement.cpp` | `step`, `reset` |
+| `include/control/Filter.hpp` | Abstract filter base over `SisoElement` |

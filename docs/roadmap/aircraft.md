@@ -89,7 +89,39 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ---
 
-## 1. `SensorAirData` — Air Data System
+## 1. `SISOBlock` Removal — Complete `SisoElement` Migration
+
+`SISOBlock` (`include/SISOBlock.hpp`) is an obsolete intermediate base that predates the
+`DynamicElement` refactoring. Per the design authority
+[dynamic_element.md](../architecture/dynamic_element.md), `SisoElement` derives from
+`DynamicElement` only and is the single SISO base for all elements. `SISOBlock` is
+removed and the control sub-elements that still reference it are migrated to `SisoElement`.
+
+### Scope
+
+- Delete `include/SISOBlock.hpp`
+- Change `SisoElement` to derive from `DynamicElement` only (remove `SISOBlock` parent)
+- Migrate `LimitBase`, `Limit`, `Integrator`, `Derivative`, `Unwrap` to derive from
+  `SisoElement` and implement the full `DynamicElement` lifecycle
+- `SISOPIDFF` continues as a plain aggregate struct; no base class change required
+
+### Tests
+
+Each migrated class requires:
+
+- JSON round-trip test: `serializeJson()` / `deserializeJson()` recovers identical state;
+  next `step()` output matches between original and restored instances
+- Schema version rejection test: mismatched `schema_version` throws `std::runtime_error`
+- All pre-existing tests continue to pass
+
+### CMake
+
+No changes required. `src/CMakeLists.txt` uses `GLOB_RECURSE`; new source files are
+auto-discovered.
+
+---
+
+## 2. `SensorAirData` — Air Data System
 
 Stub header exists at `include/sensor/SensorAirData.hpp`. `liteaerosim::DynamicElement` is the
 abstract base (see [dynamic_element.md](../architecture/dynamic_element.md)).
@@ -127,10 +159,10 @@ Add `test/SensorAirData_test.cpp` to the test executable.
 
 ---
 
-## 2. Autopilot Gain Design — Python Tooling
+## 3. Autopilot Gain Design — Python Tooling
 
 Python workflow that derives autopilot control gains from the aircraft model. This is a
-prerequisite for item 3 (`Autopilot`) — the C++ implementation is parameterized by gains
+prerequisite for item 4 (`Autopilot`) — the C++ implementation is parameterized by gains
 computed here.
 
 Scope to be defined when this item is scheduled. Expected to use Python control-system
@@ -139,15 +171,15 @@ from `Aircraft` trim and `AeroCoeffEstimator` outputs.
 
 ---
 
-## 3. Autopilot — Inner Loop Knobs-Mode Tracking
+## 4. Autopilot — Inner Loop Knobs-Mode Tracking
 
 Stub header exists at `include/control/Autopilot.hpp`.
 
 `Autopilot` implements the inner closed-loop layer. It tracks pilot-style set point commands
 corresponding to "knobs" modes — altitude hold, vertical speed hold, heading hold, and roll
-attitude hold — and produces an `AircraftCommand` for `Aircraft::step()`. Guidance (item 5)
+attitude hold — and produces an `AircraftCommand` for `Aircraft::step()`. Guidance (item 6)
 is the outer loop that wraps around it and supplies the set point commands. Control gains are
-derived by the Python gain design workflow (item 2).
+derived by the Python gain design workflow (item 3).
 
 ### Interface sketch
 
@@ -172,7 +204,7 @@ Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
-## 4. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 5. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
 Stub headers exist in `include/path/` for all three classes.
 
@@ -229,7 +261,7 @@ Add `test/Path_test.cpp` to the test executable.
 
 ---
 
-## 5. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 6. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
 Stub headers exist in `include/guidance/` for all three classes.
 
@@ -279,7 +311,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 6. Plot Visualization — Python Post-Processing Tools
+## 7. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -313,7 +345,7 @@ dev = [
 
 ---
 
-## 7. Manual Input — Joystick and Keyboard
+## 8. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -354,7 +386,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 8. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 9. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
@@ -406,7 +438,7 @@ Add `test/SimRunner_test.cpp` to the test executable.
 
 ---
 
-## 9. Remaining Sensor Models
+## 10. Remaining Sensor Models
 
 Not blocking any higher-priority item. Stub headers exist in `include/sensor/`.
 Implement when needed; order within this group follows dependency.
@@ -425,7 +457,7 @@ Implement when needed; order within this group follows dependency.
 
 ---
 
-## 10. Estimation Subsystem
+## 11. Estimation Subsystem
 
 Flight code estimation algorithms. Stub headers exist in `include/estimation/` (to be
 created). Each derives from `DynamicElement` directly. Design authorities listed below.
