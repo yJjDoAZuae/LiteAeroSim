@@ -11,19 +11,18 @@ namespace liteaerosim::control {
 class Integrator : public liteaerosim::SisoElement {
 public:
     Integrator() :
-        _dt(1.0f),
-        _method(DiscretizationMethod::FwdEuler)
+        dt_s_(1.0f),
+        method_(DiscretizationMethod::ForwardEuler)
     {}
 
-    Limit limit;
     std::vector<Antiwindup> aw;
 
     /// Warm-start: set output (and input) to u.
     void resetTo(float u);
 
-    void setDt(float dt)     { _dt = (dt > 1e-6f) ? dt : 1.0f; }
-    void setMethod(DiscretizationMethod method) { _method = method; }
-    float dt() const { return _dt; }
+    void setDt(float dt)                        { dt_s_ = (dt > 1e-6f) ? dt : 1.0f; }
+    void setMethod(DiscretizationMethod method) { method_ = method; }
+    float dt_s() const { return dt_s_; }
 
 protected:
     float onStep(float u) override;
@@ -35,8 +34,9 @@ protected:
     const char* typeName() const override { return "Integrator"; }
 
 private:
-    float _dt;
-    DiscretizationMethod _method;
+    Limit limit_;
+    float dt_s_;
+    DiscretizationMethod method_;
 };
 
 } // namespace liteaerosim::control

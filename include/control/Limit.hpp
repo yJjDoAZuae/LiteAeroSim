@@ -1,34 +1,38 @@
 #pragma once
 
-#include "control/LimitBase.hpp"
+#include "SisoElement.hpp"
 
 namespace liteaerosim::control {
 
-class Limit : public LimitBase {
+class Limit : public liteaerosim::SisoElement {
 public:
     Limit() :
-        _lowerLimit(0.0f),
-        _upperLimit(0.0f),
-        _limitedLower(false),
-        _limitedUpper(false),
-        _enableLowerLimit(false),
-        _enableUpperLimit(false)
+        lower_limit_(0.0f),
+        upper_limit_(0.0f),
+        limited_lower_(false),
+        limited_upper_(false),
+        lower_enabled_(false),
+        upper_enabled_(false)
     {}
 
-    void disableLower() override { _enableLowerLimit = false; step(in_); }
-    void disableUpper() override { _enableUpperLimit = false; step(in_); }
-    void enableLower()  override { _enableLowerLimit = true;  step(in_); }
-    void enableUpper()  override { _enableUpperLimit = true;  step(in_); }
+    void disableLower() { lower_enabled_ = false; step(in_); }
+    void disableUpper() { upper_enabled_ = false; step(in_); }
+    void enableLower()  { lower_enabled_ = true;  step(in_); }
+    void enableUpper()  { upper_enabled_ = true;  step(in_); }
+    void disable()      { disableLower(); disableUpper(); }
+    void enable()       { enableLower();  enableUpper(); }
 
-    void setLower(float lim) override;
-    void setUpper(float lim) override;
+    void setLower(float lim);
+    void setUpper(float lim);
+    void set(float lower_lim, float upper_lim) { setLower(lower_lim); setUpper(upper_lim); }
 
-    float lowerLimit()     const override { return _lowerLimit; }
-    float upperLimit()     const override { return _upperLimit; }
-    bool  isLimitedLower() const override { return _limitedLower; }
-    bool  isLimitedUpper() const override { return _limitedUpper; }
-    bool  isLowerEnabled() const override { return _enableLowerLimit; }
-    bool  isUpperEnabled() const override { return _enableUpperLimit; }
+    float lowerLimit()     const { return lower_limit_; }
+    float upperLimit()     const { return upper_limit_; }
+    bool  isLimitedLower() const { return limited_lower_; }
+    bool  isLimitedUpper() const { return limited_upper_; }
+    bool  isLimited()      const { return limited_lower_ || limited_upper_; }
+    bool  isLowerEnabled() const { return lower_enabled_; }
+    bool  isUpperEnabled() const { return upper_enabled_; }
 
 protected:
     float onStep(float u) override;
@@ -40,12 +44,12 @@ protected:
     const char* typeName() const override { return "Limit"; }
 
 private:
-    float _lowerLimit;
-    float _upperLimit;
-    bool  _limitedLower;
-    bool  _limitedUpper;
-    bool  _enableLowerLimit;
-    bool  _enableUpperLimit;
+    float lower_limit_;
+    float upper_limit_;
+    bool  limited_lower_;
+    bool  limited_upper_;
+    bool  lower_enabled_;
+    bool  upper_enabled_;
 };
 
 } // namespace liteaerosim::control

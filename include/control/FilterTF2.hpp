@@ -4,87 +4,56 @@
 #include "control/Filter.hpp"
 #include "control/control.hpp"
 #include <Eigen/Dense>
-#include <unsupported/Eigen/MatrixFunctions>  // for Matrix::pow()
+#include <nlohmann/json.hpp>
 
 namespace liteaerosim::control {
-
-// template <char NUM_STATES=FILTER_MAX_STATES>
 
 class FilterTF2 : public Filter {
 
 public:
-    FilterTF2() :
-         _in(0), 
-        _out(0),
-        _errorCode(0),
-        _order(0)
-    {
-        _num << 1, 0, 0;
-        _den << 1, 0, 0;
-        uBuff.setZero();
-        yBuff.setZero();
-    }
+    FilterTF2();
+    FilterTF2(const FilterTF2& filt);
+    ~FilterTF2() override = default;
 
-    FilterTF2(const FilterTF2 &filt)
-    {
-        copy(filt);
-    }
-
-    ~FilterTF2() override {}
-
-    float in() const { return _in; }
-    float out() const { return _out; }
-    operator float() const { return out(); }
-
-    void copy(const FilterTF2 &filt);
+    void copy(const FilterTF2& filt);
 
     // IIR filter design
-    void setLowPassFirstIIR(float dt, float tau);                  // first order low pass filter design
-    void setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero);  // second order low pass filter design
-    void setHighPassFirstIIR(float dt, float tau);                 // first order high pass filter design
-    void setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero); // second order high pass filter design
-    void setDerivIIR(float dt, float tau);                         // first order derivative + low pass filter design
-    void setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num);    // second order notch filter design
+    void setLowPassFirstIIR (float dt, float tau);
+    void setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero);
+    void setHighPassFirstIIR(float dt, float tau);
+    void setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero);
+    void setDerivIIR        (float dt, float tau);
+    void setNotchSecondIIR  (float dt, float wn_rps, float zeta_den, float zeta_num);
 
-    void setZPK(float dt, float z_re, float z_im, float p_re, float p_im, float K);
+    void resetToInput (float in_val)  override;
+    void resetToOutput(float out_val) override;
 
-    // step the filter
-    float step(float in) override;
+    float    dcGain()    const override;
+    uint8_t  order()     const override { return order_; }
+    uint16_t errorCode() const override { return error_code_; }
 
-    // reset the fiter based on inputs
-    void resetToInput(float in_val);
+    Vec3 num() const { return num_; }
+    Vec3 den() const { return den_; }
 
-    // Reset the filter based on outputs
-    // If dc gain is zero, then the filter is
-    // reset to zero regardless of argument value
-    void resetToOutput(float out_val);
-
-    // dc gain value of the filter
-    float dcGain() const;
-
-    Vec3 num() const {return _num;}
-    Vec3 den() const {return _den;}
-
-    uint8_t order() const {return _order;}
-
-    uint16_t errorCode() const override { return _errorCode; }
+protected:
+    float          onStep(float u)                                override;
+    void           onInitialize(const nlohmann::json& config)     override;
+    nlohmann::json onSerializeJson()                        const override;
+    void           onDeserializeJson(const nlohmann::json& state) override;
+    int            schemaVersion()  const override { return kSchemaVersion_; }
+    const char*    typeName()       const override { return "FilterTF2"; }
 
 private:
+    static constexpr int kSchemaVersion_ = 1;
 
-    // 2nd order ARMA numerator and denominator vectors
-    Vec3 _num;
-    Vec3 _den;
+    Vec3 num_;
+    Vec3 den_;
 
-    // 2nd order input and output buffers
-    Vec3 uBuff;
-    Vec3 yBuff;
+    Vec3 u_buff_;
+    Vec3 y_buff_;
 
-    uint8_t _order;
-
-    float _in;
-    float _out;
-
-    uint16_t _errorCode;
+    uint8_t  order_      = 0;
+    uint16_t error_code_ = 0;
 };
 
-}
+}  // namespace liteaerosim::control

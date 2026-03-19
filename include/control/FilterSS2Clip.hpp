@@ -3,102 +3,79 @@
 
 #include "control/Filter.hpp"
 #include "control/Limit.hpp"
+#include <nlohmann/json.hpp>
 
 namespace liteaerosim::control {
-
-// template <char NUM_STATES=FILTER_MAX_STATES>
 
 class FilterSS2Clip : public Filter {
 
 public:
-
-    FilterSS2Clip() :
-         _in(0), 
-        _out(0),
-        _errorCode(0),
-        _order(0),
-        _dt(1.0f)
-    {
-        _Phi.setZero();
-        _Gamma.setZero();
-        _H.setZero();
-        _J.setOnes();
-        _x.setZero();
-    }
-
-    ~FilterSS2Clip() override {}
-
-    float in()       const { return _in; }
-    float out()      const { return _out; }
-    operator float() const { return _out; }
+    FilterSS2Clip();
+    ~FilterSS2Clip() override = default;
 
     Limit valLimit;
     Limit rateLimit;
 
-    // step the filter
-    float step(float in) override;
-
-    void copy(FilterSS2Clip &filt);
+    void copy(const FilterSS2Clip& filt);
 
     // IIR filter design
-    void setLowPassFirstIIR(float dt, float tau);                  // first order low pass filter design
-    void setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero);  // second order low pass filter design
-    void setHighPassFirstIIR(float dt, float tau);                 // first order high pass filter design
-    void setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero); // second order high pass filter design
-    void setDerivIIR(float dt, float tau);                         // first order derivative + low pass filter design
-    void setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num);    // second order notch filter design
+    void setLowPassFirstIIR (float dt_s, float tau);
+    void setLowPassSecondIIR(float dt_s, float wn_rad_s, float zeta, float tau_zero);
+    void setHighPassFirstIIR(float dt_s, float tau);
+    void setHighPassSecondIIR(float dt_s, float wn_rad_s, float zeta, float c_zero);
+    void setDerivIIR        (float dt_s, float tau);
+    void setNotchSecondIIR  (float dt_s, float wn_rad_s, float zeta_den, float zeta_num);
 
-    // dc gain value of the filter
-    float dcGain() const;
+    float dcGain() const override;
 
-    Mat22 Phi() const {return _Phi;}
-    Mat21 Gamma() const {return _Gamma;}
-    Mat12 H() const {return _H;}
-    Mat11 J() const {return _J;}
-    Mat21 x() const {return _x;}
+    // State-space matrix accessors (read-only)
+    Mat22 phi()   const { return phi_; }
+    Mat21 gamma() const { return gamma_; }
+    Mat12 h()     const { return h_; }
+    Mat11 j()     const { return j_; }
+    Mat21 x()     const { return x_; }
 
-    // reset the fiter based on inputs
-    void resetToInput(float in_val);
-
-    // Reset the filter based on outputs
-    // If dc gain is zero, then the filter is
-    // reset to zero regardless of argument value
-    void resetToOutput(float out_val);
+    void resetToInput (float in_val)  override;
+    void resetToOutput(float out_val) override;
 
     // Directly restore the filter internal state vector.
     // Exact warm-start: restores x without the steady-state backsolve assumption.
     void resetState(const Mat21& x);
 
-    uint8_t order() const override {return _order;}
-    float dt() const {return _dt;}
+    uint8_t  order()     const override { return order_; }
+    float    dt_s()      const          { return dt_s_; }
+    uint16_t errorCode() const override { return error_code_; }
 
     Mat22 controlGrammian() const;
     Mat22 observeGrammian() const;
 
-    uint16_t errorCode() const override { return _errorCode; }
+protected:
+    float          onStep(float u)                                override;
+    void           onInitialize(const nlohmann::json& config)     override;
+    nlohmann::json onSerializeJson()                        const override;
+    void           onDeserializeJson(const nlohmann::json& state) override;
+    int            schemaVersion()  const override { return kSchemaVersion_; }
+    const char*    typeName()       const override { return "FilterSS2Clip"; }
 
 private:
+    static constexpr int kSchemaVersion_ = 1;
 
-    void backsolve1(float inPrev, float outPrev);
-    void backsolve2(float inPrev, float outPrev);
-    void backsolve(float inPrev, float outPrev);
+    void backsolve1(float in_prev, float out_prev, float in_curr, float out_curr);
+    void backsolve2(float in_prev, float out_prev, float in_curr, float out_curr);
+    void backsolve (float in_prev, float out_prev, float in_curr, float out_curr);
 
-    // 2nd order state space realization matrices
-    Mat22 _Phi;
-    Mat21 _Gamma;
-    Mat12 _H;
-    Mat11 _J;
+    // 2nd order state-space realization matrices
+    Mat22 phi_;
+    Mat21 gamma_;
+    Mat12 h_;
+    Mat11 j_;
 
     // 2nd order state vector
-    Mat21 _x;
+    Mat21 x_;
 
-    uint8_t _order;
-    float _dt;
-
-    float _in;
-    float _out;
-
-    uint16_t _errorCode;
+    uint8_t  order_      = 0;
+    float    dt_s_       = 1.0f;
+    uint16_t error_code_ = 0;
 };
 
-}
+}  // namespace liteaerosim::control

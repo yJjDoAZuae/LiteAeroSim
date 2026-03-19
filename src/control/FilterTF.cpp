@@ -1,45 +1,40 @@
 #include <cmath>
-// #include <stdio.h>
-// #include <string.h>
 
 #include "control/control.hpp"
 #include "control/filter_realizations.hpp"
 #include "control/FilterTF.hpp"
 
-static float dcTol = 1e-6;
-
 using namespace liteaerosim::control;
 using namespace liteaerosim;
 
-// error_code values
-// 0 : no error
-// 1 : invalid vector dimension
-// 2 : invalid timestep
-// 3 : invalid denominator coefficients
-// 4 : non-finite dc gain
-// 5 : output initialization with zero dc gain
-
-// copy implementation
-// template <char NUM_STATES=FILTER_MAX_STATES>
-// void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
-void FilterTF::copy(const FilterTF &filt)
-{
-    char n = (maxNumStates >= filt.order()) ? filt.order() : maxNumStates;
-
-    _den = filt._den.head(n + 1);
-    _num = filt._num.head(n + 1);
-    uBuff = filt.uBuff.head(n + 1);
-    yBuff = filt.yBuff.head(n + 1);
-
-    // we ignore the first entry in den and set it to 1 in all cases
-    _den(0) = 1.0f;
-
-    _errorCode += filt.errorCode();
+FilterTF::FilterTF() {
+    num_.resize(1);
+    den_.resize(1);
+    u_buff_.resize(1);
+    y_buff_.resize(1);
+    num_ << 1;
+    den_ << 1;
+    u_buff_ << 0;
+    y_buff_ << 0;
 }
 
-void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
-{
+FilterTF::FilterTF(const FilterTF& filt) {
+    copy(filt);
+}
 
+void FilterTF::copy(const FilterTF& filt) {
+    int n = (maxNumStates >= filt.order()) ? filt.order() : maxNumStates;
+
+    den_    = filt.den_.head(n + 1);
+    num_    = filt.num_.head(n + 1);
+    u_buff_ = filt.u_buff_.head(n + 1);
+    y_buff_ = filt.y_buff_.head(n + 1);
+
+    den_(0)     = 1.0f;
+    error_code_ = filt.error_code_;
+}
+
+void FilterTF::setButterworthIIR(char order, float dt, float wn_rps) {
     if (order > 10 || order > maxNumStates) {
         return;
     }
@@ -47,108 +42,125 @@ void FilterTF::setButterworthIIR(char order, float dt, float wn_rps)
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
-    _errorCode += butter(order, wn_rps, num_s, den_s);
+    error_code_ += static_cast<uint16_t>(butter(order, wn_rps, num_s, den_s));
 
-    if (_errorCode != 0) {
+    if (error_code_ != 0) {
         return;
     }
 
-    _errorCode += tustin_n_tf(num_s, den_s, dt, wn_rps, _num, _den);
+    error_code_ += static_cast<uint16_t>(tustin_n_tf(num_s, den_s, dt, wn_rps, num_, den_));
 
-    uBuff.resize(order+1);
-    yBuff.resize(order+1);
-
+    u_buff_.resize(order + 1);
+    y_buff_.resize(order + 1);
+    u_buff_.setZero();
+    y_buff_.setZero();
 }
 
-void FilterTF::resetToInput(float in)
-{
-    const float tol = 1e-6;
+void FilterTF::resetToInput(float in_val) {
+    u_buff_.resize(order() + 1);
+    y_buff_.resize(order() + 1);
+    u_buff_.setZero();
+    y_buff_.setZero();
 
-    uBuff.resize(order()+1);
-    yBuff.resize(order()+1);
-    uBuff.setZero();
-    yBuff.setZero();
+    float dc = dcGain();
 
-    float dcGain = this->dcGain();
-
-    if (errorCode() == 0)
-    {
-        uBuff << FiltVectorXf::Ones(order()+1) * in;
-        yBuff << FiltVectorXf::Ones(order()+1) * in * dcGain;
+    if (error_code_ == 0) {
+        u_buff_ = FiltVectorXf::Ones(order() + 1) * in_val;
+        y_buff_ = FiltVectorXf::Ones(order() + 1) * in_val * dc;
     }
 
-    _in = uBuff(0);
-    _out = yBuff(0);
+    in_  = u_buff_(0);
+    out_ = y_buff_(0);
 }
 
-void FilterTF::resetToOutput(float out)
-{
-    const float tol = 1e-6;
+void FilterTF::resetToOutput(float out_val) {
+    u_buff_.resize(order() + 1);
+    y_buff_.resize(order() + 1);
+    u_buff_.setZero();
+    y_buff_.setZero();
 
-    uBuff.resize(order()+1);
-    yBuff.resize(order()+1);
-    uBuff.setZero();
-    yBuff.setZero();
+    float dc = dcGain();
 
-    float dcGain = this->dcGain();
-
-    if (errorCode() == 0)
-    {
-        uBuff << FiltVectorXf::Ones(order()+1) * out / dcGain;
-        yBuff << FiltVectorXf::Ones(order()+1) * out;
+    if (error_code_ == 0) {
+        u_buff_ = FiltVectorXf::Ones(order() + 1) * out_val / dc;
+        y_buff_ = FiltVectorXf::Ones(order() + 1) * out_val;
     }
 
-    _in = uBuff(0);
-    _out = yBuff(0);
+    in_  = u_buff_(0);
+    out_ = y_buff_(0);
 }
 
-float FilterTF::dcGain() const
-{
-    const float tol = 1e-6;
+float FilterTF::dcGain() const {
+    const float tol = 1e-6f;
 
-    // float dcGain = 1.0f;
+    float num_sum = num_.sum();
+    float den_sum = den_.sum();
 
-    float numSum = _num.sum();
-    float denSum = _den.sum();
-
-    // We need an arbitrary finite DC gain to accommodate
-    // band pass, high pass, and lead/lag filters filters
-    // TODO: Filter stability test?
-
-    // Test for infinite DC gain.
-    // Pure integrators should not be implemented
-    // using an ARMA filter.
-    if (fabs(denSum) < tol)
-    {
-        // non-finite DC gain
-        // errorCode = 4;
+    if (std::fabs(den_sum) < tol) {
         return 1.0f;
     }
 
-    return numSum / denSum;
+    return num_sum / den_sum;
 }
 
-float FilterTF::step(float in)
-{
+float FilterTF::onStep(float u) {
+    float y = num_(0) * u;
 
-    this->_in = in;
-    this->_out = _num(0) * in;
-
-    // NOTE: implicit state->a.k[0] == 1 because
-    // we're assigning state->y.k[0] without a coefficient
-
-    // update the output
-    for (int k = 1; k < order() + 1 && k < kFilterMaxStates+1; k++)
-    {
-        // TRICKY: because we haven't rolled the buffers yet
-        // the input and output buffer indices are one less
-        // than the coefficient indices
-        this->_out += _num(k) * uBuff(k - 1);
-        this->_out -= _den(k) * yBuff(k - 1);
+    for (int k = 1; k < order() + 1 && k < kFilterMaxStates + 1; k++) {
+        y += num_(k) * u_buff_(k - 1);
+        y -= den_(k) * y_buff_(k - 1);
     }
 
-    roll_buffer(yBuff, this->out());
-    roll_buffer(uBuff, this->in());
+    roll_buffer(y_buff_, y);
+    roll_buffer(u_buff_, u);
 
-    return this->out();
+    return y;
+}
+
+void FilterTF::onInitialize(const nlohmann::json& /*config*/) {}
+
+nlohmann::json FilterTF::onSerializeJson() const {
+    int n = order();
+    auto num_arr = nlohmann::json::array();
+    auto den_arr = nlohmann::json::array();
+    auto u_arr   = nlohmann::json::array();
+    auto y_arr   = nlohmann::json::array();
+    for (int k = 0; k <= n; k++) {
+        num_arr.push_back(num_(k));
+        den_arr.push_back(den_(k));
+        u_arr.push_back(u_buff_(k));
+        y_arr.push_back(y_buff_(k));
+    }
+    return {
+        {"order",      n},
+        {"error_code", error_code_},
+        {"in",         in_},
+        {"out",        out_},
+        {"num",        num_arr},
+        {"den",        den_arr},
+        {"state",      {{"u", u_arr}, {"y", y_arr}}}
+    };
+}
+
+void FilterTF::onDeserializeJson(const nlohmann::json& state) {
+    error_code_ = state.at("error_code").get<uint16_t>();
+    in_         = state.at("in").get<float>();
+    out_        = state.at("out").get<float>();
+
+    const nlohmann::json& na = state.at("num");
+    int n = static_cast<int>(na.size());
+    num_.resize(n);
+    for (int k = 0; k < n; k++) num_(k) = na[k].get<float>();
+
+    const nlohmann::json& da = state.at("den");
+    den_.resize(n);
+    for (int k = 0; k < n; k++) den_(k) = da[k].get<float>();
+
+    const nlohmann::json& ua = state.at("state").at("u");
+    u_buff_.resize(n);
+    for (int k = 0; k < n; k++) u_buff_(k) = ua[k].get<float>();
+
+    const nlohmann::json& ya = state.at("state").at("y");
+    y_buff_.resize(n);
+    for (int k = 0; k < n; k++) y_buff_(k) = ya[k].get<float>();
 }

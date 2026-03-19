@@ -148,7 +148,7 @@ void FilterSS2::resetToInput(float in_val) {
     (Mat22::Identity() - phi_).computeInverseWithCheck(ImPhiInv, invertible, kInvertibleThreshold);
 
     if (!invertible) {
-        error_code_ += FilterError::UNSTABLE;
+        error_code_ += static_cast<uint16_t>(FilterError::Unstable);
         return;
     }
 
@@ -165,7 +165,7 @@ void FilterSS2::resetToOutput(float out_val) {
     const float dc = dcGain();
 
     if (std::fabs(dc) < kDcTol) {
-        error_code_ += FilterError::ZERO_DC_GAIN;
+        error_code_ += static_cast<uint16_t>(FilterError::ZeroDcGain);
         return;
     }
 
@@ -179,7 +179,7 @@ void FilterSS2::resetToOutput(float out_val) {
     (Mat22::Identity() - phi_).computeInverseWithCheck(ImPhiInv, invertible, kInvertibleThreshold);
 
     if (!invertible) {
-        error_code_ += FilterError::UNSTABLE;
+        error_code_ += static_cast<uint16_t>(FilterError::Unstable);
         return;
     }
 
@@ -217,7 +217,7 @@ void FilterSS2::designLowPassFirst(float dt_s, float tau_s) {
     num_s << 0.0f, 0.0f, 1.0f / tau_s;
     den_s << 0.0f, 1.0f, 1.0f / tau_s;
 
-    error_code_ += tustin_1_tf(num_s, den_s, dt_s, 2.0f * static_cast<float>(M_PI) / tau_s, num_z, den_z);
+    error_code_ += static_cast<uint16_t>(tustin_1_tf(num_s, den_s, dt_s, 2.0f * static_cast<float>(M_PI) / tau_s, num_z, den_z));
     tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
     order_ = 1;
 }
@@ -227,7 +227,7 @@ void FilterSS2::designLowPassSecond(float dt_s, float wn_rad_s, float zeta, floa
     num_s << 0.0f, tau_zero_s * wn_rad_s * wn_rad_s, wn_rad_s * wn_rad_s;
     den_s << 1.0f, 2.0f * zeta * wn_rad_s,           wn_rad_s * wn_rad_s;
 
-    error_code_ += tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z);
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z));
     tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
     order_ = 2;
 }
@@ -237,7 +237,7 @@ void FilterSS2::designHighPassFirst(float dt_s, float tau_s) {
     num_s << 0.0f, 1.0f / tau_s, 0.0f;
     den_s << 0.0f, 1.0f,         1.0f / tau_s;
 
-    error_code_ += tustin_2_tf(num_s, den_s, dt_s, 2.0f * static_cast<float>(M_PI) / tau_s, num_z, den_z);
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, 2.0f * static_cast<float>(M_PI) / tau_s, num_z, den_z));
     tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
     order_ = 1;
 }
@@ -247,7 +247,7 @@ void FilterSS2::designHighPassSecond(float dt_s, float wn_rad_s, float zeta, flo
     num_s << 1.0f, c_zero * 2.0f * zeta * wn_rad_s, 0.0f;
     den_s << 1.0f, 2.0f * zeta * wn_rad_s,           wn_rad_s * wn_rad_s;
 
-    error_code_ += tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z);
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z));
     tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
     order_ = 2;
 }
@@ -258,7 +258,7 @@ void FilterSS2::designDerivative(float dt_s, float tau_s) {
     num_s << 0.0f, 1.0f / tau_s, 0.0f;
     den_s << 0.0f, 1.0f,         1.0f / tau_s;
 
-    error_code_ += tustin_2_tf(num_s, den_s, dt_s, 2.0f * static_cast<float>(M_PI) / tau_s, num_z, den_z);
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, 2.0f * static_cast<float>(M_PI) / tau_s, num_z, den_z));
     tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
     order_ = 1;
 }
@@ -268,7 +268,7 @@ void FilterSS2::designNotchSecond(float dt_s, float wn_rad_s, float zeta_den, fl
     num_s << 1.0f, 2.0f * zeta_num * wn_rad_s, wn_rad_s * wn_rad_s;
     den_s << 1.0f, 2.0f * zeta_den * wn_rad_s, wn_rad_s * wn_rad_s;
 
-    error_code_ += tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z);
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z));
     tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
     order_ = 2;
 }

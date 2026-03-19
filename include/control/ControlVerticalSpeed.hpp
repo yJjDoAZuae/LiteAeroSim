@@ -9,9 +9,9 @@ namespace liteaerosim::control {
 class ControlVerticalSpeed : public ControlLoop {
 
     void configure();
-    void configure(json jsonConfig);
-    float step(float verticalSpeedCmdIn, const KinematicState & state);
-    void reset(float verticalSpeedCmdIn, const KinematicState & state);
+    void configure(json config);
+    float step(float command, const KinematicState& state);
+    void reset(float command, const KinematicState& state);
 
 };
 

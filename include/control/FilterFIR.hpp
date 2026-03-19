@@ -4,69 +4,43 @@
 #include "control/Filter.hpp"
 #include "control/control.hpp"
 #include <Eigen/Dense>
-
+#include <nlohmann/json.hpp>
 
 namespace liteaerosim::control {
 
-// A single input, single output discrete filter implementation
-// with ARMA parameterization
-// NOTE: filter parameterization enforces finite DC gain
-// template <char NUM_STATES=FILTER_MAX_STATES>
-class FilterFIR : public Filter
-{
+class FilterFIR : public Filter {
 
 public:
-    FilterFIR() : _in(0), _out(0), _errorCode(0)
-    {
-        num << 1;
-        uBuff << 0;
-    }
+    FilterFIR();
+    FilterFIR(const FilterFIR& filt);
+    ~FilterFIR() override = default;
 
-    FilterFIR(FilterFIR &filt)
-    {
-        copy(filt);
-    }
+    void copy(const FilterFIR& filt);
 
-    ~FilterFIR() override {}
+    uint8_t order() const override { return static_cast<uint8_t>(num_.rows() - 1); }
 
-    float in() const { return _in; }
-    float out() const { return _out; }
-    operator float() const { return out(); }
+    void setAverageFIR(char order);
+    void setExpFIR(char order, float dt, float tau);
 
-    void copy(FilterFIR &filt);
+    void resetToInput (float in_val)  override;
+    void resetToOutput(float out_val) override;
+    float    dcGain()    const override;
+    uint16_t errorCode() const override { return error_code_; }
 
-    uint8_t order() { return num.rows() - 1; }
-
-    // FIR filter design
-    void setAverageFIR(char order);        // equal weight moving average FIR filter design
-    void setExpFIR(char order, float dt, float tau); // exponential decaying weight moving average FIR filter design
-
-    // step the filter
-    float step(float in) override;
-
-    // reset the fiter based on inputs
-    void resetToInput(float in_val);
-
-    // Reset the filter based on outputs
-    // If dc gain is zero, then the filter is
-    // reset to zero regardless of argument value
-    void resetToOutput(float out_val);
-
-    // dc gain value of the filter
-    float dcGain();
-
-    uint16_t errorCode() const override { return _errorCode; }
+protected:
+    float          onStep(float u)                                override;
+    void           onInitialize(const nlohmann::json& config)     override;
+    nlohmann::json onSerializeJson()                        const override;
+    void           onDeserializeJson(const nlohmann::json& state) override;
+    int            schemaVersion()  const override { return kSchemaVersion_; }
+    const char*    typeName()       const override { return "FilterFIR"; }
 
 private:
+    static constexpr int kSchemaVersion_ = 1;
 
-    FiltVectorXf num;
-    FiltVectorXf uBuff;
-
-    float _in;
-    float _out;
-
-    uint16_t _errorCode;
-
+    FiltVectorXf num_;
+    FiltVectorXf u_buff_;
+    uint16_t error_code_ = 0;
 };
 
-}
+}  // namespace liteaerosim::control

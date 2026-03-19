@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DynamicElement.hpp"
 #include "control/control.hpp"
 #include "control/Gain.hpp"
 #include "control/FilterSS2Clip.hpp"
@@ -9,74 +10,90 @@
 
 namespace liteaerosim::control {
 
-class SISOPIDFF
-{
-
+/// Single-input single-output PID with feedforward.
+///
+/// Derives from DynamicElement and implements the full lifecycle:
+/// initialize → reset → step×N → serializeJson / deserializeJson.
+///
+/// The six FilterSS2Clip members, Integrator, Derivative, and two Unwrap
+/// members each carry their own serializable state. SISOPIDFF coordinates
+/// their lifecycle and exposes a composite snapshot.
+class SISOPIDFF : public liteaerosim::DynamicElement {
 public:
-    FilterSS2Clip cmdSignal;
-    FilterSS2Clip ffwdSignal;
-    FilterSS2Clip measSignal;
-    FilterSS2Clip measDotSignal;
-    FilterSS2Clip errSignal; // for angular coordinates the errSignal.valLimit limits must be opposite sign if enabled
-    FilterSS2Clip outSignal;
+    SISOPIDFF();
+    SISOPIDFF(const SISOPIDFF& other);
+    void copy(const SISOPIDFF& other);
 
-    Unwrap cmdUnwrap;
-    Unwrap measUnwrap;
+    /// Step with internally computed measurement derivative.
+    float step(float command, float measurement);
 
-    Gain<float,3> Kp;
-    Gain<float,3> Ki;
-    Gain<float,3> Kd;
-    Gain<float,3> Kff;
+    /// Step with externally provided measurement derivative.
+    float step(float command, float measurement, float measurement_derivative);
 
-    Integrator I;
-    Derivative D;
+    /// Reset based on command, measurement, and desired output.
+    void reset(float command, float measurement, float output);
 
-    bool unwrapInputs;
+    /// Reset based on command, measurement, measurement derivative, and desired output.
+    void reset(float command, float measurement, float measurement_derivative, float output);
 
-    SISOPIDFF() : unwrapInputs(false) {}
+    // --- Read accessors ---
+    float output()                const { return output_signal_.out(); }
+    float command()               const { return command_signal_.in(); }
+    float measurement()           const { return measurement_signal_.in(); }
+    float measurementDerivative() const { return measurement_derivative_signal_.in(); }
+    float error()                 const { return error_signal_.in(); }
+    float feedForward()           const { return feedforward_gain_ * feedforward_signal_.out(); }
+    float proportional()          const { return proportional_gain_ * error_signal_.out(); }
+    float derivativeTerm()        const { return derivative_gain_ * measurement_derivative_signal_.out(); }
+    float integral()              const { return integrator_.out(); }
 
-    SISOPIDFF(const SISOPIDFF &pid)
-    {
-        copy(pid);
-    }
+    /// Enable or disable angle-unwrapping of command and measurement inputs.
+    void setUnwrapInputs(bool value) { unwrap_inputs_ = value; }
 
-    void copy(const SISOPIDFF &pid);
+    /// Mutable reference to the integrator (e.g., for warm-start calls like resetTo).
+    Integrator& integrator() { return integrator_; }
 
-    // step the PIDFF with internally calculated measurement derivative
-    float step(float cmdIn, float measIn);
+    // --- Mutable sub-element references for configuration ---
+    FilterSS2Clip& commandSignal()               { return command_signal_; }
+    FilterSS2Clip& feedforwardSignal()           { return feedforward_signal_; }
+    FilterSS2Clip& measurementSignal()           { return measurement_signal_; }
+    FilterSS2Clip& measurementDerivativeSignal() { return measurement_derivative_signal_; }
+    FilterSS2Clip& errorSignal()                 { return error_signal_; }
+    FilterSS2Clip& outputSignal()                { return output_signal_; }
 
-    // step the PIDFF with externally provided measurement derivative
-    float step(float cmdIn, float measIn, float measDotIn);
+    Gain<float, 3>& proportionalGain()  { return proportional_gain_; }
+    Gain<float, 3>& integralGain()      { return integral_gain_; }
+    Gain<float, 3>& derivativeGain()    { return derivative_gain_; }
+    Gain<float, 3>& feedforwardGain()   { return feedforward_gain_; }
 
-    // reset the PIDFF based on cmd, meas, and output
-    void reset(float cmdIn, float measIn, float outIn);
+protected:
+    void           onInitialize(const nlohmann::json& config) override;
+    void           onReset()                                   override;
+    nlohmann::json onSerializeJson()                   const   override;
+    void           onDeserializeJson(const nlohmann::json& state) override;
+    int            schemaVersion()                     const   override { return 1; }
+    const char*    typeName()                          const   override { return "SISOPIDFF"; }
 
-    // reset the PIDFF based on cmd, meas, measDot, and output
-    void reset(float cmdIn, float measIn, float measDotIn, float outIn);
+private:
+    FilterSS2Clip command_signal_;
+    FilterSS2Clip feedforward_signal_;
+    FilterSS2Clip measurement_signal_;
+    FilterSS2Clip measurement_derivative_signal_;
+    FilterSS2Clip error_signal_;  ///< For angular coords, valLimit bounds must be opposite sign if enabled.
+    FilterSS2Clip output_signal_;
 
-    float cmd() const { return cmdSignal.in(); }
+    Unwrap command_unwrap_;
+    Unwrap measurement_unwrap_;
 
-    float meas() const { return measSignal.in(); }
+    Gain<float, 3> proportional_gain_;
+    Gain<float, 3> integral_gain_;
+    Gain<float, 3> derivative_gain_;
+    Gain<float, 3> feedforward_gain_;
 
-    float measDot() const { return measDotSignal.in(); }
+    Integrator integrator_;
+    Derivative derivative_;
 
-    float out() const { return outSignal.out(); }
-
-    float err() const { return errSignal.in(); }
-
-    // return the feedforward term
-    float feedfwd() const { return Kff * ffwdSignal.out(); }
-
-    // return the proportional term
-    float prop() const { return Kp * errSignal.out(); }
-
-    // return the derivative term
-    float deriv() const { return Kd * measDotSignal.out(); }
-
-    // return the integrator state (gain is upstream of the integrator)
-    float integ() const {return I.out();}
-
+    bool unwrap_inputs_ = false;
 };
 
-}
-
+}  // namespace liteaerosim::control

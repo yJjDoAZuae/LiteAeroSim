@@ -4,83 +4,47 @@
 #include "control/Filter.hpp"
 #include "control/control.hpp"
 #include <Eigen/Dense>
-
+#include <nlohmann/json.hpp>
 
 namespace liteaerosim::control {
 
-
-// A single input, single output discrete filter implementation
-// with ARMA parameterization
-// NOTE: filter parameterization enforces finite DC gain
-// template <char NUM_STATES=FILTER_MAX_STATES>
-class FilterTF : public Filter
-{
+class FilterTF : public Filter {
 
 public:
-    FilterTF() :
-         _in(0), 
-        _out(0),
-        _errorCode(0)
-    {
-        _num.resize(1);
-        _den.resize(1);
-        uBuff.resize(1);
-        yBuff.resize(1);
-        _num << 1;
-        _den << 1;
-        uBuff << 0;
-        yBuff << 0;
-    }
+    FilterTF();
+    FilterTF(const FilterTF& filt);
+    ~FilterTF() override = default;
 
-    FilterTF(const FilterTF &filt)
-    {
-        copy(filt);
-    }
+    void copy(const FilterTF& filt);
 
-    ~FilterTF() override {}
+    void setButterworthIIR(char order, float dt, float wn_rps);
 
-    float in() const { return _in; }
-    float out() const { return _out; }
-    operator float() const { return out(); }
+    uint8_t order() const override { return static_cast<uint8_t>(den_.rows() - 1); }
 
-    void copy(const FilterTF &filt);
+    void resetToInput (float in_val)  override;
+    void resetToOutput(float out_val) override;
+    float    dcGain()    const override;
+    uint16_t errorCode() const override { return error_code_; }
 
-    // IIR filter design
-    void setButterworthIIR(char order, float dt, float wn_rps);    // Butterworth low pass IIR filter design
+    FiltVectorXf num() const { return num_; }
+    FiltVectorXf den() const { return den_; }
 
-    uint8_t order() const { return _den.rows() - 1; }
-
-    // step the filter
-    float step(float in) override;
-
-    // reset the fiter based on inputs
-    void resetToInput(float in_val);
-
-    // Reset the filter based on outputs
-    // If dc gain is zero, then the filter is
-    // reset to zero regardless of argument value
-    void resetToOutput(float out_val);
-
-    // dc gain value of the filter
-    float dcGain() const;
-
-    Vec3 num() const {return _num;}
-    Vec3 den() const {return _den;}
-
-    uint16_t errorCode() const override { return _errorCode; }
+protected:
+    float          onStep(float u)                                override;
+    void           onInitialize(const nlohmann::json& config)     override;
+    nlohmann::json onSerializeJson()                        const override;
+    void           onDeserializeJson(const nlohmann::json& state) override;
+    int            schemaVersion()  const override { return kSchemaVersion_; }
+    const char*    typeName()       const override { return "FilterTF"; }
 
 private:
+    static constexpr int kSchemaVersion_ = 1;
 
-    FiltVectorXf _num;
-    FiltVectorXf _den;
-
-    FiltVectorXf uBuff;
-    FiltVectorXf yBuff;
-
-    float _in;
-    float _out;
-
-    uint16_t _errorCode;
+    FiltVectorXf num_;
+    FiltVectorXf den_;
+    FiltVectorXf u_buff_;
+    FiltVectorXf y_buff_;
+    uint16_t error_code_ = 0;
 };
 
-}
+}  // namespace liteaerosim::control

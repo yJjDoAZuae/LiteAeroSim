@@ -5,7 +5,7 @@
 | Section | Description |
 |---|---|
 | [Architecture](architecture/overview.md) | System design, layer model, subsystem breakdown |
-| [Dynamic Block Design](architecture/dynamic_block.md) | SISOBlock / DynamicBlock refactoring — the core simulation element pattern |
+| [Dynamic Element Design](architecture/dynamic_element.md) | `DynamicElement` and `SisoElement` — the unified lifecycle base for all stateful components |
 | [Aircraft Design](architecture/aircraft.md) | Aircraft class — use cases, physics integration loop, serialization, JSON initialization |
 | [Propulsion Design](architecture/propulsion.md) | V_Propulsion virtual interface, PropulsionJet, PropulsionProp — class hierarchy, use cases, serialization |
 | [Algorithms](algorithms/filters.md) | Filter design, discretization, control algorithms |

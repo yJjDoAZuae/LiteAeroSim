@@ -1,40 +1,44 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
-// #include <stdio.h>
-// #include <string.h>
 
 #include "control/control.hpp"
 #include "control/filter_realizations.hpp"
 #include "control/FilterSS.hpp"
 
-static float dcTol = 1e-6;
-
 using namespace liteaerosim::control;
 using namespace liteaerosim;
 
-FilterSS::~FilterSS() = default;
-
-void FilterSS::copy(FilterSS &filt)
-{
-    _Phi << filt.Phi();
-    _Gamma << filt.Gamma();
-    _H << filt.H();
-    _J << filt.J();
-    _x << filt.x();
-
-    _errorCode = filt.errorCode();
+FilterSS::FilterSS() {
+    phi_.resize(0, 0);
+    gamma_.resize(0, 1);
+    h_.resize(1, 0);
+    j_.setOnes();
+    x_.resize(0, 1);
 }
 
-void FilterSS::setButterworthIIR(uint8_t order, float dt, float wn_rps)
-{
+FilterSS::FilterSS(const FilterSS& filt) {
+    copy(filt);
+}
 
+FilterSS::~FilterSS() {}
+
+void FilterSS::copy(const FilterSS& filt) {
+    phi_        = filt.phi_;
+    gamma_      = filt.gamma_;
+    h_          = filt.h_;
+    j_          = filt.j_;
+    x_          = filt.x_;
+    error_code_ = filt.error_code_;
+}
+
+void FilterSS::setButterworthIIR(uint8_t order, float dt, float wn_rps) {
     FiltVectorXf num_s;
     FiltVectorXf den_s;
 
     FilterError rc = butter(order, wn_rps, num_s, den_s);
 
-    if (rc != FilterError::NONE) {
-        _errorCode += rc;
+    if (rc != FilterError::None) {
+        error_code_ += static_cast<uint16_t>(rc);
         return;
     }
 
@@ -47,182 +51,177 @@ void FilterSS::setButterworthIIR(uint8_t order, float dt, float wn_rps)
 
     setDimension(order);
 
-    _errorCode += tustin_n_ss(A,B,C,D, dt, wn_rps, _Phi, _Gamma, _H, _J);
+    error_code_ += static_cast<uint16_t>(tustin_n_ss(A, B, C, D, dt, wn_rps, phi_, gamma_, h_, j_));
 
     resetToInput(0.0f);
-
 }
 
-void FilterSS::resetToInput(float in)
-{
-    _x.setZero();
-    _out = 0.0f;
-    _in = 0.0f;
-    float dcGain = this->dcGain();
+void FilterSS::resetToInput(float in_val) {
+    x_.setZero();
+    out_ = 0.0f;
+    in_  = 0.0f;
 
-    if (errorCode() == 0)
-    {
+    float dc = dcGain();
 
-        char n = _Phi.rows();
+    if (error_code_ == 0) {
+        int n = phi_.rows();
 
-        MatNN ImPhiInv(MatNN::Zero(n,n));
-        bool invertible = false;
-        float absDeterminantThreshold = 1e-4;
-
-        MatNN ImPhi(MatNN::Identity(n,n) - _Phi);
+        MatNN ImPhi(MatNN::Identity(n, n) - phi_);
         Eigen::FullPivLU<MatNN> LU(ImPhi);
-        invertible = LU.isInvertible();
 
-        if (!invertible) {
-            _errorCode += FilterError::UNSTABLE;
+        if (!LU.isInvertible()) {
+            error_code_ += static_cast<uint16_t>(FilterError::Unstable);
             return;
         }
 
-        ImPhiInv << LU.inverse();
-
-        _in = in;
-        _out = dcGain * in;
-
-        _x << ImPhiInv * _Gamma * _in;
-    } else {
-        return;
+        in_  = in_val;
+        out_ = dc * in_val;
+        x_   = LU.inverse() * gamma_ * in_;
     }
 }
 
-void FilterSS::resetToOutput(float out)
-{
-    _x.setZero();
-    _out = 0.0f;
-    _in = 0.0f;
-    float dcGain = this->dcGain();
+void FilterSS::resetToOutput(float out_val) {
+    x_.setZero();
+    out_ = 0.0f;
+    in_  = 0.0f;
 
-    if (errorCode() == 0)
-    {
+    float dc = dcGain();
 
-        uint8_t n = _Phi.rows();
+    if (error_code_ == 0) {
+        int n = phi_.rows();
 
-        MatNN ImPhiInv(MatNN::Zero(n,n));
-        bool invertible = false;
-        float absDeterminantThreshold = 1e-4;
-
-        MatNN ImPhi(MatNN::Identity(n,n) - _Phi);
+        MatNN ImPhi(MatNN::Identity(n, n) - phi_);
         Eigen::FullPivLU<MatNN> LU(ImPhi);
-        invertible = LU.isInvertible();
 
-        if (!invertible) {
-            _errorCode += FilterError::UNSTABLE;
+        if (!LU.isInvertible()) {
+            error_code_ += static_cast<uint16_t>(FilterError::Unstable);
             return;
         }
 
-        ImPhiInv << LU.inverse();
-
-        _out = out;
-        _in = out/dcGain;
-
-        _x << ImPhiInv * _Gamma * _in;
-    } else {
-        return;
+        out_ = out_val;
+        in_  = out_val / dc;
+        x_   = LU.inverse() * gamma_ * in_;
     }
 }
 
-float FilterSS::dcGain() const
-{
-    // We need an arbitrary finite DC gain to accommodate
-    // band pass, high pass, and lead/lag filters filters
-    // TODO: Filter stability test?
+float FilterSS::dcGain() const {
+    int n = phi_.rows();
 
-    // Test for infinite DC gain.
-    // Pure integrators should not be implemented
-    // using an ARMA filter.
-
-    uint8_t n = _Phi.rows();
-
-    MatNN ImPhiInv(MatNN::Zero(n,n));
-    bool invertible = false;
-    float absDeterminantThreshold = 1e-4;
-
-    MatNN ImPhi(MatNN::Identity(n,n) - _Phi);
+    MatNN ImPhi(MatNN::Identity(n, n) - phi_);
     Eigen::FullPivLU<MatNN> LU(ImPhi);
-    invertible = LU.isInvertible();
 
-    if (!invertible) {
-        //_errorCode += FilterError::UNSTABLE;
+    if (!LU.isInvertible()) {
         return 1.0f;
     }
 
-    ImPhiInv << LU.inverse();
-
-    return (_H*ImPhiInv*_Gamma + _J).value();
+    return (h_ * LU.inverse() * gamma_ + j_).value();
 }
 
-MatNN FilterSS::controlGrammian() const
-{
-
-    uint8_t n = _Phi.rows();
-
-    MatNN C(MatNN::Zero(n,n));
-
-    for (uint8_t k = 0; k<n; k++) {
-        C(Eigen::all, k) = MatN1(_Phi.pow(k) * _Gamma);
+MatNN FilterSS::controlGrammian() const {
+    int n = phi_.rows();
+    MatNN C(MatNN::Zero(n, n));
+    MatN1 Phi_k_Gamma = gamma_;
+    for (int k = 0; k < n; k++) {
+        C.col(k) = Phi_k_Gamma;
+        Phi_k_Gamma = phi_ * Phi_k_Gamma;
     }
-
     return C;
 }
 
-MatNN FilterSS::observeGrammian() const
-{
-    uint8_t n = _Phi.rows();
-
-    MatNN C(MatNN::Zero(n,n));
-
-    for (uint8_t k = 0; k<n; k++) {
-        C(k, Eigen::all) = Mat1N(_H * _Phi.pow(k));
+MatNN FilterSS::observeGrammian() const {
+    int n = phi_.rows();
+    MatNN C(MatNN::Zero(n, n));
+    Mat1N H_Phi_k = h_;
+    for (int k = 0; k < n; k++) {
+        C.row(k) = H_Phi_k;
+        H_Phi_k = H_Phi_k * phi_;
     }
-
     return C;
 }
 
-uint8_t FilterSS::order() const
-{
-    uint8_t order = _Phi.rows();
+uint8_t FilterSS::order() const {
+    uint8_t n = static_cast<uint8_t>(phi_.rows());
 
-    if (order > 0) {
-        Eigen::JacobiSVD<MatNN> ControlSVD;
-        Eigen::JacobiSVD<MatNN> ObserveSVD;
+    if (n > 0) {
+        Eigen::JacobiSVD<MatNN> control_svd;
+        Eigen::JacobiSVD<MatNN> observe_svd;
 
         MatNN CC = controlGrammian();
         MatNN CO = observeGrammian();
 
-        ControlSVD.compute(CC);
-        ObserveSVD.compute(CO);
+        control_svd.compute(CC);
+        observe_svd.compute(CO);
 
-        uint8_t crank = ControlSVD.rank();
-        order = (crank < order) ? crank : order;
-        uint8_t orank = ObserveSVD.rank();
-        order = (orank < order) ? orank : order;
+        uint8_t crank = static_cast<uint8_t>(control_svd.rank());
+        n = (crank < n) ? crank : n;
+        uint8_t orank = static_cast<uint8_t>(observe_svd.rank());
+        n = (orank < n) ? orank : n;
     }
 
-    return order;
+    return n;
 }
 
-void FilterSS::setDimension(uint8_t dim)
-{
-    _Phi.resize(dim,dim);
-    _Gamma.resize(dim,1);
-    _H.resize(1,dim);
-    _J.resize(1,1);
-    _x.resize(dim,1);
+void FilterSS::setDimension(uint8_t dim) {
+    phi_.resize(dim, dim);
+    gamma_.resize(dim, 1);
+    h_.resize(1, dim);
+    j_.resize(1, 1);
+    x_.resize(dim, 1);
 }
 
-float FilterSS::step(float in)
-{
-    this->_in = in;
+float FilterSS::onStep(float u) {
+    float y = (h_ * x_ + j_ * u).value();
+    x_ = phi_ * x_ + gamma_ * u;
+    return y;
+}
 
-    // TRICKY: update the output first
-    _out = (_H*_x + _J*in).value();
+void FilterSS::onInitialize(const nlohmann::json& /*config*/) {}
 
-    // now update the state
-    _x = _Phi*_x + _Gamma*in;
+nlohmann::json FilterSS::onSerializeJson() const {
+    int n = static_cast<int>(phi_.rows());
+    auto phi_arr   = nlohmann::json::array();
+    auto gamma_arr = nlohmann::json::array();
+    auto h_arr     = nlohmann::json::array();
+    auto x_arr     = nlohmann::json::array();
+    for (int i = 0; i < n; i++) {
+        for (int k = 0; k < n; k++) phi_arr.push_back(phi_(i, k));
+        gamma_arr.push_back(gamma_(i, 0));
+        h_arr.push_back(h_(0, i));
+        x_arr.push_back(x_(i, 0));
+    }
+    return {
+        {"order",      n},
+        {"error_code", error_code_},
+        {"in",         in_},
+        {"out",        out_},
+        {"j",          j_(0, 0)},
+        {"phi",        phi_arr},
+        {"gamma",      gamma_arr},
+        {"h",          h_arr},
+        {"state",      {{"x", x_arr}}}
+    };
+}
 
-    return this->out();
+void FilterSS::onDeserializeJson(const nlohmann::json& state) {
+    error_code_ = state.at("error_code").get<uint16_t>();
+    in_         = state.at("in").get<float>();
+    out_        = state.at("out").get<float>();
+    j_(0, 0)    = state.at("j").get<float>();
+
+    int n = state.at("order").get<int>();
+    setDimension(static_cast<uint8_t>(n));
+
+    const nlohmann::json& pa = state.at("phi");
+    for (int i = 0; i < n; i++)
+        for (int k = 0; k < n; k++)
+            phi_(i, k) = pa[i * n + k].get<float>();
+
+    const nlohmann::json& ga = state.at("gamma");
+    for (int i = 0; i < n; i++) gamma_(i, 0) = ga[i].get<float>();
+
+    const nlohmann::json& ha = state.at("h");
+    for (int i = 0; i < n; i++) h_(0, i) = ha[i].get<float>();
+
+    const nlohmann::json& xa = state.at("state").at("x");
+    for (int i = 0; i < n; i++) x_(i, 0) = xa[i].get<float>();
 }

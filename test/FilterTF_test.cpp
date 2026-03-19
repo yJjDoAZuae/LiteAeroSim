@@ -2,6 +2,7 @@
 #include "control/FilterTF.hpp"
 #include "control/filter_realizations.hpp"
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 using namespace liteaerosim::control;
 using namespace liteaerosim;
@@ -138,5 +139,45 @@ TEST(FilterTFTest, SecondOrderLP00) {
 
     EXPECT_EQ(G.in(), 1.0f);
     EXPECT_NEAR(G.out(), 1.0361699725173787, 1e-6);
-    
+
+}
+
+TEST(FilterTFTest, SchemaVersionAndTypeName) {
+    FilterTF G;
+    nlohmann::json snap = G.serializeJson();
+    EXPECT_EQ(snap["schema_version"].get<int>(), 1);
+    EXPECT_EQ(snap["type"].get<std::string>(), "FilterTF");
+}
+
+TEST(FilterTFTest, NviInAndOutUpdated) {
+    FilterTF G;
+    G.setButterworthIIR(2, 0.1f, 2.0f);
+    SisoElement* base = &G;
+    base->step(1.0f);
+    EXPECT_EQ(base->in(), 1.0f);
+    EXPECT_NE(base->out(), 0.0f);
+}
+
+TEST(FilterTFTest, SerializeNonEmpty) {
+    FilterTF G;
+    G.setButterworthIIR(2, 0.1f, 2.0f);
+    G.step(1.0f);
+    G.step(1.0f);
+    nlohmann::json snap = G.serializeJson();
+    EXPECT_EQ(snap["schema_version"].get<int>(), 1);
+    EXPECT_EQ(snap["type"].get<std::string>(), "FilterTF");
+    EXPECT_TRUE(snap.contains("order"));
+    EXPECT_TRUE(snap.contains("state"));
+}
+
+TEST(FilterTFTest, JsonRoundTrip) {
+    FilterTF G;
+    G.setButterworthIIR(2, 0.1f, 2.0f);
+    G.step(1.0f);
+    G.step(1.0f);
+    nlohmann::json snap = G.serializeJson();
+    FilterTF G2;
+    G2.setButterworthIIR(2, 0.1f, 2.0f);
+    G2.deserializeJson(snap);
+    EXPECT_FLOAT_EQ(G2.step(1.0f), G.step(1.0f));
 }

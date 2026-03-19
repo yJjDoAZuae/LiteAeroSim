@@ -11,22 +11,22 @@ float Integrator::onStep(float u)
 
     float next;
     if (!awActive) {
-        switch (_method) {
-        case DiscretizationMethod::BackEuler:
-            next = limit.step(out_ + u * _dt);
+        switch (method_) {
+        case DiscretizationMethod::BackwardEuler:
+            next = limit_.step(out_ + u * dt_s_);
             break;
-        case DiscretizationMethod::FwdEuler:
-            next = limit.step(out_ + in_ * _dt);
+        case DiscretizationMethod::ForwardEuler:
+            next = limit_.step(out_ + in_ * dt_s_);
             break;
         case DiscretizationMethod::Bilinear:
-            next = limit.step(out_ + 0.5f * (u + in_) * _dt);
+            next = limit_.step(out_ + 0.5f * (u + in_) * dt_s_);
             break;
         default:
             next = out_;
             break;
         }
     } else {
-        next = limit.step(out_);
+        next = limit_.step(out_);
     }
 
     return next;
@@ -34,7 +34,7 @@ float Integrator::onStep(float u)
 
 void Integrator::resetTo(float u)
 {
-    out_ = limit.step(u);
+    out_ = limit_.step(u);
     in_  = u;
 }
 
@@ -45,8 +45,8 @@ void Integrator::onReset()
 
 void Integrator::onInitialize(const nlohmann::json& config)
 {
-    _dt     = config.at("dt_s").get<float>();
-    _method = static_cast<DiscretizationMethod>(config.at("method").get<int>());
+    dt_s_   = config.at("dt_s").get<float>();
+    method_ = static_cast<DiscretizationMethod>(config.at("method").get<int>());
 }
 
 nlohmann::json Integrator::onSerializeJson() const
@@ -58,8 +58,8 @@ nlohmann::json Integrator::onSerializeJson() const
     return {
         {"in",         in_},
         {"out",        out_},
-        {"dt_s",       _dt},
-        {"method",     static_cast<int>(_method)},
+        {"dt_s",       dt_s_},
+        {"method",     static_cast<int>(method_)},
         {"antiwindup", aw_array}
     };
 }
@@ -68,8 +68,8 @@ void Integrator::onDeserializeJson(const nlohmann::json& state)
 {
     in_     = state.at("in").get<float>();
     out_    = state.at("out").get<float>();
-    _dt     = state.at("dt_s").get<float>();
-    _method = static_cast<DiscretizationMethod>(state.at("method").get<int>());
+    dt_s_   = state.at("dt_s").get<float>();
+    method_ = static_cast<DiscretizationMethod>(state.at("method").get<int>());
 
     if (state.contains("antiwindup")) {
         const auto& aw_array = state.at("antiwindup");

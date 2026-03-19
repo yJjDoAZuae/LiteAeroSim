@@ -120,23 +120,21 @@ holdable through a `DynamicElement` base pointer.
 ## `Filter` (under `SisoElement`)
 
 `Filter` extends `SisoElement` with filter-specific API: `order()`, `dcGain()`,
-`resetToInput()`, `resetToOutput()`, `errorCode()`. `Filter` is the abstract base for all
-filter implementations.
-
-`Filter` provides default no-op implementations of the `DynamicElement` lifecycle hooks
-so that filters that do not yet implement the full lifecycle can still compile. The intent
-is that all filters eventually implement the full lifecycle.
+`resetToInput()`, `resetToOutput()`, `errorCode()`. `Filter` is a pure abstract base —
+it declares no lifecycle hook defaults. Every concrete filter must implement the full
+`DynamicElement` lifecycle: `onInitialize`, `onSerializeJson`, `onDeserializeJson`,
+`schemaVersion`, `typeName`, and `onStep`.
 
 ### Filter implementations
 
-| Class | Lifecycle status |
+| Class | Description |
 | --- | --- |
-| `FilterSS2` | Full `DynamicElement` lifecycle — `onInitialize`, `onSerializeJson`, `onDeserializeJson`, `onStep` all implemented |
-| `FilterSS2Clip` | Overrides `step()` directly; lifecycle hooks not yet implemented |
-| `FilterTF` | Overrides `step()` directly; lifecycle hooks not yet implemented |
-| `FilterTF2` | Overrides `step()` directly; lifecycle hooks not yet implemented |
-| `FilterFIR` | Overrides `step()` directly; lifecycle hooks not yet implemented |
-| `FilterSS` | Overrides `step()` directly; lifecycle hooks not yet implemented |
+| `FilterSS2` | Second-order state-space filter — full lifecycle |
+| `FilterSS2Clip` | `FilterSS2` with value and rate limits — full lifecycle; NVI via `onStep()` |
+| `FilterTF` | Transfer-function form (variable order) — full lifecycle; NVI via `onStep()` |
+| `FilterTF2` | Second-order transfer-function form — full lifecycle; NVI via `onStep()` |
+| `FilterFIR` | Finite impulse response filter — full lifecycle; NVI via `onStep()` |
+| `FilterSS` | General state-space filter (arbitrary order) — full lifecycle; NVI via `onStep()` |
 
 ---
 
@@ -153,16 +151,19 @@ methods. All concrete propulsion models (`PropulsionJet`, `PropulsionEDF`, `Prop
 
 ## Control Sub-elements
 
-`Limit`, `Integrator`, `Derivative`, and `Unwrap` all derive from `SisoElement`. Each
-carries the full `DynamicElement` lifecycle: `initialize()`, `reset()`, `serializeJson()`,
-`deserializeJson()`. These elements are used both standalone and embedded within larger
-elements such as `SISOPIDFF`; both use cases benefit from a uniform lifecycle.
+`Limit`, `RateLimit`, `Integrator`, `Derivative`, and `Unwrap` all derive from
+`SisoElement`. Each carries the full `DynamicElement` lifecycle: `initialize()`, `reset()`,
+`serializeJson()`, `deserializeJson()`. These elements are used both standalone and embedded
+within larger elements such as `SISOPIDFF`; both use cases benefit from a uniform lifecycle.
 
-`SISOPIDFF` is a plain aggregate struct that composes `SisoElement`-derived members
-(`FilterSS2Clip`, `Integrator`, `Derivative`, `Limit`, `Gain`) and manages their lifecycle
-directly. It does not itself derive from `DynamicElement`.
+`SISOPIDFF` derives from `DynamicElement` and implements the full lifecycle:
+`onInitialize()`, `onReset()`, `onSerializeJson()`, `onDeserializeJson()`. Its
+`onSerializeJson()` assembles a composite snapshot by delegating to each embedded member
+(`FilterSS2Clip` × 6, `Integrator`, `Derivative`, `Unwrap` × 2). This makes the full
+mid-flight PID state saveable and restorable as a unit.
 
-`Gain` is a template and does not derive from `SisoElement`.
+`Gain` is a template and does not derive from `SisoElement`. Its scalar value is
+serialized directly (as a JSON number) within the `SISOPIDFF` snapshot.
 
 ---
 
@@ -174,18 +175,20 @@ directly. It does not itself derive from `DynamicElement`.
 liteaerosim::DynamicElement
 │
 ├── liteaerosim::SisoElement
-│   ├── liteaerosim::control::Filter
-│   │   ├── FilterSS2                 (full lifecycle)
-│   │   ├── FilterSS2Clip             (lifecycle not yet implemented)
-│   │   ├── FilterTF                  (lifecycle not yet implemented)
-│   │   ├── FilterTF2                 (lifecycle not yet implemented)
-│   │   ├── FilterFIR                 (lifecycle not yet implemented)
-│   │   └── FilterSS                  (lifecycle not yet implemented)
-│   ├── liteaerosim::control::LimitBase
-│   │   └── Limit
+│   ├── liteaerosim::control::Filter        (pure abstract — no lifecycle defaults)
+│   │   ├── FilterSS2
+│   │   ├── FilterSS2Clip
+│   │   ├── FilterTF
+│   │   ├── FilterTF2
+│   │   ├── FilterFIR
+│   │   └── FilterSS
+│   ├── liteaerosim::control::Limit
+│   ├── liteaerosim::control::RateLimit
 │   ├── liteaerosim::control::Integrator
 │   ├── liteaerosim::control::Derivative
 │   └── liteaerosim::control::Unwrap
+│
+├── liteaerosim::control::SISOPIDFF
 │
 ├── liteaerosim::propulsion::Propulsion
 │   ├── PropulsionJet

@@ -2,6 +2,7 @@
 #include "control/FilterSS2Clip.hpp"
 #include "control/filter_realizations.hpp"
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -119,10 +120,10 @@ TEST(FilterSS2ClipTest, SecondOrderLP00) {
 
     EXPECT_EQ(G.order(), 2);
 
-    Mat22 Phi(G.Phi());
-    Mat21 Gamma(G.Gamma());
-    Mat12 H(G.H());
-    Mat11 J(G.J());
+    Mat22 Phi(G.phi());
+    Mat21 Gamma(G.gamma());
+    Mat12 H(G.h());
+    Mat11 J(G.j());
 
     float Ginf = num_z(0)/den_z(0);
 
@@ -154,7 +155,7 @@ TEST(FilterSS2ClipTest, SecondOrderLP00) {
 
     EXPECT_EQ(G.in(), 0.0f);
     EXPECT_EQ(G.out(), 0.0f);
-    
+
     ofstream outFile;
 
     outFile.open("FilterSS2ClipTest_SecondOrderLP00.csv");
@@ -275,10 +276,10 @@ TEST(FilterSS2ClipTest, SecondOrderLP01) {
 
     EXPECT_EQ(G.order(), 2);
 
-    Mat22 Phi(G.Phi());
-    Mat21 Gamma(G.Gamma());
-    Mat12 H(G.H());
-    Mat11 J(G.J());
+    Mat22 Phi(G.phi());
+    Mat21 Gamma(G.gamma());
+    Mat12 H(G.h());
+    Mat11 J(G.j());
 
     float Ginf = num_z(0)/den_z(0);
 
@@ -336,6 +337,47 @@ TEST(FilterSS2ClipTest, SecondOrderLP01) {
     EXPECT_NEAR(G.out(), 0.9, 1e-2);
 
     outFile.close();
-    
+
+}
+
+TEST(FilterSS2ClipTest, SchemaVersionAndTypeName) {
+    FilterSS2Clip G;
+    // schemaVersion() and typeName() are protected; verify via the serialized snapshot
+    nlohmann::json snap = G.serializeJson();
+    EXPECT_EQ(snap["schema_version"].get<int>(), 1);
+    EXPECT_EQ(snap["type"].get<std::string>(), "FilterSS2Clip");
+}
+
+TEST(FilterSS2ClipTest, NviInAndOutUpdated) {
+    FilterSS2Clip G;
+    G.setLowPassFirstIIR(0.1f, 10.0f);
+    SisoElement* base = &G;
+    base->step(1.0f);
+    EXPECT_EQ(base->in(), 1.0f);
+    EXPECT_NE(base->out(), 0.0f);
+}
+
+TEST(FilterSS2ClipTest, SerializeNonEmpty) {
+    FilterSS2Clip G;
+    G.setLowPassFirstIIR(0.1f, 10.0f);
+    G.step(1.0f);
+    G.step(1.0f);
+    nlohmann::json snap = G.serializeJson();
+    EXPECT_EQ(snap["schema_version"].get<int>(), 1);
+    EXPECT_EQ(snap["type"].get<std::string>(), "FilterSS2Clip");
+    EXPECT_TRUE(snap.contains("dt_s"));
+    EXPECT_TRUE(snap.contains("state"));
+}
+
+TEST(FilterSS2ClipTest, JsonRoundTrip) {
+    FilterSS2Clip G;
+    G.setLowPassFirstIIR(0.1f, 10.0f);
+    G.step(1.0f);
+    G.step(1.0f);
+    nlohmann::json snap = G.serializeJson();
+    FilterSS2Clip G2;
+    G2.setLowPassFirstIIR(0.1f, 10.0f);
+    G2.deserializeJson(snap);
+    EXPECT_FLOAT_EQ(G2.step(1.0f), G.step(1.0f));
 }
 

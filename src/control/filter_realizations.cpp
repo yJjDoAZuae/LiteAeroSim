@@ -12,7 +12,7 @@ namespace liteaerosim::control {
 FilterError butter(uint8_t order, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
 {
     if (order < 1 || order > 10 || order > kFilterMaxStates) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     num_s.resize(1);
@@ -63,7 +63,7 @@ FilterError butter(uint8_t order, float wn_rps, FiltVectorXf& num_s, FiltVectorX
         den_s(k) *= 1/pow(wn_rps, order-k);
     }
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 void butterz_pzk(uint8_t order, uint8_t k, float dt, float wn_rps, float& pz_Re, float& pz_Im, float& zz_Re, float& zz_Im, bool& is_conjugate)
@@ -117,10 +117,10 @@ void butterz_pzk(uint8_t order, uint8_t k, float dt, float wn_rps, float& pz_Re,
 FilterError butterz(uint8_t order, float dt, float wn_rps, FiltVectorXf& num_s, FiltVectorXf& den_s)
 {
     if (order < 1 || order > kFilterMaxStates) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, float wc_rad, FiltVectorXf &numz, FiltVectorXf &denz)
@@ -133,11 +133,11 @@ FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     denz << 1.0f;
 
     if (num.size() < 1 || den.size() < 2) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     float K = 2.0f / dt;
@@ -152,7 +152,7 @@ FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 
     if (coeff_denom < tol)
     {
-        return FilterError::UNSTABLE;
+        return FilterError::Unstable;
     }
 
     // left pad or left truncate the numerator if num.size() != 2
@@ -166,7 +166,7 @@ FilterError tustin_1_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     denz(0) = 1.0f;
     denz(1) = (-den(0) * K + den(1)) / coeff_denom;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float dt, float wc_rad, FiltVectorXf &numz, FiltVectorXf &denz)
@@ -179,11 +179,11 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     denz << 1.0f;
 
     if (num.size() < 1 || den.size() < 3) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     float K = 2.0f / dt;
@@ -194,7 +194,7 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
 
     if (coeff_denom < tol)
     {
-        return FilterError::UNSTABLE;
+        return FilterError::Unstable;
     }
 
      // left pad or left truncate the numerator if num.size() != 3
@@ -209,7 +209,7 @@ FilterError tustin_2_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     denz(1) = (-2.0*den(0)*K*K       + 2.0*den(2)) / coeff_denom;
     denz(2) = (den(0)*K*K - den(1)*K + den(2)) / coeff_denom;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 // TODO: unimplemented
@@ -223,11 +223,11 @@ FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     denz << 1.0f;
 
     if (num.size() == 0 || den.size() < 2) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     char n = den.size() - 1;
@@ -247,7 +247,7 @@ FilterError tustin_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float 
     // probably need to solve for the generalized eigenvalues/eigenvectors,
     // convert to Jordan form and then to a second order sections form
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError tustin_n_ss(const MatNN &A,
@@ -264,11 +264,11 @@ FilterError tustin_n_ss(const MatNN &A,
     const float tol = 1.0e-6;
 
     if (A.size() == 0 || B.size() == 0 || C.size() == 0 || D.size() == 0) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     char n = A.rows();
@@ -298,7 +298,7 @@ FilterError tustin_n_ss(const MatNN &A,
     H = w0*C*invIw0mA;
     J = D + C*invIw0mA*B;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 // Forward Euler discrete transform -- only use when poles are << than nyquist
@@ -312,11 +312,11 @@ FilterError forward_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float
     denz << 1.0f;
 
     if (num.size() == 0 || den.size() < 2) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     char n = den.size() - 1;
@@ -332,7 +332,7 @@ FilterError forward_n_tf(const FiltVectorXf &num, const FiltVectorXf &den, float
     // probably need to solve for the generalized eigenvalues/eigenvectors,
     // convert to Jordan form and then to a second order sections form
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 
@@ -347,12 +347,12 @@ FilterError tf2ss( const FiltVectorXf &num,
     static const float tol = 1e-9;
 
     if (num.size() == 0 || den.size() < 2) {
-        return FilterError::INVALID_DIMENSION; // invalid vector dimension
+        return FilterError::InvalidDimension; // invalid vector dimension
     }
 
     float d0 = den(0);
     if (fabs(d0) < tol) {
-        return FilterError::INVALID_POLYNOMIAL;
+        return FilterError::InvalidPolynomial;
     }
 
     char n = den.size() - 1;
@@ -392,7 +392,7 @@ FilterError tf2ss( const FiltVectorXf &num,
         D << Ginf;
     }
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError tf2ss(const Vec3 &num, 
@@ -418,7 +418,7 @@ FilterError tf2ss(const Vec3 &num,
     C << tmp_num(2), tmp_num(1);
     D << Ginf;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad, Vec3 &numz, Vec3 &denz)
@@ -429,7 +429,7 @@ FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad
     denz << 1.0f, 0.0f, 0.0f;
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     float K = 2.0f / dt;
@@ -443,7 +443,7 @@ FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad
 
     if (fabs(coeff_denom) < tol)
     {
-        return FilterError::UNSTABLE;
+        return FilterError::Unstable;
     }
 
     numz(0) = (num(1) * K + num(2)) / coeff_denom;
@@ -452,7 +452,7 @@ FilterError tustin_1_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad
     denz(0) = 1.0f;
     denz(1) = (-den(1) * K + den(2)) / coeff_denom;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad, Vec3 &numz, Vec3 &denz)
@@ -463,7 +463,7 @@ FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad
     denz << 1.0f, 0.0f, 0.0f;
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     float K = 2.0f / dt;
@@ -474,7 +474,7 @@ FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad
 
     if (fabs(coeff_denom) < tol)
     {
-        return FilterError::UNSTABLE;
+        return FilterError::Unstable;
     }
 
     numz(0) = (num(0)*K*K + num(1)*K + num(2)) / coeff_denom;
@@ -485,7 +485,7 @@ FilterError tustin_2_tf(const Vec3 &num, const Vec3 &den, float dt, float wc_rad
     denz(1) = (-2.0*den(0)*K*K       + 2.0*den(2)) / coeff_denom;
     denz(2) = (den(0)*K*K - den(1)*K + den(2)) / coeff_denom;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 
@@ -503,7 +503,7 @@ FilterError tustin_2_ss(const Mat22 &A,
     const float tol = 1.0e-6;
 
     if (dt < tol) {
-        return FilterError::INVALID_TIMESTEP;
+        return FilterError::InvalidTimestep;
     }
 
     Phi.setZero();
@@ -526,7 +526,7 @@ FilterError tustin_2_ss(const Mat22 &A,
     H = w0*C*invIw0mA;
     J = D + C*invIw0mA*B;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 FilterError zpk2tf2(Vec2c zeros, Vec2c poles, float K, uint8_t nz, uint8_t np, Vec3 &num, Vec3 &den)
@@ -538,11 +538,11 @@ FilterError zpk2tf2(Vec2c zeros, Vec2c poles, float K, uint8_t nz, uint8_t np, V
     den << 1, 0, 0;
 
     if (nz > 2 || np > 2 || nz > np) {
-        return FilterError::INVALID_DIMENSION;
+        return FilterError::InvalidDimension;
     }
 
     if (np == 0) {
-        return FilterError::NONE;
+        return FilterError::None;
     }
 
     if (np == 1) {
@@ -578,7 +578,7 @@ FilterError zpk2tf2(Vec2c zeros, Vec2c poles, float K, uint8_t nz, uint8_t np, V
     // TODO: handle zero dcgain (derivative case)
     num = num*K/dcGain;
 
-    return FilterError::NONE;
+    return FilterError::None;
 }
 
 }

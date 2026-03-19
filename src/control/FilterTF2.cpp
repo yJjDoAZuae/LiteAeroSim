@@ -1,232 +1,175 @@
 #define _USE_MATH_DEFINES
 
 #include <cmath>
-// #include <stdio.h>
-// #include <string.h>
 
 #include "control/control.hpp"
 #include "control/filter_realizations.hpp"
 #include "control/FilterTF2.hpp"
 
-static float dcTol = 1e-6;
-
 using namespace liteaerosim::control;
 using namespace liteaerosim;
 
-// copy implementation
-// template <char NUM_STATES=FILTER_MAX_STATES>
-// void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
-void FilterTF2::copy(const FilterTF2 &filt)
-{
-    _num << filt.num();
-    _den << filt.den();
-    uBuff << filt.uBuff;
-    yBuff << filt.yBuff;
-
-    _errorCode = filt.errorCode();
-    
-    _order = filt.order();
+FilterTF2::FilterTF2() {
+    num_ << 1, 0, 0;
+    den_ << 1, 0, 0;
+    u_buff_.setZero();
+    y_buff_.setZero();
 }
 
-void FilterTF2::setLowPassFirstIIR(float dt, float tau)
-{
-    // HACK: zero order hold realization
-    // ydot = -1/tau y + 1/tau u
-    // yk+1 - yk = (-1/tau yk + 1/tau u) * dt
-    // yk+1 = (1 - dt/tau) xk + dt/tau u
-
-    // numz.k[0] = dt/tau;
-    // numz.k[1] = 0.0f;
-    // denz.k[0] = 1.0f;
-    // denz.k[1] = -(1-dt/tau);
-
-    Vec3 num_s;
-    Vec3 den_s;
-
-    num_s(0) = 0.0f;
-    num_s(1) = 0.0f;
-    num_s(2) = 1.0f / tau;
-    den_s(0) = 0.0f;
-    den_s(1) = 1.0f;
-    den_s(2) = 1.0f / tau;
-
-    _errorCode += tustin_1_tf(num_s, den_s, dt, 2.0f*M_PI / tau, _num, _den);
-
-    _order = 1;
-
+FilterTF2::FilterTF2(const FilterTF2& filt) {
+    copy(filt);
 }
 
-void FilterTF2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero)
-{
-    Vec3 num_s;
-    Vec3 den_s;
-
-    num_s(0) = 0.0f;  // s^2
-    num_s(1) = tau_zero * wn_rps * wn_rps; // s
-    num_s(2) = wn_rps * wn_rps;
-    den_s(0) = 1.0f;  // s^2
-    den_s(1) = 2.0f * zeta * wn_rps;  // s
-    den_s(2) = wn_rps * wn_rps;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, _num, _den);
-
-    _order = 2;
+void FilterTF2::copy(const FilterTF2& filt) {
+    num_        = filt.num_;
+    den_        = filt.den_;
+    u_buff_     = filt.u_buff_;
+    y_buff_     = filt.y_buff_;
+    order_      = filt.order_;
+    error_code_ = filt.error_code_;
 }
 
-void FilterTF2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num)
-{
-    Vec3 num_s;
-    Vec3 den_s;
+void FilterTF2::setLowPassFirstIIR(float dt, float tau) {
+    Vec3 num_s, den_s;
+    num_s << 0.0f, 0.0f, 1.0f / tau;
+    den_s << 0.0f, 1.0f, 1.0f / tau;
 
-    num_s(0) = 1.0f;
-    num_s(1) = 2.0f * zeta_num * wn_rps;
-    num_s(2) = wn_rps * wn_rps;
-    den_s(0) = 1.0f;
-    den_s(1) = 2.0f * zeta_den * wn_rps;
-    den_s(2) = wn_rps * wn_rps;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, _num, _den);
-
-    _order = 2;
+    error_code_ += static_cast<uint16_t>(tustin_1_tf(num_s, den_s, dt, 2.0f * M_PI / tau, num_, den_));
+    order_ = 1;
 }
 
-void FilterTF2::setHighPassFirstIIR(float dt, float tau)
-{
-    Vec3 num_s;
-    Vec3 den_s;
+void FilterTF2::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero) {
+    Vec3 num_s, den_s;
+    num_s << 0.0f, tau_zero * wn_rps * wn_rps, wn_rps * wn_rps;
+    den_s << 1.0f, 2.0f * zeta * wn_rps, wn_rps * wn_rps;
 
-    num_s(0) = 0.0f;
-    num_s(1) = 1.0f / tau;
-    num_s(2) = 0.0f;
-    den_s(0) = 0.0f;
-    den_s(1) = 1.0f;
-    den_s(2) = 1.0f / tau;
-
-    _errorCode = tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, _num, _den);
-
-    _order = 1;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt, wn_rps, num_, den_));
+    order_ = 2;
 }
 
-void FilterTF2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero)
-{
-    Vec3 num_s;
-    Vec3 den_s;
+void FilterTF2::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num) {
+    Vec3 num_s, den_s;
+    num_s << 1.0f, 2.0f * zeta_num * wn_rps, wn_rps * wn_rps;
+    den_s << 1.0f, 2.0f * zeta_den * wn_rps, wn_rps * wn_rps;
 
-    num_s(0) = 1.0f;  // s^2
-    num_s(1) = c_zero * 2.0f * zeta * wn_rps;  // s
-    num_s(2) = 0.0f;
-    den_s(0) = 1.0f;  // s^2
-    den_s(1) = 2.0f * zeta * wn_rps;  // s
-    den_s(2) = wn_rps * wn_rps;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, _num, _den);
-
-    _order = 2;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt, wn_rps, num_, den_));
+    order_ = 2;
 }
 
-void FilterTF2::setDerivIIR(float dt, float tau)
-{
-    Vec3 num_s;
-    Vec3 den_s;
+void FilterTF2::setHighPassFirstIIR(float dt, float tau) {
+    Vec3 num_s, den_s;
+    num_s << 0.0f, 1.0f / tau, 0.0f;
+    den_s << 0.0f, 1.0f, 1.0f / tau;
 
-    num_s(0) = 0.0f;
-    num_s(1) = 1.0f / tau;
-    num_s(2) = 0.0f;
-    den_s(0) = 0.0f;
-    den_s(1) = 1.0f;
-    den_s(2) = 1.0f / tau;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, _num, _den);
-
-    _order = 1;
+    error_code_ = static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt, 2.0f * M_PI / tau, num_, den_));
+    order_ = 1;
 }
 
-void FilterTF2::resetToInput(float in)
-{
-    const float tol = 1e-6;
+void FilterTF2::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero) {
+    Vec3 num_s, den_s;
+    num_s << 1.0f, c_zero * 2.0f * zeta * wn_rps, 0.0f;
+    den_s << 1.0f, 2.0f * zeta * wn_rps, wn_rps * wn_rps;
 
-    uBuff.setZero();
-    yBuff.setZero();
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt, wn_rps, num_, den_));
+    order_ = 2;
+}
 
-    float dcGain = this->dcGain();
+void FilterTF2::setDerivIIR(float dt, float tau) {
+    Vec3 num_s, den_s;
+    num_s << 0.0f, 1.0f / tau, 0.0f;
+    den_s << 0.0f, 1.0f, 1.0f / tau;
 
-    if (errorCode() == 0)
-    {
-        uBuff << Vec3::Ones() * in;
-        yBuff << Vec3::Ones() * in * dcGain;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt, 2.0f * M_PI / tau, num_, den_));
+    order_ = 1;
+}
+
+void FilterTF2::resetToInput(float in_val) {
+    u_buff_.setZero();
+    y_buff_.setZero();
+
+    float dc = dcGain();
+
+    if (error_code_ == 0) {
+        u_buff_ = Vec3::Ones() * in_val;
+        y_buff_ = Vec3::Ones() * in_val * dc;
     }
 
-    _in = uBuff(0);
-    _out = yBuff(0);
+    in_  = u_buff_(0);
+    out_ = y_buff_(0);
 }
 
-void FilterTF2::resetToOutput(float out)
-{
-    const float tol = 1e-6;
+void FilterTF2::resetToOutput(float out_val) {
+    u_buff_.setZero();
+    y_buff_.setZero();
 
-    uBuff.setZero();
-    yBuff.setZero();
+    float dc = dcGain();
 
-    float dcGain = this->dcGain();
-
-    if (errorCode() == 0)
-    {
-        uBuff << Vec3::Ones() * out / dcGain;
-        yBuff << Vec3::Ones() * out;
+    if (error_code_ == 0) {
+        u_buff_ = Vec3::Ones() * out_val / dc;
+        y_buff_ = Vec3::Ones() * out_val;
     }
 
-    _in = uBuff(0);
-    _out = yBuff(0);
-
+    in_  = u_buff_(0);
+    out_ = y_buff_(0);
 }
 
-float FilterTF2::dcGain() const
-{
-   const float tol = 1e-6;
+float FilterTF2::dcGain() const {
+    const float tol = 1e-6f;
 
-    // float dcGain = 1.0f;
+    float num_sum = num_.sum();
+    float den_sum = den_.sum();
 
-    float numSum = _num.sum();
-    float denSum = _den.sum();
-
-    // We need an arbitrary finite DC gain to accommodate
-    // band pass, high pass, and lead/lag filters filters
-    // TODO: Filter stability test?
-
-    // Test for infinite DC gain.
-    // Pure integrators should not be implemented
-    // using an ARMA filter.
-    if (fabs(denSum) < tol)
-    {
-        // non-finite DC gain
-        // errorCode = 4;
+    if (std::fabs(den_sum) < tol) {
         return 1.0f;
     }
 
-    return numSum / denSum;
+    return num_sum / den_sum;
 }
 
-float FilterTF2::step(float in)
-{
+float FilterTF2::onStep(float u) {
+    float y = num_(0) * u;
 
-    this->_in = in;
-    this->_out = _num(0) * in;
-
-    // NOTE: implicit state->a.k[0] == 1 because
-    // we're assigning state->y.k[0] without a coefficient
-
-    // update the output
-    for (int k = 1; k < order() + 1 && k < 3; k++)
-    {
-        // TRICKY: because we haven't rolled the buffers yet
-        // the input and output buffer indices are one less
-        // than the coefficient indices
-        this->_out += _num(k) * uBuff(k - 1);
-        this->_out -= _den(k) * yBuff(k - 1);
+    for (int k = 1; k < order_ + 1 && k < 3; k++) {
+        y += num_(k) * u_buff_(k - 1);
+        y -= den_(k) * y_buff_(k - 1);
     }
 
-    roll_buffer(yBuff, this->out());
-    roll_buffer(uBuff, this->in());
+    roll_buffer(y_buff_, y);
+    roll_buffer(u_buff_, u);
 
-    return this->out();
+    return y;
+}
+
+void FilterTF2::onInitialize(const nlohmann::json& /*config*/) {}
+
+nlohmann::json FilterTF2::onSerializeJson() const {
+    return {
+        {"order",      order_},
+        {"error_code", error_code_},
+        {"in",         in_},
+        {"out",        out_},
+        {"num",        {num_(0), num_(1), num_(2)}},
+        {"den",        {den_(0), den_(1), den_(2)}},
+        {"state", {
+            {"u0", u_buff_(0)}, {"u1", u_buff_(1)}, {"u2", u_buff_(2)},
+            {"y0", y_buff_(0)}, {"y1", y_buff_(1)}, {"y2", y_buff_(2)}
+        }}
+    };
+}
+
+void FilterTF2::onDeserializeJson(const nlohmann::json& state) {
+    order_      = state.at("order").get<uint8_t>();
+    error_code_ = state.at("error_code").get<uint16_t>();
+    in_         = state.at("in").get<float>();
+    out_        = state.at("out").get<float>();
+
+    const nlohmann::json& n = state.at("num");
+    num_ << n[0].get<float>(), n[1].get<float>(), n[2].get<float>();
+
+    const nlohmann::json& d = state.at("den");
+    den_ << d[0].get<float>(), d[1].get<float>(), d[2].get<float>();
+
+    const nlohmann::json& s = state.at("state");
+    u_buff_ << s.at("u0").get<float>(), s.at("u1").get<float>(), s.at("u2").get<float>();
+    y_buff_ << s.at("y0").get<float>(), s.at("y1").get<float>(), s.at("y2").get<float>();
 }

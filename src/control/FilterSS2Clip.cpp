@@ -1,433 +1,336 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
-// #include <stdio.h>
-// #include <string.h>
+#include <stdexcept>
 
 #include "control/control.hpp"
 #include "control/filter_realizations.hpp"
 #include "control/FilterSS2Clip.hpp"
 #include <unsupported/Eigen/MatrixFunctions>  // for Matrix::pow() in controlGrammian/observeGrammian
 
-static float dcTol = 1e-6;
+static constexpr float kDcTol = 1e-6f;
 
 using namespace liteaerosim::control;
 using namespace liteaerosim;
 
-// copy implementation
-// template <char NUM_STATES=FILTER_MAX_STATES>
-// void SISOFilter<NUM_STATES>::copy(SISOFilter &filt)
-void FilterSS2Clip::copy(FilterSS2Clip &filt)
-{
-    _Phi << filt.Phi();
-    _Gamma << filt.Gamma();
-    _H << filt.H();
-    _J << filt.J();
-    _x << filt.x();
-
-    _errorCode = filt.errorCode();
-    
-    _order = filt.order();
-    _dt = filt.dt();
+FilterSS2Clip::FilterSS2Clip() {
+    phi_.setZero();
+    gamma_.setZero();
+    h_.setZero();
+    j_.setOnes();
+    x_.setZero();
 }
 
-void FilterSS2Clip::setLowPassFirstIIR(float dt, float tau)
-{
-    // HACK: zero order hold realization
-    // ydot = -1/tau y + 1/tau u
-    // yk+1 - yk = (-1/tau yk + 1/tau u) * dt
-    // yk+1 = (1 - dt/tau) xk + dt/tau u
-
-    // numz.k[0] = dt/tau;
-    // numz.k[1] = 0.0f;
-    // denz.k[0] = 1.0f;
-    // denz.k[1] = -(1-dt/tau);
-
-    Eigen::Vector3f num_s;
-    Eigen::Vector3f den_s;
-
-    num_s(0) = 0.0f;
-    num_s(1) = 0.0f;
-    num_s(2) = 1.0f / tau;
-    den_s(0) = 0.0f;
-    den_s(1) = 1.0f;
-    den_s(2) = 1.0f / tau;
-
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
-
-    _errorCode += tustin_1_tf(num_s, den_s, dt, 2.0f*M_PI / tau, num_z, den_z);
-
-    tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
-
-    _order = 1;
-    _dt = dt;
+void FilterSS2Clip::copy(const FilterSS2Clip& filt) {
+    phi_        = filt.phi_;
+    gamma_      = filt.gamma_;
+    h_          = filt.h_;
+    j_          = filt.j_;
+    x_          = filt.x_;
+    in_         = filt.in_;
+    out_        = filt.out_;
+    error_code_ = filt.error_code_;
+    order_      = filt.order_;
+    dt_s_       = filt.dt_s_;
 }
 
-void FilterSS2Clip::setLowPassSecondIIR(float dt, float wn_rps, float zeta, float tau_zero)
-{
-    Eigen::Vector3f num_s;
-    Eigen::Vector3f den_s;
+void FilterSS2Clip::setLowPassFirstIIR(float dt_s, float tau) {
+    Eigen::Vector3f num_s, den_s;
+    num_s << 0.0f, 0.0f, 1.0f / tau;
+    den_s << 0.0f, 1.0f, 1.0f / tau;
 
-    num_s(0) = 0.0f;  // s^2
-    num_s(1) = tau_zero * wn_rps * wn_rps; // s
-    num_s(2) = wn_rps * wn_rps;
-    den_s(0) = 1.0f;  // s^2
-    den_s(1) = 2.0f * zeta * wn_rps;  // s
-    den_s(2) = wn_rps * wn_rps;
+    Eigen::Vector3f num_z, den_z;
+    error_code_ += static_cast<uint16_t>(tustin_1_tf(num_s, den_s, dt_s, 2.0f * M_PI / tau, num_z, den_z));
 
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
-
-    tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
-
-    _order = 2;
-    _dt = dt;
+    tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
+    order_ = 1;
+    dt_s_  = dt_s;
 }
 
-void FilterSS2Clip::setNotchSecondIIR(float dt, float wn_rps, float zeta_den, float zeta_num)
-{
-    Eigen::Vector3f num_s;
-    Eigen::Vector3f den_s;
+void FilterSS2Clip::setLowPassSecondIIR(float dt_s, float wn_rad_s, float zeta, float tau_zero) {
+    Eigen::Vector3f num_s, den_s;
+    num_s << 0.0f, tau_zero * wn_rad_s * wn_rad_s, wn_rad_s * wn_rad_s;
+    den_s << 1.0f, 2.0f * zeta * wn_rad_s, wn_rad_s * wn_rad_s;
 
-    num_s(0) = 1.0f;
-    num_s(1) = 2.0f * zeta_num * wn_rps;
-    num_s(2) = wn_rps * wn_rps;
-    den_s(0) = 1.0f;
-    den_s(1) = 2.0f * zeta_den * wn_rps;
-    den_s(2) = wn_rps * wn_rps;
+    Eigen::Vector3f num_z, den_z;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z));
 
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
-
-    tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
-
-    _order = 2;
-    _dt = dt;
+    tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
+    order_ = 2;
+    dt_s_  = dt_s;
 }
 
-void FilterSS2Clip::setHighPassFirstIIR(float dt, float tau)
-{
-    Eigen::Vector3f num_s;
-    Eigen::Vector3f den_s;
+void FilterSS2Clip::setNotchSecondIIR(float dt_s, float wn_rad_s, float zeta_den, float zeta_num) {
+    Eigen::Vector3f num_s, den_s;
+    num_s << 1.0f, 2.0f * zeta_num * wn_rad_s, wn_rad_s * wn_rad_s;
+    den_s << 1.0f, 2.0f * zeta_den * wn_rad_s, wn_rad_s * wn_rad_s;
 
-    num_s(0) = 0.0f;
-    num_s(1) = 1.0f / tau;
-    num_s(2) = 0.0f;
-    den_s(0) = 0.0f;
-    den_s(1) = 1.0f;
-    den_s(2) = 1.0f / tau;
+    Eigen::Vector3f num_z, den_z;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z));
 
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
-
-    _errorCode = tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, num_z, den_z);
-
-    tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
-
-    _order = 1;
-    _dt = dt;
+    tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
+    order_ = 2;
+    dt_s_  = dt_s;
 }
 
-void FilterSS2Clip::setHighPassSecondIIR(float dt, float wn_rps, float zeta, float c_zero)
-{
-    Eigen::Vector3f num_s;
-    Eigen::Vector3f den_s;
+void FilterSS2Clip::setHighPassFirstIIR(float dt_s, float tau) {
+    Eigen::Vector3f num_s, den_s;
+    num_s << 0.0f, 1.0f / tau, 0.0f;
+    den_s << 0.0f, 1.0f, 1.0f / tau;
 
-    num_s(0) = 1.0f;  // s^2
-    num_s(1) = c_zero * 2.0f * zeta * wn_rps;  // s
-    num_s(2) = 0.0f;
-    den_s(0) = 1.0f;  // s^2
-    den_s(1) = 2.0f * zeta * wn_rps;  // s
-    den_s(2) = wn_rps * wn_rps;
+    Eigen::Vector3f num_z, den_z;
+    error_code_ = static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, 2.0f * M_PI / tau, num_z, den_z));
 
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, wn_rps, num_z, den_z);
-
-    tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
-
-    _order = 2;
-    _dt = dt;
+    tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
+    order_ = 1;
+    dt_s_  = dt_s;
 }
 
-void FilterSS2Clip::setDerivIIR(float dt, float tau)
-{
-    Eigen::Vector3f num_s;
-    Eigen::Vector3f den_s;
+void FilterSS2Clip::setHighPassSecondIIR(float dt_s, float wn_rad_s, float zeta, float c_zero) {
+    Eigen::Vector3f num_s, den_s;
+    num_s << 1.0f, c_zero * 2.0f * zeta * wn_rad_s, 0.0f;
+    den_s << 1.0f, 2.0f * zeta * wn_rad_s, wn_rad_s * wn_rad_s;
 
-    num_s(0) = 0.0f;
-    num_s(1) = 1.0f / tau;
-    num_s(2) = 0.0f;
-    den_s(0) = 0.0f;
-    den_s(1) = 1.0f;
-    den_s(2) = 1.0f / tau;
+    Eigen::Vector3f num_z, den_z;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, wn_rad_s, num_z, den_z));
 
-    Eigen::Vector3f num_z;
-    Eigen::Vector3f den_z;
-
-    _errorCode += tustin_2_tf(num_s, den_s, dt, 2.0f*M_PI / tau, num_z, den_z);
-
-    tf2ss(num_z, den_z, _Phi, _Gamma, _H, _J);
-
-    _order = 1;
-    _dt = dt;
+    tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
+    order_ = 2;
+    dt_s_  = dt_s;
 }
 
-void FilterSS2Clip::resetToInput(float in)
-{
-    const float tol = 1e-6;
+void FilterSS2Clip::setDerivIIR(float dt_s, float tau) {
+    Eigen::Vector3f num_s, den_s;
+    num_s << 0.0f, 1.0f / tau, 0.0f;
+    den_s << 0.0f, 1.0f, 1.0f / tau;
 
-    _x.setZero();
-    _out = 0.0f;
-    _in = 0.0f;
-    float dcGain = this->dcGain();
+    Eigen::Vector3f num_z, den_z;
+    error_code_ += static_cast<uint16_t>(tustin_2_tf(num_s, den_s, dt_s, 2.0f * M_PI / tau, num_z, den_z));
 
-    if (errorCode() == 0)
-    {
-
-        Mat22 ImPhiInv;
-        bool invertible = false;
-        float absDeterminantThreshold = 1e-4;
-
-        (Mat22::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
-
-        if (!invertible) {
-            _errorCode += FilterError::UNSTABLE;
-            return;
-        }
-
-        _in = in;
-        _out = valLimit.step(dcGain * in);
-
-        if (fabs(dcGain) > tol) {
-            _in = _out/dcGain;
-        }
-
-        _x << ImPhiInv * _Gamma * _in;
-    } else {
-        return;
-    }
+    tf2ss(num_z, den_z, phi_, gamma_, h_, j_);
+    order_ = 1;
+    dt_s_  = dt_s;
 }
 
-void FilterSS2Clip::resetToOutput(float out)
-{
-    const float tol = 1e-6;
+void FilterSS2Clip::resetToInput(float in_val) {
+    x_.setZero();
+    out_ = 0.0f;
+    in_  = 0.0f;
 
-    _x.setZero();
-    _out = 0.0f;
-    _in = 0.0f;
-    float dcGain = this->dcGain();
-
-    if (fabs(dcGain) < tol) {
-        _errorCode += FilterError::ZERO_DC_GAIN;
-        return;
-    }
-
-    if (errorCode() == 0)
-    {
-
-        Mat22 ImPhiInv;
-        bool invertible = false;
-        float absDeterminantThreshold = 1e-4;
-
-        (Mat22::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
-
-        if (!invertible) {
-            _errorCode += FilterError::UNSTABLE;
-            return;
-        }
-
-        // Assumption that rateLimit limits interval includes 0
-        // otherwise we would need to do a ramp reset rather than DC
-        rateLimit.step(0.0f);
-        _out = valLimit.step(out);
-        _in = out/dcGain;
-
-        _x << ImPhiInv * _Gamma * _in;
-    } else {
-        return;
-    }
-
-}
-
-float FilterSS2Clip::dcGain() const
-{
-    // float dcGain = 1.0f;
-
-    // We need an arbitrary finite DC gain to accommodate
-    // band pass, high pass, and lead/lag filters filters
-    // TODO: Filter stability test?
-
-    // Test for infinite DC gain.
-    // Pure integrators should not be implemented
-    // using an ARMA filter.
+    if (error_code_ != 0) return;
 
     Mat22 ImPhiInv;
-    bool invertible = false;
-    float absDeterminantThreshold = 1e-4;
+    bool  invertible              = false;
+    float absDeterminantThreshold = 1e-4f;
 
-    (Mat22::Identity() - _Phi).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
+    (Mat22::Identity() - phi_).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
 
     if (!invertible) {
-        // _errorCode += FilterError::INFINITE_DC_GAIN;
-        return 1.0f;
+        error_code_ += static_cast<uint16_t>(FilterError::Unstable);
+        return;
     }
 
-    return (_H*ImPhiInv*_Gamma + _J).value();
+    float dc = dcGain();
+    in_  = in_val;
+    out_ = valLimit.step(dc * in_val);
+
+    if (std::fabs(dc) > kDcTol) {
+        in_ = out_ / dc;
+    }
+
+    x_ = ImPhiInv * gamma_ * in_;
 }
 
-Mat22 FilterSS2Clip::controlGrammian() const
-{
-    Mat22 C(Mat22::Zero(2,2));
+void FilterSS2Clip::resetToOutput(float out_val) {
+    x_.setZero();
+    out_ = 0.0f;
+    in_  = 0.0f;
 
-    for (int k = 0; k<2; k++) {
-        C(Eigen::all, k) << Mat21(_Phi.pow(k) * _Gamma);
+    float dc = dcGain();
+    if (std::fabs(dc) < kDcTol) {
+        error_code_ += static_cast<uint16_t>(FilterError::ZeroDcGain);
+        return;
     }
 
+    if (error_code_ != 0) return;
+
+    Mat22 ImPhiInv;
+    bool  invertible              = false;
+    float absDeterminantThreshold = 1e-4f;
+
+    (Mat22::Identity() - phi_).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
+
+    if (!invertible) {
+        error_code_ += static_cast<uint16_t>(FilterError::Unstable);
+        return;
+    }
+
+    rateLimit.step(0.0f);
+    out_ = valLimit.step(out_val);
+    in_  = out_val / dc;
+    x_   = ImPhiInv * gamma_ * in_;
+}
+
+float FilterSS2Clip::dcGain() const {
+    Mat22 ImPhiInv;
+    bool  invertible              = false;
+    float absDeterminantThreshold = 1e-4f;
+
+    (Mat22::Identity() - phi_).computeInverseWithCheck(ImPhiInv, invertible, absDeterminantThreshold);
+
+    if (!invertible) return 1.0f;
+
+    return (h_ * ImPhiInv * gamma_ + j_).value();
+}
+
+Mat22 FilterSS2Clip::controlGrammian() const {
+    Mat22 C(Mat22::Zero(2, 2));
+    for (int k = 0; k < 2; k++) {
+        C(Eigen::all, k) << Mat21(phi_.pow(k) * gamma_);
+    }
     return C;
 }
 
-Mat22 FilterSS2Clip::observeGrammian() const
-{
-    Mat22 C(Mat22::Zero(2,2));
-
-    for (int k = 0; k<2; k++) {
-        C(k, Eigen::all) << Mat12(_H * _Phi.pow(k));
+Mat22 FilterSS2Clip::observeGrammian() const {
+    Mat22 C(Mat22::Zero(2, 2));
+    for (int k = 0; k < 2; k++) {
+        C(k, Eigen::all) << Mat12(h_ * phi_.pow(k));
     }
-
     return C;
 }
 
-void FilterSS2Clip::resetState(const Mat21& x)
-{
-    _x = x;
-    _in = 0.f;
-    rateLimit.step(0.f);
-    _out = valLimit.step((_H * _x + _J * _in).value());
+void FilterSS2Clip::resetState(const Mat21& x) {
+    x_  = x;
+    in_ = 0.0f;
+    rateLimit.step(0.0f);
+    out_ = valLimit.step((h_ * x_ + j_ * in_).value());
 }
 
-void FilterSS2Clip::backsolve1(float inPrev, float outPrev)
-{
-    // Backsolve to correct the state based on the limited values.
-    // We are correcting the *previous* iteration's state here
-    // to make it consistent with the output value we just calculated.
-    bool invertible = false;
-    const float absDeterminantThreshold = 1e-12;
+void FilterSS2Clip::backsolve1(float /*in_prev*/, float /*out_prev*/, float in_curr, float out_curr) {
+    bool        invertible              = false;
+    const float absDeterminantThreshold = 1e-12f;
 
-    // y_k+1 = H x_k + J u_k
+    // y = H x + J u  =>  H x = y - J u  (underdetermined for order-1)
+    // Use right pseudoinverse: x = H^T (H H^T)^-1 b
     Mat12 A;
     Mat11 b;
-
-    // Ax = b
-    // A will be column rank deficient, use the right pseudoinverse
-    // A^+ = A^T (A A^T)^-1
-
-    A << _H;
-    b << _out - (_J * _in).value();
+    A << h_;
+    b << out_curr - (j_ * in_curr).value();
 
     Mat21 ApInv;
     Mat11 AATInv;
-
-    Mat11 AAT;
-    AAT = A*A.transpose();
-
+    Mat11 AAT = A * A.transpose();
     AAT.computeInverseWithCheck(AATInv, invertible, absDeterminantThreshold);
-
     if (invertible) {
         ApInv = A.transpose() * AATInv;
-        _x = ApInv * b;
+        x_    = ApInv * b;
     }
 }
 
-void FilterSS2Clip::backsolve2(float inPrev, float outPrev)
-{
-    // Backsolve to correct the state based on the limited values.
-    // We are correcting the *previous* iteration's state here
-    // to make it consistent with the output value we just calculated.
+void FilterSS2Clip::backsolve2(float in_prev, float out_prev, float in_curr, float out_curr) {
     Mat22 PhiInv;
-    bool invertible = false;
-    const float absDeterminantThreshold = 1e-12;
+    bool        invertible              = false;
+    const float absDeterminantThreshold = 1e-12f;
 
-    // _Phi should be invertible for a stable filter, but if it's not
-    // we'll just skip backsolving
-    _Phi.computeInverseWithCheck(PhiInv, invertible, absDeterminantThreshold);
+    phi_.computeInverseWithCheck(PhiInv, invertible, absDeterminantThreshold);
+    if (!invertible) return;
 
+    // Two-equation system:
+    //   y_k   = H Phi^-1 x_k - H Phi^-1 Gamma u_{k-1} + J u_{k-1}
+    //   y_k+1 = H x_k + J u_k
+    Mat22 A;
+    Mat21 b;
+    A << h_ * PhiInv,
+         h_;
+    b << out_prev + (h_ * PhiInv * gamma_ * in_prev).value() - (j_ * in_prev).value(),
+         out_curr - (j_ * in_curr).value();
+
+    Mat22 AInv;
+    A.computeInverseWithCheck(AInv, invertible, absDeterminantThreshold);
     if (invertible) {
-
-        // y_k = H Phi^-1 (x_k - Gamma u_k-1) + J u_k-1
-        // y_k+1 = H x_k + J u_k
-        Mat22 A;
-        Mat21 b;
-
-        A << _H*PhiInv,
-            _H;
-        b << outPrev + (_H * PhiInv * _Gamma * inPrev).value() - (_J * inPrev).value(), 
-            _out - (_J * _in).value();
-
-        Mat22 AInv;
-        A.computeInverseWithCheck(AInv, invertible, absDeterminantThreshold);
-
+        x_ = AInv * b;
+    } else {
+        // Use left pseudoinverse: x = (A^T A)^-1 A^T b
+        Mat22 ATAInv;
+        (A.transpose() * A).computeInverseWithCheck(ATAInv, invertible, absDeterminantThreshold);
         if (invertible) {
-            _x = AInv * b;
-        } else {
-            // A is uninvertible, try the left psuedoinverse instead
-            // A^+ = (A^T A)^-1 A^T
-            Mat22 ApInv;
-            Mat22 ATAInv;
-            (A.transpose()*A).computeInverseWithCheck(ATAInv, invertible, absDeterminantThreshold);
-
-            if (invertible) {
-                ApInv = ATAInv * A.transpose();
-                _x = ApInv * b;
-            }
+            x_ = ATAInv * A.transpose() * b;
         }
     }
 }
 
-void FilterSS2Clip::backsolve(float inPrev, float outPrev)
-{
-    // Backsolve to correct the state based on the limited values.
-    // We are correcting the *previous* iteration's state here
-    // to make it consistent with the output value we just calculated.
-
-    if (_order == 1) {
-        backsolve1(inPrev, outPrev);
-    } else if (_order == 2) {
-        backsolve2(inPrev, outPrev);
+void FilterSS2Clip::backsolve(float in_prev, float out_prev, float in_curr, float out_curr) {
+    if (order_ == 1) {
+        backsolve1(in_prev, out_prev, in_curr, out_curr);
+    } else if (order_ == 2) {
+        backsolve2(in_prev, out_prev, in_curr, out_curr);
     }
 }
 
-float FilterSS2Clip::step(float in)
-{
+float FilterSS2Clip::onStep(float u) {
+    float in_prev  = in_;   // in_ holds the previous input during onStep
+    float out_prev = out_;  // out_ holds the previous output during onStep
 
-    float inPrev = _in;
-    _in = in;
+    // Compute filter output (before limiting)
+    float out_new = (h_ * x_ + j_ * u).value();
 
-    float delU = in - inPrev;
-
-    float outPrev = _out;
-
-    // TRICKY: update the output first
-    _out = (_H*_x + _J*_in).value();
-
-    // Euler derivative computation with derivative
-    // TODO: use a tustin derivative here?
-    float outDot = rateLimit.step((_out - outPrev)/_dt);
-
-    // Apply the rate limit to the output but also reimpose the value limit
-    _out = valLimit.step(outPrev + outDot*_dt);
+    // Rate-limit the output change
+    float out_dot     = rateLimit.step((out_new - out_prev) / dt_s_);
+    float out_limited = valLimit.step(out_prev + out_dot * dt_s_);
 
     if (valLimit.isLimited() || rateLimit.isLimited()) {
-        backsolve(inPrev, outPrev);
+        backsolve(in_prev, out_prev, u, out_limited);
     }
 
-    // state update
-    _x = _Phi*_x + _Gamma*_in;
+    // State update
+    x_ = phi_ * x_ + gamma_ * u;
 
-    return this->out();
+    return out_limited;
+}
+
+void FilterSS2Clip::onInitialize(const nlohmann::json& /*config*/) {
+    // FilterSS2Clip is configured via set*IIR methods, not JSON config.
+}
+
+nlohmann::json FilterSS2Clip::onSerializeJson() const {
+    return {
+        {"in",         in_},
+        {"out",        out_},
+        {"dt_s",       dt_s_},
+        {"order",      order_},
+        {"error_code", error_code_},
+        {"state",  {{"x0", x_(0, 0)}, {"x1", x_(1, 0)}}},
+        {"phi",    {{"r0c0", phi_(0, 0)}, {"r0c1", phi_(0, 1)},
+                    {"r1c0", phi_(1, 0)}, {"r1c1", phi_(1, 1)}}},
+        {"gamma",  {{"r0", gamma_(0, 0)}, {"r1", gamma_(1, 0)}}},
+        {"h",      {{"c0", h_(0, 0)},     {"c1", h_(0, 1)}}},
+        {"j",      j_(0, 0)}
+    };
+}
+
+void FilterSS2Clip::onDeserializeJson(const nlohmann::json& state) {
+    in_         = state.at("in").get<float>();
+    out_        = state.at("out").get<float>();
+    dt_s_       = state.at("dt_s").get<float>();
+    order_      = state.at("order").get<uint8_t>();
+    error_code_ = state.at("error_code").get<uint16_t>();
+
+    const nlohmann::json& s = state.at("state");
+    x_(0, 0) = s.at("x0").get<float>();
+    x_(1, 0) = s.at("x1").get<float>();
+
+    const nlohmann::json& p = state.at("phi");
+    phi_(0, 0) = p.at("r0c0").get<float>();
+    phi_(0, 1) = p.at("r0c1").get<float>();
+    phi_(1, 0) = p.at("r1c0").get<float>();
+    phi_(1, 1) = p.at("r1c1").get<float>();
+
+    const nlohmann::json& g = state.at("gamma");
+    gamma_(0, 0) = g.at("r0").get<float>();
+    gamma_(1, 0) = g.at("r1").get<float>();
+
+    const nlohmann::json& hv = state.at("h");
+    h_(0, 0) = hv.at("c0").get<float>();
+    h_(0, 1) = hv.at("c1").get<float>();
+
+    j_(0, 0) = state.at("j").get<float>();
 }

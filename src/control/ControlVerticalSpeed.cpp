@@ -11,24 +11,24 @@ float velWind_horiz(const KinematicState & state)
     return hypot(velWind_NED_mps(0), velWind_NED_mps(1));
 }
 
-float ControlVerticalSpeed::step(float verticalSpeedCmdIn, const KinematicState & state)
+float ControlVerticalSpeed::step(float command, const KinematicState& state)
 {
-    pid.unwrapInputs = false;
+    controller_.setUnwrapInputs(false);
 
-    float gammaCmd = atan2(verticalSpeedCmdIn, velWind_horiz(state)); // positive up
-    float gammaMeas = atan2(-state.velocity_NED_mps()(2), velWind_horiz(state));
-    float gammaDot = state.pitchRate_rps() - state.alphaDot()*cos(state.roll());
+    float gamma_command     = atan2(command, velWind_horiz(state));  // positive up
+    float gamma_measurement = atan2(-state.velocity_NED_mps()(2), velWind_horiz(state));
+    float gamma_dot         = state.pitchRate_rps() - state.alphaDot() * cos(state.roll());
 
-    float gammaRateCmd = pid.step(gammaCmd, gammaMeas, gammaDot);
+    float gamma_rate_command = controller_.step(gamma_command, gamma_measurement, gamma_dot);
 
-    return gammaRateCmd*state.velocity_Wind_mps().norm();
+    return gamma_rate_command * state.velocity_Wind_mps().norm();
 }
 
-void ControlVerticalSpeed::reset(float verticalSpeedCmdIn, const KinematicState & state)
+void ControlVerticalSpeed::reset(float command, const KinematicState& state)
 {
-    pid.unwrapInputs = false;
+    controller_.setUnwrapInputs(false);
 
-    float gammaCmd = atan2(verticalSpeedCmdIn, velWind_horiz(state)); // positive up
-    float gammaMeas = atan2(-state.velocity_NED_mps()(2), velWind_horiz(state));
-    pid.reset(gammaCmd, gammaMeas, 0.0f);
+    float gamma_command     = atan2(command, velWind_horiz(state));  // positive up
+    float gamma_measurement = atan2(-state.velocity_NED_mps()(2), velWind_horiz(state));
+    controller_.reset(gamma_command, gamma_measurement, 0.0f);
 }

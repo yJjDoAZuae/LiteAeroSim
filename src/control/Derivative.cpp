@@ -4,19 +4,19 @@ using namespace liteaerosim::control;
 
 float Derivative::onStep(float u)
 {
-    _Tau = (_Tau > 4.0f * _dt) ? _Tau : 4.0f * _dt;
+    tau_s_ = (tau_s_ > 4.0f * dt_s_) ? tau_s_ : 4.0f * dt_s_;
 
     float next;
-    switch (_method) {
-    case DiscretizationMethod::BackEuler:
-        next = limit.step(_Tau / (_Tau + _dt) * out_ + (u - in_) / (_Tau + _dt));
+    switch (method_) {
+    case DiscretizationMethod::BackwardEuler:
+        next = limit_.step(tau_s_ / (tau_s_ + dt_s_) * out_ + (u - in_) / (tau_s_ + dt_s_));
         break;
-    case DiscretizationMethod::FwdEuler:
-        next = limit.step(out_ * (_Tau - _dt) / _Tau + (u - in_) / _Tau);
+    case DiscretizationMethod::ForwardEuler:
+        next = limit_.step(out_ * (tau_s_ - dt_s_) / tau_s_ + (u - in_) / tau_s_);
         break;
     case DiscretizationMethod::Bilinear:
-        next = limit.step(out_ * (2.0f * _Tau - _dt) / (2.0f * _Tau + _dt)
-                          + 0.5f * (u + in_) * 2.0f / (2.0f * _Tau + _dt));
+        next = limit_.step(out_ * (2.0f * tau_s_ - dt_s_) / (2.0f * tau_s_ + dt_s_)
+                           + 0.5f * (u + in_) * 2.0f / (2.0f * tau_s_ + dt_s_));
         break;
     default:
         next = out_;
@@ -28,15 +28,15 @@ float Derivative::onStep(float u)
 
 void Derivative::resetTo(float u, float uDot)
 {
-    out_ = limit.step(uDot);
+    out_ = limit_.step(uDot);
     in_  = u;
 }
 
 void Derivative::onInitialize(const nlohmann::json& config)
 {
-    _dt     = config.at("dt_s").get<float>();
-    _Tau    = config.at("tau_s").get<float>();
-    _method = static_cast<DiscretizationMethod>(config.at("method").get<int>());
+    dt_s_   = config.at("dt_s").get<float>();
+    tau_s_  = config.at("tau_s").get<float>();
+    method_ = static_cast<DiscretizationMethod>(config.at("method").get<int>());
 }
 
 nlohmann::json Derivative::onSerializeJson() const
@@ -44,9 +44,9 @@ nlohmann::json Derivative::onSerializeJson() const
     return {
         {"in",     in_},
         {"out",    out_},
-        {"dt_s",   _dt},
-        {"tau_s",  _Tau},
-        {"method", static_cast<int>(_method)}
+        {"dt_s",   dt_s_},
+        {"tau_s",  tau_s_},
+        {"method", static_cast<int>(method_)}
     };
 }
 
@@ -54,7 +54,7 @@ void Derivative::onDeserializeJson(const nlohmann::json& state)
 {
     in_     = state.at("in").get<float>();
     out_    = state.at("out").get<float>();
-    _dt     = state.at("dt_s").get<float>();
-    _Tau    = state.at("tau_s").get<float>();
-    _method = static_cast<DiscretizationMethod>(state.at("method").get<int>());
+    dt_s_   = state.at("dt_s").get<float>();
+    tau_s_  = state.at("tau_s").get<float>();
+    method_ = static_cast<DiscretizationMethod>(state.at("method").get<int>());
 }

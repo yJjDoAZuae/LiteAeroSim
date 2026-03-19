@@ -2,6 +2,7 @@
 #include "control/FilterSS.hpp"
 #include "control/filter_realizations.hpp"
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 using namespace liteaerosim::control;
 using namespace liteaerosim;
@@ -82,10 +83,10 @@ TEST(FilterSSTest, SecondOrderLP00) {
 
     EXPECT_EQ(G.order(), 2);
 
-    MatNN Phi(G.Phi());
-    MatN1 Gamma(G.Gamma());
-    Mat1N H(G.H());
-    Mat11 J(G.J());
+    MatNN Phi(G.phi());
+    MatN1 Gamma(G.gamma());
+    Mat1N H(G.h());
+    Mat11 J(G.j());
 
     // float Ginf = num_z(0)/den_z(0);
 
@@ -173,5 +174,45 @@ TEST(FilterSSTest, SecondOrderLP00) {
 
     EXPECT_EQ(G.in(), 1.0f);
     EXPECT_NEAR(G.out(), 1.0361699725173787, 1e-6);
-    
+
+}
+
+TEST(FilterSSTest, SchemaVersionAndTypeName) {
+    FilterSS G;
+    nlohmann::json snap = G.serializeJson();
+    EXPECT_EQ(snap["schema_version"].get<int>(), 1);
+    EXPECT_EQ(snap["type"].get<std::string>(), "FilterSS");
+}
+
+TEST(FilterSSTest, NviInAndOutUpdated) {
+    FilterSS G;
+    G.setButterworthIIR(2, 0.1f, 2.0f);
+    SisoElement* base = &G;
+    base->step(1.0f);
+    EXPECT_EQ(base->in(), 1.0f);
+    EXPECT_NE(base->out(), 0.0f);
+}
+
+TEST(FilterSSTest, SerializeNonEmpty) {
+    FilterSS G;
+    G.setButterworthIIR(2, 0.1f, 2.0f);
+    G.step(1.0f);
+    G.step(1.0f);
+    nlohmann::json snap = G.serializeJson();
+    EXPECT_EQ(snap["schema_version"].get<int>(), 1);
+    EXPECT_EQ(snap["type"].get<std::string>(), "FilterSS");
+    EXPECT_TRUE(snap.contains("order"));
+    EXPECT_TRUE(snap.contains("state"));
+}
+
+TEST(FilterSSTest, JsonRoundTrip) {
+    FilterSS G;
+    G.setButterworthIIR(2, 0.1f, 2.0f);
+    G.step(1.0f);
+    G.step(1.0f);
+    nlohmann::json snap = G.serializeJson();
+    FilterSS G2;
+    G2.setButterworthIIR(2, 0.1f, 2.0f);
+    G2.deserializeJson(snap);
+    EXPECT_FLOAT_EQ(G2.step(1.0f), G.step(1.0f));
 }

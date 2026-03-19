@@ -1,5 +1,9 @@
 # Control Subsystem — Interface Design Review
 
+> **Status: All nine issues resolved.** Steps A–J were completed as roadmap item 18.
+> The codebase now reflects the recommended design in every section below.
+> This document is retained as the design authority and historical record.
+
 This document identifies interface design pattern errors in the control subsystem
 (`include/control/`, `src/control/`) and proposes concrete refactoring for each.
 Issues are ordered by severity.
@@ -692,18 +696,18 @@ Issue 9 (naming)         — fold into Issue 1 migration
 
 Suggested roadmap items, in order:
 
-| Item | Scope |
-|------|-------|
-| A | `DiscretizationMethod` and `FilterError` → `enum class` (Issue 8) |
-| B | `Limit` / `RateLimit` hierarchy: delete `LimitBase`; both derive from `SisoElement` directly (Issue 5) |
-| C | `Gain` API cleanup: remove stubs, fix `operator=` → `set()`, `operator double()` → `operator float()`, `K()` → `value()`, `_K` → `value_`; template parameters retained (Issue 4 partial) |
-| D | `FilterSS2Clip` NVI migration: `onStep()`, real lifecycle, `snake_case_` members (Issues 1, 2, 9) |
-| E | `FilterTF2` NVI migration (Issues 1, 2, 9); evaluate consolidation with `FilterSS2` |
-| F | `FilterTF`, `FilterFIR`, `FilterSS` — evaluate for consolidation / removal or NVI migration |
-| G | `Filter` no-op defaults removed (Issue 2) — after D–F |
-| H | `Unwrap` reference field design (Issue 6) |
-| I | `SISOPIDFF` → `DynamicElement` lifecycle + serialization (Issue 3) — after D |
-| J | `FilterSS2Clip` / `Integrator` / `Derivative` limit visibility (Issue 7) — fold into I |
+| Item | Scope | Status |
+|------|-------|--------|
+| A | `DiscretizationMethod` and `FilterError` → `enum class` (Issue 8) | ✅ Done |
+| B | `Limit` / `RateLimit` hierarchy: delete `LimitBase`; both derive from `SisoElement` directly (Issue 5) | ✅ Done |
+| C | `Gain` API cleanup: remove stubs, fix `operator=` → `set()`, `operator double()` → `operator float()`, `K()` → `value()`, `_K` → `value_`; template parameters retained (Issue 4 partial) | ✅ Done |
+| D | `FilterSS2Clip` NVI migration: `onStep()`, real lifecycle, `snake_case_` members (Issues 1, 2, 9) | ✅ Done |
+| E | `FilterTF2` NVI migration (Issues 1, 2, 9); evaluate consolidation with `FilterSS2` | ✅ Done |
+| F | `FilterTF`, `FilterFIR`, `FilterSS` — evaluate for consolidation / removal or NVI migration | ✅ Done — all three migrated to NVI |
+| G | `Filter` no-op defaults removed (Issue 2) — after D–F | ✅ Done — `Filter` is now pure abstract |
+| H | `Unwrap` reference field design (Issue 6) | ✅ Done — `ref_` field; `setReference()`; NVI routing |
+| I | `SISOPIDFF` → `DynamicElement` lifecycle + serialization (Issue 3) — after D | ✅ Done — `snake_case_` renames; composite snapshot |
+| J | `FilterSS2Clip` / `Integrator` / `Derivative` limit visibility (Issue 7) — fold into I | ✅ Done — `limit_` private on `Integrator` and `Derivative` |
 
-Items A–C are self-contained and can proceed in any order. Item D is the critical path
-prerequisite for G and I.
+All items complete. The full gain scheduling design (Issue 4 remainder) is tracked as
+roadmap item 2.

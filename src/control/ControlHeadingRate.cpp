@@ -11,19 +11,19 @@ float velWind_horiz(const KinematicState & state)
     return hypot(velWind_NED_mps(0), velWind_NED_mps(1));
 }
 
-float ControlHeadingRate::step(float headingRateCmdIn, const KinematicState & state)
+float ControlHeadingRate::step(float heading_rate_command, const KinematicState& state)
 {
-    float ayCmd = velWind_horiz(state)*headingRateCmdIn;
-    float ayMeas = state.headingRate_rps() * velWind_horiz(state);
+    float lateral_accel_command     = velWind_horiz(state) * heading_rate_command;
+    float lateral_accel_measurement = state.headingRate_rps() * velWind_horiz(state);
 
-    return pid.step(ayCmd, ayMeas);
+    return controller_.step(lateral_accel_command, lateral_accel_measurement);
 }
 
-void ControlHeadingRate::reset(float headingRateCmdIn, const KinematicState & state)
+void ControlHeadingRate::reset(float heading_rate_command, const KinematicState& state)
 {
-    float ayCmd = velWind_horiz(state)*headingRateCmdIn;
-    float ayMeas = state.headingRate_rps() * velWind_horiz(state);
+    float lateral_accel_command     = velWind_horiz(state) * heading_rate_command;
+    float lateral_accel_measurement = state.headingRate_rps() * velWind_horiz(state);
 
-    pid.reset(ayCmd, ayMeas, 0.0f);
-    pid.I.resetTo(0.0f);
+    controller_.reset(lateral_accel_command, lateral_accel_measurement, 0.0f);
+    controller_.integrator().resetTo(0.0f);
 }

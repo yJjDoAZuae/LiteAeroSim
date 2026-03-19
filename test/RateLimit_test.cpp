@@ -258,7 +258,7 @@ TEST(RateLimitTest, JsonRoundTrip) {
     L2.deserializeJson(snap);
 
     EXPECT_FLOAT_EQ(L2.step(1.0f), L.step(1.0f));
-    EXPECT_FLOAT_EQ(L2.dt(), L.dt());
+    EXPECT_FLOAT_EQ(L2.dt_s(), L.dt_s());
     EXPECT_FLOAT_EQ(L2.lowerLimit(), L.lowerLimit());
     EXPECT_FLOAT_EQ(L2.upperLimit(), L.upperLimit());
 }

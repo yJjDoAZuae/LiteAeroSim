@@ -23,7 +23,7 @@ flowchart TB
         direction TB
         subgraph Control
             CTRL["ControlLoop<br/>(Autopilot)"]
-            SISO["DynamicBlock<br/>(Filters, PID, Limiters)"]
+            SISO["SisoElement<br/>(Filters, PID, Limiters)"]
         end
         subgraph Guidance
             GUID["PathGuidance"]
@@ -70,7 +70,7 @@ flowchart TB
 
 ## Component Lifecycle
 
-Every dynamic simulation element follows this lifecycle. The interface is defined by `DynamicBlock` — see [Dynamic Block Design](dynamic_block.md) for the full specification.
+Every dynamic simulation element follows this lifecycle. The interface is defined by `DynamicElement` — see [DynamicElement Design](dynamic_element.md) for the full specification.
 
 ```mermaid
 stateDiagram-v2
@@ -121,7 +121,7 @@ flowchart LR
         DRV["Derivative"]
         LIM["Limit"]
         RLIM["RateLimit"]
-        GAIN["Gain (scheduled)"]
+        GAIN["Gain<br/>(scheduling planned)"]
     end
 
     subgraph GuidanceSubsystem["Guidance"]

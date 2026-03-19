@@ -5,13 +5,13 @@ using namespace liteaerosim::control;
 
 static float constexpr g = 9.81;
 
-float ControlLoadFactor::step(float loadFactorCmdIn, const KinematicState & state)
+float ControlLoadFactor::step(float load_factor_command, const KinematicState& state)
 {
-    return pid.step(loadFactorCmdIn, -state.acceleration_Wind_mps()(2)/g);
+    return controller_.step(load_factor_command, -state.acceleration_Wind_mps()(2) / g);
 }
 
-void ControlLoadFactor::reset(float loadFactorCmdIn, const KinematicState & state)
+void ControlLoadFactor::reset(float load_factor_command, const KinematicState& state)
 {
-    pid.reset(loadFactorCmdIn, -state.acceleration_Wind_mps()(2)/g, 0.0f);
-    pid.I.resetTo(0.0f);
+    controller_.reset(load_factor_command, -state.acceleration_Wind_mps()(2) / g, 0.0f);
+    controller_.integrator().resetTo(0.0f);
 }

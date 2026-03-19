@@ -5,17 +5,17 @@ using namespace liteaerosim::control;
 float Limit::onStep(float u)
 {
     float out = u;
-    _limitedLower = false;
-    _limitedUpper = false;
+    limited_lower_ = false;
+    limited_upper_ = false;
 
     if (isLowerEnabled() && out < lowerLimit()) {
         out = lowerLimit();
-        _limitedLower = true;
+        limited_lower_ = true;
     }
 
     if (isUpperEnabled() && out > upperLimit()) {
         out = upperLimit();
-        _limitedUpper = true;
+        limited_upper_ = true;
     }
 
     return out;
@@ -23,21 +23,21 @@ float Limit::onStep(float u)
 
 void Limit::onReset()
 {
-    _limitedLower = false;
-    _limitedUpper = false;
+    limited_lower_ = false;
+    limited_upper_ = false;
 }
 
 void Limit::setLower(float lim)
 {
-    _lowerLimit = lim;
-    _upperLimit = (_upperLimit >= lim) ? _upperLimit : lim;
+    lower_limit_ = lim;
+    upper_limit_ = (upper_limit_ >= lim) ? upper_limit_ : lim;
     step(in_);
 }
 
 void Limit::setUpper(float lim)
 {
-    _upperLimit = lim;
-    _lowerLimit = (_lowerLimit <= lim) ? _lowerLimit : lim;
+    upper_limit_ = lim;
+    lower_limit_ = (lower_limit_ <= lim) ? lower_limit_ : lim;
     step(in_);
 }
 
@@ -54,10 +54,10 @@ nlohmann::json Limit::onSerializeJson() const
     return {
         {"in",             in_},
         {"out",            out_},
-        {"lower_limit",    _lowerLimit},
-        {"upper_limit",    _upperLimit},
-        {"lower_enabled",  _enableLowerLimit},
-        {"upper_enabled",  _enableUpperLimit}
+        {"lower_limit",    lower_limit_},
+        {"upper_limit",    upper_limit_},
+        {"lower_enabled",  lower_enabled_},
+        {"upper_enabled",  upper_enabled_}
     };
 }
 
@@ -65,11 +65,11 @@ void Limit::onDeserializeJson(const nlohmann::json& state)
 {
     in_  = state.at("in").get<float>();
     out_ = state.at("out").get<float>();
-    _lowerLimit       = state.at("lower_limit").get<float>();
-    _upperLimit       = state.at("upper_limit").get<float>();
-    _enableLowerLimit = state.at("lower_enabled").get<bool>();
-    _enableUpperLimit = state.at("upper_enabled").get<bool>();
+    lower_limit_  = state.at("lower_limit").get<float>();
+    upper_limit_  = state.at("upper_limit").get<float>();
+    lower_enabled_ = state.at("lower_enabled").get<bool>();
+    upper_enabled_ = state.at("upper_enabled").get<bool>();
     // Recompute limited flags from restored state
-    _limitedLower = _enableLowerLimit && (in_ < _lowerLimit);
-    _limitedUpper = _enableUpperLimit && (in_ > _upperLimit);
+    limited_lower_ = lower_enabled_ && (in_ < lower_limit_);
+    limited_upper_ = upper_enabled_ && (in_ > upper_limit_);
 }

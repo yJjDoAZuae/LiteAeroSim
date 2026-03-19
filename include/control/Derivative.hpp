@@ -11,21 +11,19 @@ namespace liteaerosim::control {
 class Derivative : public liteaerosim::SisoElement {
 public:
     Derivative() :
-        _dt(1.0f),
-        _Tau(0.0f),
-        _method(DiscretizationMethod::FwdEuler)
+        dt_s_(1.0f),
+        tau_s_(0.0f),
+        method_(DiscretizationMethod::ForwardEuler)
     {}
-
-    Limit limit;
 
     /// Warm-start: set input to u, output to uDot.
     void resetTo(float u, float uDot = 0.0f);
 
-    void setDt(float dt)    { _dt = (dt > 1e-6f) ? dt : 1.0f; }
-    void setTau(float tau)  { _Tau = tau; }
-    void setMethod(DiscretizationMethod method) { _method = method; }
-    float dt()  const { return _dt; }
-    float Tau() const { return _Tau; }
+    void setDt(float dt)                        { dt_s_  = (dt > 1e-6f) ? dt : 1.0f; }
+    void setTau(float tau)                      { tau_s_ = tau; }
+    void setMethod(DiscretizationMethod method) { method_ = method; }
+    float dt_s()  const { return dt_s_; }
+    float tau_s() const { return tau_s_; }
 
 protected:
     float onStep(float u) override;
@@ -37,9 +35,10 @@ protected:
     const char* typeName() const override { return "Derivative"; }
 
 private:
-    float _dt;
-    float _Tau;
-    DiscretizationMethod _method;
+    Limit limit_;
+    float dt_s_;
+    float tau_s_;
+    DiscretizationMethod method_;
 };
 
 } // namespace liteaerosim::control
