@@ -266,3 +266,32 @@ message TrajectoryFile {
     float                    world_origin_h_m     = 4;
     repeated TrajectoryFrame frames               = 5;
 }
+
+// ---------------------------------------------------------------------------
+// Air data system — SensorAirData config and state
+// ---------------------------------------------------------------------------
+
+message AirDataConfig {
+    int32  schema_version                  = 1;
+    float  differential_pressure_noise_pa  = 2;
+    float  static_pressure_noise_pa        = 3;
+    float  differential_pressure_lag_tau_s = 4;
+    float  static_pressure_lag_tau_s       = 5;
+    float  static_pressure_bias_pa         = 6;
+    float  oat_noise_k                     = 7;
+    uint32 seed                            = 8;
+    float  static_port_angle_rad           = 9;
+    float  initial_kollsman_pa             = 10;
+    float  dt_s                            = 11;
+}
+
+message AirDataStateProto {
+    int32  schema_version    = 1;
+    float  qc_lag_state      = 2;
+    float  qc_lag_prev_input = 3;
+    float  ps_lag_state      = 4;
+    float  ps_lag_prev_input = 5;
+    uint64 rng_advance       = 6;  // number of variate draws since the seed was set
+    float  kollsman_pa       = 7;  // current altimeter QNH setting at checkpoint time
+    uint32 rng_seed          = 8;  // seed used to initialize the RNG engine
+}
