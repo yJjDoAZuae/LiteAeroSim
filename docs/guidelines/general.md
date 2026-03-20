@@ -258,3 +258,42 @@ All dependencies must be documented with their version, license, and integration
 - Each commit is self-contained and leaves the build passing.
 - Feature branches are short-lived; integrate frequently.
 - Do not commit commented-out code. Delete unused code; version control preserves history.
+
+---
+
+## Documentation and Math Formatting
+
+### LaTeX / KaTeX in Markdown
+
+All documentation math is rendered by KaTeX. KaTeX does not support arbitrary Unicode
+inside math mode — non-ASCII characters embedded raw in math expressions cause render
+errors.
+
+**Rule: never embed non-ASCII characters inside a math span (`` $…$ `` or `$$…$$`),
+including inside `\text{}` and `\mathrm{}` blocks.**
+
+Use the equivalent KaTeX command instead:
+
+| Instead of (raw Unicode) | Use (KaTeX command) |
+| --- | --- |
+| `\text{Pa·s}` | `\text{Pa}{\cdot}\text{s}` |
+| `\text{kg/m³}` | `\text{kg/m}^3` |
+| `\text{m/s²}` | `\text{m/s}^2` |
+| `\text{(Pa·s/m³)}` | `(\text{Pa}{\cdot}\text{s/m}^3)` |
+
+The pattern is: break `\text{}` around the special character and replace the character
+with its KaTeX counterpart (`{\cdot}`, `^2`, `^3`, subscripts, Greek letters, etc.).
+
+Non-ASCII characters are allowed in **plain prose** (outside math spans): writing
+"Pa·s" or "kg/m³" in a sentence or table cell is fine because it is rendered as HTML,
+not processed by KaTeX.
+
+### Numerical Substitution in Derivations
+
+Substitute numerical values for physical constants (e.g. $\gamma = 1.4$, $R_d =
+287.058\,\text{J/(kg·K)}$) only in **worked examples** — never in derivation steps or
+general formulae. Premature substitution obscures the mathematical structure and makes
+the formula inapplicable to other gases or parameter regimes.
+
+- **Derivation:** keep symbols — $\left(1 + \frac{\gamma-1}{2}M^2\right)^{\gamma/(\gamma-1)}$
+- **Example:** substitute — $\left(1 + 0.2\,M^2\right)^{3.5}$ at $\gamma = 1.4$

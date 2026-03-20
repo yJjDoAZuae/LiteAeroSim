@@ -35,15 +35,15 @@ A pitot-static system measures two pressures: total (stagnation) pressure $P_t$ 
 
 For isentropic (subsonic, adiabatic, reversible) flow, the stagnation pressure is related to static pressure and Mach number by:
 
-$$P_t = P_s\left(1 + \frac{\gamma-1}{2}M^2\right)^{\frac{\gamma}{\gamma-1}} = P_s\left(1 + 0.2\,M^2\right)^{3.5}$$
+$$P_t = P_s\left(1 + \frac{\gamma-1}{2}M^2\right)^{\frac{\gamma}{\gamma-1}}$$
 
 The impact pressure is therefore:
 
-$$q_c = P_t - P_s = P_s\left[\left(1 + 0.2\,M^2\right)^{3.5} - 1\right]$$
+$$q_c = P_t - P_s = P_s\left[\left(1 + \frac{\gamma-1}{2}M^2\right)^{\frac{\gamma}{\gamma-1}} - 1\right]$$
 
 For $M < 0.3$ (typical UAS cruise), the binomial expansion of the isentropic formula gives $q_c \approx \tfrac{1}{2}\rho V_{TAS}^2$ with a compressibility error of less than 2.5%. The full isentropic formula is used for all Mach numbers in this simulation; no low-speed approximation is made.
 
-The exponent $\tfrac{\gamma}{\gamma-1} = 3.5$ and its reciprocal $\tfrac{\gamma-1}{\gamma} = \tfrac{2}{7}$ appear repeatedly in what follows.
+The exponents $\tfrac{\gamma}{\gamma-1}$ and $\tfrac{\gamma-1}{\gamma}$ appear repeatedly in what follows.
 
 ---
 
@@ -61,7 +61,7 @@ where $a$ = `AtmosphericState::speed_of_sound_mps`.
 
 True impact pressure:
 
-$$q_c^{true} = P_s\left[\left(1 + 0.2\,M^2\right)^{3.5} - 1\right]$$
+$$q_c^{true} = P_s\left[\left(1 + \frac{\gamma-1}{2}M^2\right)^{\frac{\gamma}{\gamma-1}} - 1\right]$$
 
 True static pressure: $P_s^{true}$ = `AtmosphericState::pressure_pa`.
 
@@ -333,7 +333,7 @@ a first-order resistive-capacitive (RC) pneumatic network. The tube acts as a vi
 flow resistance; the transducer sensing cavity acts as a compressible volume (capacitance).
 For laminar flow in a tube of circular cross-section, the Hagen-Poiseuille resistance is:
 
-$$R_{tube} = \frac{8\,\mu\,L_{tube}}{\pi\,r_{tube}^4} \qquad \text{(Pa·s/m³)}$$
+$$R_{tube} = \frac{8\,\mu\,L_{tube}}{\pi\,r_{tube}^4} \qquad (\text{Pa}{\cdot}\text{s/m}^3)$$
 
 where $\mu$ is the dynamic viscosity of air (Pa·s), $L_{tube}$ is the tube length (m), and
 $r_{tube}$ is the tube internal radius (m).
@@ -386,7 +386,7 @@ Dynamic viscosity of air varies weakly with temperature:
 
 $$\mu(T) \approx \mu_{ref}\left(\frac{T}{T_{ref}}\right)^{0.76}$$
 
-with $\mu_{ref} = 1.81 \times 10^{-5}\,\text{Pa·s}$ at $T_{ref} = 288.15\,\text{K}$.
+with $\mu_{ref} = 1.81 \times 10^{-5}\,\text{Pa}{\cdot}\text{s}$ at $T_{ref} = 288.15\,\text{K}$.
 For the altitude range 0–10 000 m, $\mu$ varies by less than 15%; using the sea-level
 value is adequate for time-constant estimation.
 
@@ -394,7 +394,7 @@ value is adequate for time-constant estimation.
 
 Typical small UAS pitot installation: $L_{tube} = 0.4\,\text{m}$,
 $r_{tube} = 1.0\,\text{mm}$, $V_{cav} = 0.2\,\text{cm}^3 = 2 \times 10^{-7}\,\text{m}^3$,
-sea-level ISA ($P_0 = 101\,325\,\text{Pa}$, $\mu = 1.81 \times 10^{-5}\,\text{Pa·s}$):
+sea-level ISA ($P_0 = 101\,325\,\text{Pa}$, $\mu = 1.81 \times 10^{-5}\,\text{Pa}{\cdot}\text{s}$):
 
 $$\tau_{pneu} = \frac{8 \times 1.81\!\times\!10^{-5} \times 0.4 \times 2\!\times\!10^{-7}}
                      {\pi \times (10^{-3})^4 \times 101\,325}
@@ -434,7 +434,7 @@ All derived quantities are computed from $q_c^{meas}$ and $P_s^{meas}$ (the outp
 
 Invert the isentropic impact pressure equation using the measured pressures alone:
 
-$$M^{meas} = \sqrt{5\left[\left(\frac{q_c^{meas}}{P_s^{meas}} + 1\right)^{2/7} - 1\right]}$$
+$$M^{meas} = \sqrt{\frac{2}{\gamma-1}\left[\left(\frac{q_c^{meas}}{P_s^{meas}} + 1\right)^{\frac{\gamma-1}{\gamma}} - 1\right]}$$
 
 This is the ADC Mach number. It requires only the ratio of the two measured pressures; no atmospheric model is consulted. It is the central quantity from which TAS, CAS, and EAS are subsequently derived.
 
@@ -462,7 +462,7 @@ IAS does not apply any compressibility correction. At low Mach ($M < 0.3$), the 
 
 CAS removes the compressibility error inherent in IAS by applying the full isentropic formula, but still referenced to sea-level ISA conditions. CAS is defined as the airspeed that would produce the measured impact pressure $q_c^{meas}$ under sea-level ISA:
 
-$$V_{CAS} = a_0\sqrt{5\left[\left(\frac{q_c^{meas}}{P_0} + 1\right)^{2/7} - 1\right]}$$
+$$V_{CAS} = a_0\sqrt{\frac{2}{\gamma-1}\left[\left(\frac{q_c^{meas}}{P_0} + 1\right)^{\frac{\gamma-1}{\gamma}} - 1\right]}$$
 
 At sea-level ISA ($P_s = P_0$, $\rho = \rho_0$), CAS = TAS. At altitude, CAS < TAS because the lower ambient pressure reduces $q_c$ for the same TAS.
 
@@ -482,7 +482,7 @@ EAS and CAS are related by the compressibility correction factor $f_c$:
 
 $$V_{EAS} = V_{CAS} \cdot f_c$$
 
-$$f_c = \sqrt{\frac{P_s^{meas}}{P_0} \cdot \frac{\left(q_c^{meas}/P_s^{meas} + 1\right)^{2/7} - 1}{\left(q_c^{meas}/P_0 + 1\right)^{2/7} - 1}}$$
+$$f_c = \sqrt{\frac{P_s^{meas}}{P_0} \cdot \frac{\left(q_c^{meas}/P_s^{meas} + 1\right)^{\frac{\gamma-1}{\gamma}} - 1}{\left(q_c^{meas}/P_0 + 1\right)^{\frac{\gamma-1}{\gamma}} - 1}}$$
 
 At sea level ($P_s = P_0$), $f_c = 1$ and EAS = CAS. At altitude with $M < 0.3$, $f_c$ deviates from 1 by less than 2%.
 
@@ -585,7 +585,7 @@ $$T_{OAT} = T_s + n_{OAT}, \qquad n_{OAT} \sim \mathcal{N}(0,\,\sigma_{OAT}^2)$$
 
 where $T_s$ = `AtmosphericState::temperature_k` and $\sigma_{OAT}$ = `oat_noise_k`. No lag is applied.
 
-The total air temperature (TAT) recovery correction $T_{TAT} = T_s\left(1 + 0.2\,r\,M^2\right)$, where $r$ is the probe recovery factor, is not modeled. For $M < 0.3$ the recovery correction is less than 2% of $T_s$ even at $r = 1$, and is negligible for the flight regimes of interest.
+The total air temperature (TAT) recovery correction $T_{TAT} = T_s\!\left(1 + \frac{\gamma-1}{2}r\,M^2\right)$, where $r$ is the probe recovery factor, is not modeled. For $M < 0.3$ the recovery correction is less than 2% of $T_s$ even at $r = 1$, and is negligible for the flight regimes of interest.
 
 ---
 
@@ -610,9 +610,9 @@ $P_s^{meas}$ — no temperature input at any stage:
 
 | Quantity | Formula (pressure-only form) | Temperature needed? |
 | --- | --- | --- |
-| Mach | $M = \sqrt{5\bigl[(q_c/P_s + 1)^{2/7} - 1\bigr]}$ | No |
+| Mach | $M = \sqrt{\frac{2}{\gamma-1}\bigl[(q_c/P_s + 1)^{(\gamma-1)/\gamma} - 1\bigr]}$ | No |
 | IAS | $V_{IAS} = \sqrt{2\,q_c/\rho_0}$ | No |
-| CAS | $V_{CAS} = a_0\sqrt{5\bigl[(q_c/P_0 + 1)^{2/7} - 1\bigr]}$ | No |
+| CAS | $V_{CAS} = a_0\sqrt{\frac{2}{\gamma-1}\bigl[(q_c/P_0 + 1)^{(\gamma-1)/\gamma} - 1\bigr]}$ | No |
 | EAS | $V_{EAS} = M\sqrt{\gamma P_s/\rho_0}$ | No |
 | Baro altitude | $h_{baro} = f(P_s)$ via ISA inversion | No |
 
