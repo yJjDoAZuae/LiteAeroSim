@@ -114,7 +114,7 @@ The design must address at minimum:
 - **Initialization** — whether the gain table is loaded from a file, embedded in config
   JSON, or populated programmatically.
 
-### Deliverables
+### Deliverables — Gain Scheduling
 
 Design authority document at `docs/architecture/gain_scheduling.md` to be written
 before implementation begins.
@@ -123,7 +123,56 @@ Implementation follows TDD: failing tests before production code.
 
 ---
 
-## 2. Autopilot Gain Design — Python Tooling
+## 2. Landing Gear — Ground Contact Model
+
+`LandingGear` is a Domain Layer physics component that models the contact forces and
+moments exerted on the airframe by the landing gear during ground operations (taxi,
+takeoff roll, and landing roll). It produces forces and moments in the body frame that
+are added to the aerodynamic and propulsion contributions in `Aircraft::step()`.
+
+No design work is to be performed at this stage. The item is placed here to reflect
+priority relative to the autopilot chain; detailed design precedes implementation.
+
+### Scope
+
+The design must address at minimum:
+
+- **Wheel contact model** — Pacejka "magic formula" for tyre longitudinal and lateral
+  force generation as a function of slip ratio and slip angle. The formula captures the
+  nonlinear saturation of tyre force with slip and reproduces the qualitative shape of
+  measured tyre data without requiring high-fidelity tyre datasets.
+- **Suspension dynamics** — second-order spring-damper model per strut. Configuration
+  parameters are spring stiffness (N/m), damper coefficient (N·s/m), and strut
+  preload force (N). Suspension travel is constrained between fully extended and
+  fully compressed limits.
+- **Wheel geometry** — each wheel unit is defined by its attachment point in the body
+  frame and a unit vector defining the suspension travel axis, both expressed in body
+  coordinates. This supports tricycle, taildragger, and multi-bogey layouts without
+  special-casing.
+- **Computational efficiency** — the landing gear contact model must not force the
+  aircraft simulation to run at a higher timestep rate than the rigid-body integrator.
+  High-frequency strut and tyre dynamics that do not materially influence the aircraft
+  trajectory response should be suppressed or filtered. An inner-step sub-loop — similar
+  to the approach used for high-bandwidth FBW axis dynamics — should be evaluated as a
+  mechanism to decouple stiff strut dynamics from the outer rigid-body loop if it allows
+  the outer step rate to remain at the standard simulation rate.
+- **Ground plane interface** — the model queries terrain height and surface normal at
+  the projected wheel contact point; this interface must be compatible with both
+  `FlatTerrain` and `TerrainMesh`.
+- **Serialization** — full JSON and proto round-trip serialization of suspension state
+  (strut deflection and deflection rate per wheel unit); RNG state if stochastic runway
+  roughness is added.
+
+### Deliverables — Landing Gear
+
+Design authority document at `docs/architecture/landing_gear.md` to be written
+before implementation begins.
+
+Implementation follows TDD: failing tests before production code.
+
+---
+
+## 3. Autopilot Gain Design — Python Tooling
 
 Python workflow that derives autopilot control gains from the aircraft model. This is a
 prerequisite for item 4 (`Autopilot`) — the C++ implementation is parameterized by gains
@@ -135,7 +184,7 @@ from `Aircraft` trim and `AeroCoeffEstimator` outputs.
 
 ---
 
-## 3. Autopilot — Inner Loop Knobs-Mode Tracking
+## 4. Autopilot — Inner Loop Knobs-Mode Tracking
 
 
 Stub header exists at `include/control/Autopilot.hpp`.
@@ -169,7 +218,7 @@ Add `test/Autopilot_test.cpp` to the test executable.
 
 ---
 
-## 4. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 5. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
 Stub headers exist in `include/path/` for all three classes.
 
@@ -226,7 +275,7 @@ Add `test/Path_test.cpp` to the test executable.
 
 ---
 
-## 5. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 6. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
 Stub headers exist in `include/guidance/` for all three classes.
 
@@ -276,7 +325,7 @@ Add `test/Guidance_test.cpp` to the test executable.
 
 ---
 
-## 6. Plot Visualization — Python Post-Processing Tools
+## 7. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -310,7 +359,7 @@ dev = [
 
 ---
 
-## 7. Manual Input — Joystick and Keyboard
+## 8. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -351,7 +400,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 8. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 9. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
@@ -403,7 +452,7 @@ Add `test/SimRunner_test.cpp` to the test executable.
 
 ---
 
-## 9. Remaining Sensor Models
+## 10. Remaining Sensor Models
 
 Not blocking any higher-priority item. Stub headers exist in `include/sensor/`.
 Implement when needed; order within this group follows dependency.
@@ -422,7 +471,7 @@ Implement when needed; order within this group follows dependency.
 
 ---
 
-## 10. Estimation Subsystem
+## 11. Estimation Subsystem
 
 Flight code estimation algorithms. Stub headers exist in `include/estimation/` (to be
 created). Each derives from `DynamicElement` directly. Design authorities listed below.
