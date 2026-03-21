@@ -32,6 +32,7 @@ All new functionality must follow the **Red-Green-Refactor** cycle:
 3. **Refactor** — Clean up the implementation without changing behavior, keeping all tests green.
 
 Rules:
+
 - No production code is written without a failing test that motivates it.
 - Each test covers exactly one behavior or requirement.
 - Tests are committed alongside (or before) the code they cover.
@@ -41,7 +42,7 @@ Rules:
 ### SOLID Principles
 
 | Principle | Summary |
-|---|---|
+| --- | --- |
 | Single Responsibility | A class or module has one reason to change. |
 | Open/Closed | Open for extension, closed for modification. |
 | Liskov Substitution | Subtypes must be substitutable for their base types. |
@@ -74,7 +75,7 @@ Clear, unambiguous naming is mandatory. Names must communicate intent without re
 ### Naming by Category
 
 | Category | Convention | Example |
-|---|---|---|
+| --- | --- | --- |
 | Classes / Types | `PascalCase` | `KinematicState`, `AutopilotMode` |
 | Functions / Methods | `camelCase` (C++) or `snake_case` (Python) | `computeLoadFactor()` / `compute_load_factor()` |
 | Local variables | `snake_case` | `roll_rate`, `target_altitude` |
@@ -88,14 +89,12 @@ Clear, unambiguous naming is mandatory. Names must communicate intent without re
 
 ## SI Units — The Project Standard
 
-### Mandate
-
 **All internally stored values use SI base units: meters (m), radians (rad), and seconds (s).**
 
 This applies to every variable, field, parameter, function argument, and return value throughout the codebase.
 
 | Quantity | Unit | Symbol |
-|---|---|---|
+| --- | --- | --- |
 | Length / distance | meter | m |
 | Angle | radian | rad |
 | Time | second | s |
@@ -120,7 +119,7 @@ This applies to every variable, field, parameter, function argument, and return 
 
 ### Conversion Module Pattern
 
-```
+```text
 units::deg_to_rad(degrees)    // input boundary: config file parser
 units::rad_to_deg(radians)    // output boundary: display layer only
 units::ft_to_m(feet)
@@ -130,8 +129,6 @@ units::kts_to_mps(knots)
 ---
 
 ## Serialization and Deserialization
-
-### Mandate
 
 Every dynamic element (any object with internal state that evolves over time) must implement serialization and deserialization of its full internal state as a standard interface.
 
@@ -147,7 +144,7 @@ Every dynamic element (any object with internal state that evolves over time) mu
 Every serializable class must support both formats:
 
 | Format | Library | Method names | Use case |
-|--------|---------|--------------|----------|
+| --- | --- | --- | --- |
 | JSON | nlohmann/json | `serializeJson()` / `deserializeJson(j)` | Human-readable state files, config, debugging, inter-language exchange |
 | Binary | Protocol Buffers v3 | `serializeProto()` → `std::vector<uint8_t>` / `deserializeProto(bytes)` | Efficient checkpointing, high-frequency logging, IPC |
 
@@ -171,7 +168,7 @@ Proto message definitions live in `proto/liteaerosim.proto`. Generated types mus
 
 The simulation is structured in layers. Each layer has a single well-defined responsibility:
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │  Interface Layer (I/O, display, config)  │  ← Unit conversion lives here
 ├─────────────────────────────────────────┤
@@ -213,7 +210,7 @@ The simulation is structured in layers. Each layer has a single well-defined res
 Acceptable licenses (preferred first):
 
 | License | Notes |
-|---|---|
+| --- | --- |
 | MIT | Preferred. |
 | BSD-2/3-Clause, Clear BSD | Preferred. |
 | Apache 2.0 | Preferred. Includes explicit patent grant. |
@@ -226,6 +223,7 @@ Acceptable licenses (preferred first):
 ### Dependency Selection Criteria
 
 When evaluating a new dependency, consider in order:
+
 1. **License** — must be permissive (see above).
 2. **Maintenance** — active development or stable/complete.
 3. **Minimal footprint** — prefer focused, single-purpose libraries over large frameworks.
@@ -287,6 +285,73 @@ with its KaTeX counterpart (`{\cdot}`, `^2`, `^3`, subscripts, Greek letters, et
 Non-ASCII characters are allowed in **plain prose** (outside math spans): writing
 "Pa·s" or "kg/m³" in a sentence or table cell is fine because it is rendered as HTML,
 not processed by KaTeX.
+
+### Markdown Lint Standards
+
+All documentation files must be free of markdownlint warnings before being committed or
+presented for review. Run the lint check below after creating or significantly editing any
+`.md` file.
+
+**Disabling rules is not permitted.** Fix the underlying formatting issue. The only
+rule disabled project-wide is MD013 (line length), because the 80-character default is
+unworkable for tables — it is suppressed in `.markdownlint.json`, not inline. Do not add
+further suppressions without explicit authorization.
+
+**Required checks:**
+
+| Rule | Description | Fix |
+| --- | --- | --- |
+| MD024 | No two headings may have identical text | Make headings unique; drop redundant subheadings if the parent section heading provides sufficient context |
+| MD031 | Fenced code blocks must be surrounded by blank lines | Add a blank line before the opening fence and after the closing fence |
+| MD032 | Lists must be preceded and followed by a blank line | Add a blank line before the first list item whenever the preceding line is non-blank prose or a bold label |
+| MD040 | Fenced code blocks must declare a language | Add a specifier: ` ```cpp `, ` ```python `, ` ```text `, ` ```proto `, ` ```mermaid `, etc. |
+| MD060 | Table separator rows must use spaced pipes | Use `\| --- \| --- \|` — never `\|---\|---\|` |
+| Mermaid syntax | Diagrams must use valid Mermaid edge syntax | Use `-- "label" -->` for labeled directed edges; avoid non-standard constructs such as `<-- "label" ---` |
+
+**Canonical lint tool (run from repo root):**
+
+```text
+PATH="/c/Program Files/nodejs:$PATH" npx markdownlint-cli2 "docs/**/*.md"
+```
+
+**Lint check script (run from repo root):**
+
+```python
+uv run python - <<'PYEOF'
+import re, sys
+sys.stdout.reconfigure(encoding='utf-8')
+for fname in ['<path/to/file.md>']:
+    with open(fname, encoding='utf-8') as f:
+        lines = f.readlines()
+    in_fence = False
+    seen_headings = {}
+    for i, line in enumerate(lines):
+        s = line.rstrip()
+        if s.startswith('```'):
+            if not in_fence:
+                lang = s[3:].strip()
+                if not lang:
+                    print(f'MD040 line {i+1}: no language on code fence')
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r'^#{1,6} (.+)', s)
+        if m:
+            text = m.group(1).strip()
+            if text in seen_headings:
+                print(f'MD024 line {i+1}: duplicate heading "{text}" (first at {seen_headings[text]})')
+            else:
+                seen_headings[text] = i + 1
+        is_list = bool(re.match(r'^\s*[-*+] |\s*\d+[.)]\s', s))
+        prev = lines[i-1].rstrip() if i > 0 else ''
+        prev_blank = (prev.strip() == '')
+        prev_list = bool(re.match(r'^\s*[-*+] |\s*\d+[.)]\s', prev))
+        prev_cont = bool(re.match(r'^  +\S', prev))
+        if is_list and not prev_blank and not prev_list and not prev_cont:
+            print(f'MD032 line {i+1}: list not preceded by blank line')
+PYEOF
+```
 
 ### Numerical Substitution in Derivations
 
