@@ -6,8 +6,21 @@
 throttle. It lives in the Domain Layer and has no I/O, no display logic, and no unit
 conversions.
 
-Items are listed in dependency order. Each item follows TDD: write a failing test before
-writing production code.
+**Note on system scope.** Item 1 defines the system architecture, which establishes that
+LiteAeroSim is the simulation component only. Autopilot, guidance, path representation,
+and navigation are flight code components that are architecturally separate from the
+simulation. Their design and implementation (items 2 onward that address flight code) will
+follow the component boundaries established in item 1. Until the architecture is defined,
+items addressing flight code components are placeholders; their repository location, build
+system integration, and interface details are to be determined by item 1.
+
+**Item process.** All items follow a documentation-first process:
+
+1. Architecture and design documents are produced and reviewed.
+2. Authorization to begin implementation is granted.
+3. Implementation follows TDD — a failing test is written before every production code change.
+4. All implementation items include simulation scenarios and automated tests sufficient for
+   integration testing, demonstration, and investigation of algorithmic alternatives.
 
 ---
 
@@ -93,12 +106,53 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ---
 
-## 1a. Gain Scheduling — Design
+## 1. Flight Code and Simulation Architecture Definition
+
+Define a system architecture model that will inform all subsequent software development. The model will be encoded in Markdown documentation with Mermaid diagrams and tables, organized under `docs/architecture/`, and treated as the primary source of truth for system design. The model will include:
+
+- System originating requirements
+- System use cases
+- System element registry — each element defines its ports and the data flows it produces and consumes
+- Data flow type registry — each type defines the contents and character of a data flow
+- Data flow instance registry — maps data flow instances to their producers, consumers, and routing
+- Data flow diagrams
+- Interface Control Documents for each data flow type — sufficient to identify the interface and confirm the architecture accommodates it; detailed field-level schema definitions are deferred to the software design phase
+
+### Simulation Architecture
+
+The simulation architecture has not been formally defined. The design must establish a flexible architecture that supports integration with external components, optional in-process or out-of-process autopilot and navigation functions, and the computational efficiency requirements of real-time and batch operation.
+
+### Autopilot Architecture
+
+The autopilot will be a separable software component designed to flight-code standards, usable both as embedded flight software and as a component within the simulation. It must support simulation use cases such as reset and initialization to arbitrary conditions for batch testing. Estimation functions are outside the autopilot boundary — they belong to the Navigation system. The architecture must accommodate integration with ArduPilot and PX4, using MAVLink where sufficient and defining custom interfaces where MAVLink does not meet requirements.
+
+### Navigation and Perception Architecture
+
+The navigation system is a separable flight code component that derives kinematic state estimates from sensor measurements. It must be usable both within the simulation and as flight software on a real aircraft. The architecture must also identify the kinds of perception functions anticipated (e.g., image-based navigation, inference-based state estimation) and set requirements that allow those capabilities to be added in the future without requiring a new architecture.
+
+### External Components
+
+- Game engine connection for real-time and scaled-real-time 3D visualization
+- Pilot-in-the-loop input via joystick and RC transmitter (USB)
+- QGroundControl connection
+- PX4 hardware-in-the-loop and software-in-the-loop simulation interfaces
+- ArduPilot hardware-in-the-loop and software-in-the-loop simulation interfaces
+- Autopilot and navigation interfacing to ArduPilot and PX4
+
+---
+
+## 2. Gain Scheduling — Design
 
 `Gain<T, NumAxes>` currently holds template parameters for value type and scheduling
 axis count, but the scheduling logic is unimplemented (stubs removed in delivered item 18,
-Step C). This item defines and implements the full gain scheduling architecture.  Gain scheduling is a general purpose library capability, and is not only anticipated to be use within PID loops.  Gain scheduling may be used in model implementations, or to parameterize limits external to a PID, or many other use cases both in simulation code and in flight code.
-Fundamentally a gain is a object that produces a value parameterized by the present state of the aircraft, a combination of flight condition and aircraft configuration.  Within a PID implementation a gain is a multiplicative coefficient on a signal path.  However a gain may be composed into an algorithm as an additive factor or in other ways.  The gain class does not need to attempt to implement convenience methods for all potential mathematical patterns of use, so long as the value can be accessed by the calling function.
+Step C). This item defines the full gain scheduling architecture. Gain scheduling is a
+general-purpose library capability used beyond PID loops — it may parameterize model
+coefficients, limits, or other algorithm inputs in both simulation and flight code.
+Fundamentally, a gain is an object that produces a value parameterized by the current
+aircraft state (a combination of flight condition and configuration). Within a PID it is a
+multiplicative coefficient, but it may also enter an algorithm as an additive term or in
+other ways. The `Gain` class does not need convenience methods for every mathematical
+pattern of use; it only needs to expose its current value to the calling function.
 
 ### Scope to Define
 
@@ -108,8 +162,8 @@ The design must address at minimum:
   table bilinear, nearest-neighbor, polynomial fit) and how they are selected.
 - **Axis dimensions** — how `NumAxes` maps to physical scheduling variables
   (e.g. airspeed, altitude, angle of attack); how axes are labeled and units enforced.
-- **Lookup domain constraint functions** -- how constraint functions are applied to ensure that lookup only occurs within a valid domain of the scheduling inputs.
-- **Lookup parameterization** -- which flight condition and aircraft configuration values are used for gain scheduling.  Define the use cases that drive requirements of scheduling axes, define the architecture for scheduling.
+- **Lookup domain constraint functions** — how constraint functions are applied to ensure that lookup occurs only within the valid domain of the scheduling inputs.
+- **Lookup parameterization** — which flight condition and aircraft configuration values are available as scheduling axes; use cases that drive axis requirements.
 - **Runtime update** — how a scheduled gain is evaluated at each step given the current
   scheduling variable values; whether evaluation is synchronous with `SISOPIDFF::step()`
   or driven externally.
@@ -125,14 +179,13 @@ Do not implement in this task.
 
 ---
 
-## 1b. Gain Scheduling — Implementation
+## 3. Gain Scheduling — Implementation
 
-This is the software implementation of the gain scheduling design.
-Use TDD process.
+Implement the design produced in item 2. Follow TDD: write failing tests before production code.
 
 ---
 
-## 2. Landing Gear — Ground Contact Model Design
+## 4. Landing Gear — Ground Contact Model Design
 
 `LandingGear` is a Domain Layer physics component that models the contact forces and
 moments exerted on the airframe by the landing gear during ground operations (taxi,
@@ -157,7 +210,7 @@ The design must address at minimum:
   frame and a unit vector defining the suspension travel axis, both expressed in body
   coordinates. This supports tricycle, taildragger, and multi-bogey layouts without
   special-casing.
-- **Wheel rotational friction** -- model the tire friction as well as rotational friction at the wheel axle.  Ensure the the friction is modeled such that the aircraft will stop with finite time in landing rollout on a level surface in the absense of thrust or wind.
+- **Wheel rotational friction** — model tire rolling resistance and axle friction such that the aircraft decelerates to a stop in finite time during landing rollout on a level surface with no thrust or wind.
 - **Computational efficiency** — the landing gear contact model must not force the
   aircraft simulation to run at a higher timestep rate than the rigid-body integrator.
   High-frequency strut and tyre dynamics that do not materially influence the aircraft
@@ -166,15 +219,17 @@ The design must address at minimum:
   mechanism to decouple stiff strut dynamics from the outer rigid-body loop if it allows
   the outer step rate to remain at the standard simulation rate.
 - **Ground plane interface** — the model queries terrain height and surface normal at
-  the projected wheel contact point; this interface must be compatible with both
-  `FlatTerrain` and `TerrainMesh`.  Define required updates to the terrain model to define
-  detailed runway geometry patches that model surface geometry with the accuracy necessary for landing gear dynamic modeling.  This may be simply a planar patch of the runway boundary extents that is inset into the terrain model and replaces the standard heightmap, or it may be a tighter grid of heightmap if detailed height data is available for import or if we define tools for defining a representative runway heightmap.  Consider an analytical definition of a runway with a longitudinal slope and a crowned lateral profile.
-  Define parameterization for runway surface friction modeling for pavement, grass, dirt, gravel, and wet surfaces.
-  Ensure that the AGL sensor responds to the same surface height as used by the ground contact model.
+  the projected wheel contact point; the interface must be compatible with both
+  `FlatTerrain` and `TerrainMesh`. Define any required terrain model extensions for
+  runway geometry: options include an inset planar patch, a fine heightmap grid, or an
+  analytical runway definition with longitudinal slope and crowned lateral profile.
+  Define surface friction parameterization for pavement, grass, dirt, gravel, and wet
+  surfaces. The AGL sensor must respond to the same surface height used by the contact
+  model.
 - **Serialization** — full JSON and proto round-trip serialization of suspension state
   (strut deflection and deflection rate per wheel unit); RNG state if stochastic runway
   roughness is added.
-- **Notebook Visualization** -- demonstrate the landing gear model through a Jupyter notebook with visualization of landing contact and takeoff rotation and liftoff scenarios.  Include plots of friction forces and moments, the driving displacements, wheel speeds, and other parameters within the model.
+- **Notebook visualization** — demonstrate the model through a Jupyter notebook covering landing contact, takeoff rotation, and liftoff scenarios, with plots of contact forces, friction moments, strut displacement, and wheel speed.
 
 ### Deliverables — Landing Gear
 
@@ -185,63 +240,10 @@ Implementation follows TDD: failing tests before production code.
 
 ---
 
-## 3. Flight Code and Simulation Architecture Definition
-
-We will develop a system architecture model that will inform software development efforts going forward. The process for this will borrow heavily from SysML and Systems Engineering in general, but the system model will be encoded in markdown documentation with use of Mermaid diagrams and tables. The system model documentation must be well organized within the project docs folder and referred to for as a primary source of truth for future development efforts. The system model will include:
-
-A system originating requirements definition.
-
-A system use cases definition.
-
-A system element registry.  System elements have port definitions that define the interfacing of data flows.
-
-A data flow type and data flow registry.  A data flow type defines the contents and character of a data flow.  The data flow registry defines the instances of data flows and their routing within the system.
-
-Data flow diagrams.
-
-Interface Control Document definitions for data flow types with definition of their schemas.
-
-### Simulation architecture
-
-The simulation is the primary software component that has been developed to date, but its architecture has not been well defined for its use cases and separation of concerns.  We need to establish a flexible architecture to enable integration of the simulation with anticipated external functionality, with internal or external integration with autopilot and navigation functions, and to ensure the requirements of computational efficiency and optimal model fidelity are maintained.
-
-### Autopilot architecture
-
-We have existing components relevant to an autopilot software architectural component, but the architecture for the autopilot has not been properly defined yet.
-
-The autopilot will be a separable software component.  The autopilot will not be simulation specific.  In fact it must be designed to the standards of safety critical flight code, because it may be used as flight code in the future.  The autopilot may also be included within an aircraft simulation and must support simulation functionality such as the ability to be reset and initialized to arbitrary conditions for batch processing of maneuvering tests or other use cases.
-
-The autopilot will not include estimation functions within its architectural boundary.  Estimation functions are within the Navigation system's boundaries.
-
-The autopilot should support use cases of integration with Ardupilot or PX4 software.
-
-Consider Mavlink support and other relevant data protocols.
-The architecture should not be limited by Mavlink constraints if that is an issue.  If Mavlink does not provide the necessary interface functionality, then we should define the interfaces required and develop them.
-
-### Navigation and Perception architecture
-
-The navigation system is a separable flight code component that provides estimation products from sensor measurements.  It is not simulation specific, but may be used within the context of a simulation, or may be used as a flight software component on a real aircraft, for example with Ardupilot or PX4 software.
-
-Consider Mavlink support and other relevant data protocols.
-The architecture should not be limited by Mavlink constraints if that is an issue.  If Mavlink does not provide the necessary interface functionality, then we should define the interfaces required and develop them.
-
-We may also wish to develop perception functions that are a higher level of abstraction than traditional Navigation solution of absolute or relative kinematic state estimates, and the architecture should consider how they will be integrated.  Perception functions may include image based navigation, or other inference based functionality.
-
-### External components
-
-- connection to game engines for real time live or scaled real time playback 3D rendering
-- pilot in the loop inputs from joystick and RC transmitter controllers (via USB)
-- connection to QGroundControl
-- simulation connection to PX4 for hardware in the loop simulation, software in the loop simulation
-- simulation connection to Ardupilot for hardware in the loop simulation, software in the loop simulation
-- autopilot and navigation interfacing to Ardupilot and PX4
-
----
-
-## 4. Autopilot Gain Design — Python Tooling
+## 5. Autopilot Gain Design — Python Tooling
 
 Python workflow that derives autopilot control gains from the aircraft model. This is a
-prerequisite for item 4 (`Autopilot`) — the C++ implementation is parameterized by gains
+prerequisite for item 6 (`Autopilot`) — the C++ implementation is parameterized by gains
 computed here.
 
 Scope to be defined when this item is scheduled. Expected to use Python control-system
@@ -250,22 +252,26 @@ from `Aircraft` trim and `AeroCoeffEstimator` outputs.
 
 ---
 
-## 5. Autopilot — Inner Loop Knobs-Mode Tracking
+## 6. Autopilot — Inner Loop Knobs-Mode Tracking
 
-
-Stub header exists at `include/control/Autopilot.hpp`.
+_Flight code component — not part of LiteAeroSim. Repository placement and build system
+integration are to be determined by item 1 (Architecture Definition). A stub header exists
+at `include/control/Autopilot.hpp` as a temporary placeholder and will be relocated once
+the architecture is established._
 
 `Autopilot` implements the inner closed-loop layer. It tracks pilot-style set point commands
 corresponding to "knobs" modes — altitude hold, vertical speed hold, heading hold, and roll
-attitude hold — and produces an `AircraftCommand` for `Aircraft::step()`. Guidance (item 6)
-is the outer loop that wraps around it and supplies the set point commands. Control gains are
-derived by the Python gain design workflow (item 3).
+attitude hold. Guidance (item 8) is the outer loop that wraps around it and supplies the set
+point commands. Control gains are derived by the Python gain design workflow (item 5). The
+autopilot must support simulation use cases (reset and initialization to arbitrary conditions
+for batch testing) as well as deployment as flight software.
 
 ### Interface sketch
 
-_To be defined during design. Inputs will include `KinematicState`, `AtmosphericState`,
+_To be defined during design. Inputs will include the kinematic state, atmospheric state,
 and a set point struct (target altitude, target vertical speed, target heading, target roll
-attitude). Output is `AircraftCommand`._
+attitude). The output command type and its interface to the simulation plant model will be
+defined by the architecture._
 
 ### Tests
 
@@ -276,17 +282,20 @@ attitude). Output is `AircraftCommand`._
 - Roll attitude hold: commanded roll angle is tracked with correct steady-state and transient.
 - Vertical speed hold: commanded climb rate is tracked correctly.
 - JSON and proto round-trips preserve filter states.
+- Reset and re-initialization to arbitrary conditions produces correct initial output.
 
-### CMake
+### Build Integration
 
-Add `src/control/Autopilot.cpp` to `liteaerosim`.
-Add `test/Autopilot_test.cpp` to the test executable.
+To be determined by item 1. The component must be buildable as standalone flight code and
+as a component co-resident with the LiteAeroSim simulation for integration testing.
 
 ---
 
-## 6. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 7. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
-Stub headers exist in `include/path/` for all three classes.
+_Flight code component — not part of LiteAeroSim. Repository placement and build system
+integration are to be determined by item 1. Stub headers exist at `include/path/` as
+temporary placeholders. The namespace shown below is provisional._
 
 A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
 cross-track error, along-track distance, and desired heading at a query position. The
@@ -296,8 +305,8 @@ with infinite radius).
 ### Interface sketch
 
 ```cpp
-// include/path/V_PathSegment.hpp
-namespace liteaerosim::path {
+// Provisional — namespace and location subject to architecture definition (item 1)
+namespace path {
 
 struct PathQuery {
     Eigen::Vector3f position_NED_m;
@@ -319,7 +328,7 @@ public:
     virtual ~V_PathSegment() = default;
 };
 
-} // namespace liteaerosim::path
+} // namespace path
 ```
 
 ### Tests — `PathSegmentHelix`
@@ -334,22 +343,22 @@ public:
 - A path with two segments advances to the second segment when the first is complete.
 - `Path::query()` delegates to the active segment.
 
-### CMake
+### Build Integration
 
-Add `src/path/PathSegmentHelix.cpp` and `src/path/Path.cpp` to `liteaerosim`.
-Add `test/Path_test.cpp` to the test executable.
+To be determined by item 1.
 
 ---
 
-## 7. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 8. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
-Stub headers exist in `include/guidance/` for all three classes.
+_Flight code component — not part of LiteAeroSim. Repository placement and build system
+integration are to be determined by item 1. Stub headers exist at `include/guidance/` as
+temporary placeholders._
 
 Guidance is the outer loop that wraps around the `Autopilot`. It converts path and altitude
 errors into set point commands (target altitude, vertical speed, heading, roll attitude) that
-are fed to `Autopilot::step()`. Guidance classes live in the Domain Layer and have no I/O.
-Each is a stateful element (contains filter state) and implements `reset()`, `step()`, and
-JSON + proto serialization.
+are fed to `Autopilot::step()`. Each guidance class is stateful and implements reset,
+step, and serialization in accordance with the component lifecycle defined in item 1.
 
 ### `PathGuidance` — Lateral Path Tracking
 
@@ -384,32 +393,65 @@ producing heading and altitude set point commands to `Autopilot`.
 - JSON and proto round-trips preserve filter state; next `step()` output matches between
   original and restored instances.
 
-### CMake
+### Build Integration
 
-Add guidance source files to `liteaerosim`.
-Add `test/Guidance_test.cpp` to the test executable.
-
----
-
-## 8. Airfield Traffic Pattern Operations
-
-Integrate the autopilot and guidance with Ardupilot and PX4 autolanding modes for fixed wing aircraft
-We may wish to define modifications or external scripting that changes the behavior and mode sequencing of the autotakeoff and autolanding modes.
-Define autotakeoff and autolanding mode use case where the aircraft performs standard compliant traffic pattern behavior at an airport.  Behavior definitions should be similar to expected operation at Federal Aviation Administration (FAA) non-towered airfields during visual flight rules operation and at typical Academy of Model Aeronautics (AMA) sanctioned radio control club flying fields.
-This should include off nominal case handling, such as aborts, delays, expediting, short field operations, high performance operation, pattern entry and pattern exit.
-Provide interface for pilot operator inputs to initiate aborted landings, aborted takeoffs, sequencing for traffic.  Pilot operator inputs should be easy to map to RC transmitter switch inputs and the resultant behavior should be easily interpretable visually and compliant with traffic pattern rules.
-For example, an autoland go-around behavior should initiate a full power climb at safe airspeed, smoothly reconfiguring the aircraft for climb condition, and must not deviate from the extended runway centerline until safe altitude separation from terrain and obstacles is achieved.  Once safe separation is achieve the aircraft should transition to traffic pattern operation as if on the initial climbout phase of a takeoff procedure.
-
-The traffic pattern will define an expected flow direction in response to wind, a "handedness" for safe separation of aircraft from ground operator locations (aircraft stay on the far side of the field from the operators), geofence constraints while operating in traffic pattern mode, a location for safe loitering that is altitude and horizontally separated from the pattern, an estimate of RC link range capability, expected landing and takeoff flight path angles, geometry of expected touchdown and takeoff initiation regions on the runway.
-
-
-## 9. Airfield ground operations
-
-Define a design document for the definition of ground operations at an RC field.  Operations include (non-exhaustively) hardware in the loop simulation, parameterization, power up, GPS acquisition and EKF alignment, and systems test on the test stand, pre takeoff systems test, taxi to the runway, taxi from the runway, runway survey, taxi to takeoff position, takeoff roll low speed test and abort, takeoff roll high speed test and abort, takeoff roll initiation with transition to autotakeoff mode, landing rollout, back taxi, taxi to parking, taxi pausing for traffic.
+To be determined by item 1.
 
 ---
 
-## 10. Plot Visualization — Python Post-Processing Tools
+## 9. Airfield Traffic Pattern Operations
+
+_This item is a flight code and integration item, not a LiteAeroSim item. LiteAeroSim
+provides the simulation plant. The autopilot and guidance (items 6–8) are the flight code
+components that execute the traffic pattern behavior. This item defines the operational
+requirements, mode sequencing, and integration architecture for traffic pattern operations._
+
+Define autotakeoff and autolanding behavior for fixed-wing aircraft operating in a standard
+traffic pattern. Behavior definitions are drawn from FAA non-towered airfield VFR operations
+and AMA club field conventions.
+
+### Scope
+
+- **Normal pattern operations** — pattern entry, upwind, crosswind, downwind, base, and
+  final legs; pattern exit; go-around.
+- **Off-nominal handling** — aborted takeoff, aborted landing, expedited approach,
+  short-field and high-performance variants.
+- **Pilot operator interface** — switch inputs mappable to RC transmitter channels for
+  initiating aborts, go-arounds, and traffic sequencing; behavior must be visually
+  interpretable and rule-compliant.
+- **Traffic pattern definition** — wind-referenced flow direction; operator-side handedness
+  (aircraft remain on the far side of the field from operators); geofence envelope; safe
+  loiter point (altitude- and laterally-separated from the active pattern); RC link range
+  margin; nominal flight path angles for climb, approach, and touchdown; touchdown zone and
+  rotation initiation region geometry.
+- **ArduPilot / PX4 integration architecture** — define the integration model: options
+  include full replacement of the autopilot's internal autotakeoff/autolanding modes,
+  partial override via a companion computer or offboard computation node, or mode
+  sequencing via Lua scripting. The autopilot and guidance components may be collocated
+  with the simulation or hosted on separate compute resources. The architecture must
+  accommodate all of these configurations.
+
+### Example behavior
+
+A go-around from final approach initiates a full-power climb at safe airspeed, reconfigures
+the aircraft for climb, and holds the extended runway centerline until terrain and obstacle
+separation is confirmed. The aircraft then transitions to the climbout phase of the traffic
+pattern as if departing from a normal takeoff.
+
+---
+
+## 10. Airfield Ground Operations
+
+Define the operational sequence for ground operations at an RC airfield, from power-up through parking. The design document will cover (non-exhaustively):
+
+- **Pre-flight** — hardware-in-the-loop simulation; system parameterization; power-up; GPS acquisition and EKF alignment; bench systems test; pre-takeoff systems test
+- **Runway operations** — taxi to runway; runway survey; taxi to takeoff position; low-speed takeoff roll test and abort; high-speed takeoff roll test and abort; takeoff roll with transition to autotakeoff mode
+- **Post-flight** — landing rollout; back-taxi; taxi pausing for traffic; taxi to parking
+- **Sequencing and safety** — define go/no-go criteria at each phase transition; define abort procedures and recovery actions
+
+---
+
+## 11. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -443,7 +485,7 @@ dev = [
 
 ---
 
-## 11. Manual Input — Joystick and Keyboard
+## 12. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -484,13 +526,13 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 12. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 13. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
 
 | Mode | Description |
-|------|-------------|
+| --- | --- |
 | **Real-time** | Each `step()` is paced to its real elapsed wall time (`dt_s` per step). |
 | **Scaled real-time** | Same as real-time but with a configurable speed multiplier (0.5×, 2×, etc.). |
 | **Full-rate batch** | Steps run as fast as possible; no sleep; used for CI, Monte Carlo, and data generation. |
@@ -536,13 +578,13 @@ Add `test/SimRunner_test.cpp` to the test executable.
 
 ---
 
-## 13. Remaining Sensor Models
+## 14. Remaining Sensor Models
 
 Not blocking any higher-priority item. Stub headers exist in `include/sensor/`.
 Implement when needed; order within this group follows dependency.
 
 | Class | Depends on | Hardware modeled |
-|---|---|---|
+| --- | --- | --- |
 | `SensorMag` | `KinematicState` (done) | Triaxial magnetometer — body-frame field with hard-iron bias and soft-iron distortion |
 | `SensorGnss` | `KinematicState` (done) | GNSS receiver — WGS84 position, NED velocity, SOG/COG, fix type, DOP |
 | `SensorLaserAlt` | Terrain (done) | Laser altimeter — single-beam slant range and AGL altitude |
@@ -555,13 +597,13 @@ Implement when needed; order within this group follows dependency.
 
 ---
 
-## 14. Estimation Subsystem
+## 15. Estimation Subsystem
 
 Flight code estimation algorithms. Stub headers exist in `include/estimation/` (to be
 created). Each derives from `DynamicElement` directly. Design authorities listed below.
 
 | Class | Depends on | Design authority |
-|---|---|---|
+| --- | --- | --- |
 | `NavigationFilter` | `SensorGnss`, `SensorAirData`, `SensorMag` | [navigation_filter.md](../architecture/navigation_filter.md) |
 | `WindEstimator` | `NavigationFilter` or `SensorInsSimulation`, `SensorAirData` | [wind_estimator.md](../architecture/wind_estimator.md) |
 | `FlowAnglesEstimator` | `WindEstimator`, `SensorAirData` | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
