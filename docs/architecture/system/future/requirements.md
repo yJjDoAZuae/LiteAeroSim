@@ -10,7 +10,7 @@ uncertainty questions recorded during roadmap development.
 | ID | Requirement |
 | --- | --- |
 | SR-1 through SR-12 | All present-state simulation requirements carry forward unchanged (see `present/requirements.md`). |
-| SR-13 | LiteAeroSim is the simulation plant. It does not contain autopilot, guidance, path management, or navigation functions. These are flight code components that are architecturally separate. |
+| SR-13 | LiteAero Sim is the simulation plant. It does not contain autopilot, guidance, path management, or navigation functions. These are flight code components that are architecturally separate. |
 | SR-14 | The simulation must be able to operate with no flight code present (simulation-only mode for batch processing, Monte Carlo, and algorithmic development). |
 | SR-15 | The simulation must be able to accept commands from and provide outputs to a co-resident flight code component without modification to the simulation internals. |
 | SR-16 | The simulation must be able to interface with flight code running on a separate compute node (hardware-in-the-loop, remote SITL). |

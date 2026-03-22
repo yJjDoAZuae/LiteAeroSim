@@ -2,7 +2,7 @@
 
 ## Philosophy
 
-All production code in LiteAeroSim is written using **Test-Driven Development (TDD)**. Tests are not written after the fact — they define the expected behavior before a line of production code exists.
+All production code in LiteAero Sim is written using **Test-Driven Development (TDD)**. Tests are not written after the fact — they define the expected behavior before a line of production code exists.
 
 ```mermaid
 flowchart LR

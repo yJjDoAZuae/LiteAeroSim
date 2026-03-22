@@ -1,4 +1,4 @@
-# LiteAeroSim — Claude Code Guidelines
+# LiteAero Sim — Claude Code Guidelines
 
 This file provides Claude Code with the project's development standards. Read the linked documents before writing or modifying any code.
 

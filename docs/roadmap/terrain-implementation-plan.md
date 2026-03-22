@@ -65,7 +65,7 @@ separate future steps.
 | `test/TrajectoryFile_test.cpp` | ✅ Done (Step 12) — 2 tests |
 | `proto/liteaerosim.proto` | ✅ Done (Steps 10, 12) — terrain + trajectory messages added |
 | `CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf` v2.9.3 FetchContent block |
-| `src/CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf_headers` linked to `liteaerosim` |
+| `src/CMakeLists.txt` | ✅ Done (Step 11) — `tinygltf_headers` linked to `liteaero-sim` |
 | `python/tools/terrain/__init__.py` | ✅ Done (Step 14) |
 | `python/tools/terrain/las_terrain.py` | ✅ Done (Step 14) — pure-Python `.las_terrain` reader/writer |
 | `python/tools/terrain/download.py` | ✅ Done (Step 15) |

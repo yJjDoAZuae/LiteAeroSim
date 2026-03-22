@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph LAS["LiteAeroSim (Simulation Plant)"]
+    subgraph LAS["LiteAero Sim (Simulation Plant)"]
         direction TB
         ENV3["Environment"]
         PHYS3["Aircraft Physics"]
@@ -17,7 +17,7 @@ flowchart LR
         RUNNER["SimRunner"]
     end
 
-    subgraph FC["FlightCode (separate component)"]
+    subgraph FC["LiteAero Flight (separate component)"]
         direction TB
         AP2["Autopilot"]
         GUID3["Guidance"]
@@ -95,30 +95,30 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph A["Config A: Batch / Open-Loop"]
-        LAS_A["LiteAeroSim"] --> SCRIPT["Scripted command"]
+        LAS_A["LiteAero Sim"] --> SCRIPT["Scripted command"]
         SCRIPT --> LAS_A
     end
 
     subgraph B["Config B: SITL (co-resident)"]
-        LAS_B["LiteAeroSim"] <--> FC_B["FlightCode"]
+        LAS_B["LiteAero Sim"] <--> FC_B["LiteAero Flight"]
         FC_B <--> QGC_B["QGroundControl"]
     end
 
     subgraph C["Config C: HITL"]
-        LAS_C["LiteAeroSim (desktop)"] <-->|"sensor stream / actuator cmd"| HW["Flight Hardware (FlightCode)"]
+        LAS_C["LiteAero Sim (desktop)"] <-->|"sensor stream / actuator cmd"| HW["Flight Hardware (LiteAero Flight)"]
         HW <--> QGC_C["QGroundControl"]
     end
 
     subgraph D["Config D: ArduPilot/PX4 SITL"]
-        LAS_D["LiteAeroSim"] <-->|"MAVLink / SITL bridge"| APX_D["ArduPilot / PX4"]
+        LAS_D["LiteAero Sim"] <-->|"MAVLink / SITL bridge"| APX_D["ArduPilot / PX4"]
         APX_D <--> QGC_D["QGroundControl"]
-        APX_D <-->|"optional"| FC_D["FlightCode (companion/offboard)"]
+        APX_D <-->|"optional"| FC_D["LiteAero Flight (companion/offboard)"]
     end
 ```
 
 ---
 
-## LiteAeroSim Internal Layer Architecture
+## LiteAero Sim Internal Layer Architecture
 
 ```mermaid
 flowchart TB
@@ -150,5 +150,5 @@ flowchart TB
     DL2 --> INFRA2
 ```
 
-**Note:** FlightCode (Autopilot, Guidance, Path, Navigation) is outside this layer diagram.
-It communicates with LiteAeroSim only through the Interface Layer adapters (ICD-8, ICD-9).
+**Note:** LiteAero Flight (Autopilot, Guidance, Path, Navigation) is outside this layer diagram.
+It communicates with LiteAero Sim only through the Interface Layer adapters (ICD-8, ICD-9).

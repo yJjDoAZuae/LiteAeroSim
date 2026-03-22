@@ -1,4 +1,4 @@
-# LiteAeroSim Documentation
+# LiteAero Sim Documentation
 
 ## Contents
 

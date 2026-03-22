@@ -1,14 +1,14 @@
 # DynamicElement — Unified Base Class for Dynamic Components
 
 This document is the design authority for `DynamicElement`, the unified abstract base class
-for all stateful, time-evolving components in LiteAeroSim. It defines the lifecycle
+for all stateful, time-evolving components in LiteAero Sim. It defines the lifecycle
 contract, the NVI pattern, and the logging interface.
 
 ---
 
 ## Motivation
 
-LiteAeroSim contains several families of components that share an identical behavioral
+LiteAero Sim contains several families of components that share an identical behavioral
 contract: they maintain internal state, receive time-stepped inputs, and produce
 time-correlated outputs whose characteristics are determined by their dynamic properties.
 A unified root base class allows cross-cutting concerns (logging, telemetry, watchdog,

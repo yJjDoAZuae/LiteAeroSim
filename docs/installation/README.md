@@ -13,8 +13,8 @@
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/<org>/LiteAeroSim.git
-cd LiteAeroSim
+git clone https://github.com/<org>/liteaero-sim.git
+cd liteaero-sim
 ```
 
 ## 2. Install Eigen3

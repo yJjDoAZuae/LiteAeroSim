@@ -6,7 +6,7 @@
 
 **Actor:** Engineer or automated test harness
 
-**Configuration:** LiteAeroSim only; no flight code.
+**Configuration:** LiteAero Sim only; no flight code.
 
 **Steps:**
 
@@ -24,19 +24,19 @@
 
 **Actor:** Engineer
 
-**Configuration:** LiteAeroSim + FlightCode on the same host. Two deployment variants apply
+**Configuration:** LiteAero Sim + LiteAero Flight on the same host. Two deployment variants apply
 depending on the purpose of the session.
 
 ### UC-2a — Development SITL
 
-**Configuration:** LiteAeroSim and FlightCode co-resident (same process or separate processes
+**Configuration:** LiteAero Sim and LiteAero Flight co-resident (same process or separate processes
 on the same host, no container isolation).
 
 **Steps:**
 
-1. Start LiteAeroSim simulation runner in real-time or scaled-real-time mode.
+1. Start LiteAero Sim simulation runner in real-time or scaled-real-time mode.
 2. Start flight code components (Autopilot, Navigation) in the same process or as a local co-process.
-3. Flight code receives sensor measurements from LiteAeroSim and produces `AircraftCommand`.
+3. Flight code receives sensor measurements from LiteAero Sim and produces `AircraftCommand`.
 4. Simulation runner feeds command to `Aircraft::step()` and returns updated state to flight code.
 5. Operator monitors via QGroundControl connection.
 
@@ -44,20 +44,20 @@ on the same host, no container isolation).
 
 ### UC-2b — Containerized SITL (Verification Venue)
 
-**Configuration:** LiteAeroSim and FlightCode run in separate Docker containers on the same
-host. The `flightcode` container image is identical to the active flight software load image;
+**Configuration:** LiteAero Sim and LiteAero Flight run in separate Docker containers on the same
+host. The `liteaero-flight` container image is identical to the active flight software load image;
 it contains no simulation-specific code.
 
 **Steps:**
 
-1. Start the `liteaerosim` container; simulation runner enters real-time mode and listens on
+1. Start the `liteaero-sim` container; simulation runner enters real-time mode and listens on
    the ICD-8 network port.
-2. Start the `flightcode` container; flight code initializes and connects to the `liteaerosim`
+2. Start the `liteaero-flight` container; flight code initializes and connects to the `liteaero-sim`
    ICD-8 port.
 3. Flight code receives sensor measurements over the container network and produces
    `AircraftCommand` responses.
 4. Simulation runner feeds commands to `Aircraft::step()` and returns updated state.
-5. Operator monitors via QGroundControl connection to the `liteaerosim` container.
+5. Operator monitors via QGroundControl connection to the `liteaero-sim` container.
 
 **Use:** SITL verification; integration test gate; ensures flight code executes in the same
 runtime environment as an active flight software load. The container boundary enforces the
@@ -73,7 +73,7 @@ containerization policy are the same regardless of which baseline is in use.
 
 | Variant | Autopilot source | Notes |
 | --- | --- | --- |
-| LiteAeroSim Autopilot | `Autopilot`, `PathGuidance`, `NavigationFilter` components of this library | Not yet implemented; the target for in-house development |
+| LiteAero Sim Autopilot | `Autopilot`, `PathGuidance`, `NavigationFilter` components of this library | Not yet implemented; the target for in-house development |
 | ArduPilot SITL | ArduPilot firmware running in software simulation mode | Interfaces via ArduPilot SITL protocol; sensor and command encoding per ArduPilot convention |
 | PX4 SITL | PX4 firmware running in software simulation mode | Interfaces via PX4 SITL bridge; sensor and command encoding per PX4 convention |
 
@@ -83,30 +83,30 @@ containerization policy are the same regardless of which baseline is in use.
 
 **Actor:** Test engineer
 
-**Hardware topology:** LiteAeroSim runs on a desktop host. Flight hardware comprises an
+**Hardware topology:** LiteAero Sim runs on a desktop host. Flight hardware comprises an
 autopilot board and a companion computer connected by a local network or serial link.
 
 - **Autopilot board** — runs ArduPilot or PX4 firmware; responsible for inner-loop attitude
   and rate control.
 - **Companion computer** — runs navigation (EKF, sensor fusion) and guidance (path tracking,
   outer-loop set points); communicates with the autopilot board over MAVLink.
-- **Desktop host** — LiteAeroSim generates simulated sensor outputs and receives actuator
+- **Desktop host** — LiteAero Sim generates simulated sensor outputs and receives actuator
   commands over a network link to the autopilot board.
 
 Four sub-variants apply depending on the autopilot firmware and the degree of modification.
 
 ### UC-3a — HITL, Unmodified ArduPilot + Companion Computer
 
-**Configuration:** Unmodified ArduPilot firmware on the autopilot board. LiteAeroSim's
+**Configuration:** Unmodified ArduPilot firmware on the autopilot board. LiteAero Sim's
 `NavigationFilter` and guidance components run on the companion computer.
 
 **Steps:**
 
-1. LiteAeroSim streams simulated sensor measurements to the ArduPilot board at sensor rate.
+1. LiteAero Sim streams simulated sensor measurements to the ArduPilot board at sensor rate.
 2. ArduPilot runs its stock control loops and forwards navigation inputs to the companion computer.
 3. Companion computer runs `NavigationFilter`, `PathGuidance`, and `VerticalGuidance`; sends
    set-point commands to ArduPilot via MAVLink.
-4. ArduPilot produces actuator commands; LiteAeroSim feeds them to `Aircraft::step()`.
+4. ArduPilot produces actuator commands; LiteAero Sim feeds them to `Aircraft::step()`.
 
 **Use:** Integration testing of navigation and guidance components on flight hardware with
 unmodified ArduPilot as the inner-loop controller.
@@ -172,7 +172,7 @@ in UC-3c and UC-3d.
 - Firmware modifications must be tracked in a version-controlled fork of the ArduPilot or
   PX4 repository with traceability to the upstream baseline.
 - Custom control and navigation backends must expose reset and initialization interfaces
-  consistent with the LiteAeroSim component lifecycle.
+  consistent with the LiteAero Sim component lifecycle.
 - The interface between custom firmware backends and companion-computer components is a
   separately defined ICD (not yet assigned a number in this document set).
 

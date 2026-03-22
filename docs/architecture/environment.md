@@ -161,7 +161,7 @@ must be lifted into the constructor or cached on first access.
 #### Layer Model
 
 The International Standard Atmosphere is defined in ICAO Doc 7488/3 and ISO 2533:1975.
-LiteAeroSim models three layers up to 32 000 m. Higher altitudes are clamped to the
+LiteAero Sim models three layers up to 32 000 m. Higher altitudes are clamped to the
 upper boundary values.
 
 Inputs use **geometric altitude** $h_\text{geom}$ (m). The ISA is defined in

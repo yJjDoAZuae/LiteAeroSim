@@ -4,7 +4,7 @@
 
 ### Project Lifecycle Phase
 
-LiteAeroSim is in **initial development**. Every interface, data structure, and serialized
+LiteAero Sim is in **initial development**. Every interface, data structure, and serialized
 format is subject to change without notice. This phase ends when the project transitions
 to a maintenance workflow with published APIs and persistent serialized data.
 

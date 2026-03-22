@@ -6,10 +6,10 @@
 throttle. It lives in the Domain Layer and has no I/O, no display logic, and no unit
 conversions.
 
-**Note on system scope.** LiteAeroSim is the simulation plant only. Autopilot, guidance,
-path representation, navigation, and gain scheduling are FlightCode components that are
+**Note on system scope.** LiteAero Sim is the simulation plant only. Autopilot, guidance,
+path representation, navigation, and gain scheduling are LiteAero Flight components that are
 architecturally separate. Their design and implementation items are in
-[flight_code.md](flight_code.md). Items in this document are LiteAeroSim items only.
+[flight_code.md](flight_code.md). Items in this document are LiteAero Sim items only.
 The system architecture is complete — see `docs/architecture/system/future/` and the
 project roadmap [README.md](README.md) for cross-cutting milestones.
 
@@ -64,16 +64,16 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
 | `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
 | `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
-| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-8 |
-| `WindEstimator` | `include/estimation/WindEstimator.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-8 |
-| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-8 |
-| `V_PathSegment` | `include/path/V_PathSegment.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-6 |
-| `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-6 |
-| `Path` | `include/path/Path.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-6 |
-| `PathGuidance` | `include/guidance/PathGuidance.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-7 |
-| `VerticalGuidance` | `include/guidance/VerticalGuidance.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-7 |
-| `ParkTracking` | `include/guidance/ParkTracking.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-7 |
-| `Autopilot` | `include/control/Autopilot.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-5 |
+| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
+| `WindEstimator` | `include/estimation/WindEstimator.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
+| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
+| `V_PathSegment` | `include/path/V_PathSegment.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
+| `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
+| `Path` | `include/path/Path.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
+| `PathGuidance` | `include/guidance/PathGuidance.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-7 |
+| `VerticalGuidance` | `include/guidance/VerticalGuidance.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-7 |
+| `ParkTracking` | `include/guidance/ParkTracking.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-7 |
+| `Autopilot` | `include/control/Autopilot.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-5 |
 
 ---
 
@@ -104,7 +104,7 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 19 | `SensorAirData` — pitot-static air data computer; differential pressure ($q_c$) and static pressure ($P_s$) transducers with Gaussian noise, first-order Tustin lag, and fuselage crossflow pressure error (two-port symmetric crosslinked model); derives IAS, CAS, EAS, TAS, Mach, barometric altitude (Kollsman-referenced, troposphere + tropopause), OAT; RNG pimpl with seed + advance serialization; JSON + proto round-trips | `SensorAirData_test.cpp` — 19 tests; 454 pass, 2 pre-existing `FilterTFTest` failures unchanged |
 | 20 | `LoadFactorAllocator` alpha-ceiling fix — Newton overshoot and fold guards corrected for positive-thrust case; the achievable-Nz ceiling is at $\alpha^*$ (where $f'(\alpha) = qSC_L'(\alpha) + T\cos\alpha = 0$), not at `alphaPeak()`, when $T > 0$; overshoot guard now clamps the proposed Newton step to the CL parabolic domain using `LiftCurveModel::alphaSep()` / `alphaSepNeg()` before checking $f'$, preventing escape into the flat separated plateau where $f' = T\cos\alpha$ stays positive until $\alpha > \pi/2$; bisects to locate $\alpha^*$ when the guard fires; fold guard stays at current iterate rather than snapping to `alphaPeak()`; `LiftCurveModel::alphaSep()` and `alphaSepNeg()` added to public interface; design documentation updated in `docs/implementation/equations_of_motion.md` and `docs/algorithms/equations_of_motion.md` | 4 new tests in `LoadFactorAllocator_test.cpp`; 19 tests total; 458 pass, 2 pre-existing `FilterTFTest` failures unchanged |
 | 0a | `LoadFactorAllocator` branch-continuation predictor — first-order warm-start $\alpha_0 = \alpha_\text{prev} + \delta n_z \cdot mg / f'(\alpha_\text{prev})$ and symmetric $\beta_0$ formula added to `solve()`; predictor is skipped at the stall ceiling ($f' \approx 0$) or when the raw prediction would fall outside $[\alpha_\text{sep\_neg}, \alpha_\text{sep}]$ (domain guard prevents cross-branch jumps on cold-start excess-demand calls); `_n_z_prev` and `_n_y_prev` added as serialized state fields in both JSON (`n_z_prev_nd`, `n_y_prev_nd`) and proto (`LoadFactorAllocatorState` fields 6–7); `iterations` (alpha solver iteration count) added to `LoadFactorOutputs`; `reset()` clears all four warm-start fields; `docs/implementation/equations_of_motion.md` §Warm-Starting updated | 3 new tests in `LoadFactorAllocator_test.cpp`: `PredictorReducesIterationsOnLinearStep` (iterations == 1 for an exact linear-region prediction), `PredictorJsonRoundTrip_IncludesNzPrevAndNyPrev`, `PredictorProtoRoundTrip_IncludesNzPrev`; 22 tests total |
-| 21 | **System architecture definition** — future-state system architecture model covering: originating requirements, use cases (UC-1 through UC-7), element registry (LiteAeroSim, FlightCode, SimulationRunner, External Interface elements), data flow type and instance registries, interface control documents (ICD-8 through ICD-12), architectural decisions (30 recorded), open questions (all pre-design questions resolved; design-phase questions tracked); system boundary between LiteAeroSim simulation plant and FlightCode established; Docker containerization model for SITL verification defined; `avraero::` namespace structure and CMake target structure decided; repo split plan defined | No code tests — deliverable is the architecture document set under `docs/architecture/system/future/` |
+| 21 | **System architecture definition** — future-state system architecture model covering: originating requirements, use cases (UC-1 through UC-7), element registry (LiteAero Sim, LiteAero Flight, SimulationRunner, External Interface elements), data flow type and instance registries, interface control documents (ICD-8 through ICD-12), architectural decisions (30 recorded), open questions (all pre-design questions resolved; design-phase questions tracked); system boundary between LiteAero Sim simulation plant and LiteAero Flight established; Docker containerization model for SITL verification defined; `avraero::` namespace structure and CMake target structure decided; repo split plan defined | No code tests — deliverable is the architecture document set under `docs/architecture/system/future/` |
 | 0b | `LoadFactorAllocator` test coverage extension — 8 new tests close continuity and domain-coverage gaps identified by code review. **White-box tests** (4): full positive and negative Nz sweeps through stall verifying the clamp value against `alphaPeak()`/`alphaTrough()`; fine-step sweep across the C¹ Linear→IncipientStall boundary confirming both segments are traversed; stall warm-start limitation test documenting that `reset()` is required after a discontinuous Nz jump. **Black-box tests** (4): uniform 500-step monotonicity sweeps from 0 to ±10 g for T = 0 (positive and negative) and T = `kLargeThrust` (positive); point-wise perturbation test at 37 grid points (T = 0, −9 g to +9 g) and 19 grid points (T > 0, 0 to +9 g) using fresh allocators. Stall warm-start limitation documented in `docs/implementation/equations_of_motion.md` §Stall Warm-Start Limitation | 30 tests total in `LoadFactorAllocator_test.cpp` |
 
 ---
@@ -225,9 +225,9 @@ The navigation system is a separable flight code component that derives kinemati
 
 ---
 
-## 2. Gain Scheduling *(→ FlightCode)*
+## 2. Gain Scheduling *(→ LiteAero Flight)*
 
-Gain scheduling is a FlightCode infrastructure item. Design and implementation are in
+Gain scheduling is a LiteAero Flight infrastructure item. Design and implementation are in
 [flight_code.md](flight_code.md) as FC-2 and FC-3.
 
 ---
@@ -291,45 +291,45 @@ Implementation follows TDD: failing tests before production code.
 
 ---
 
-## 5. Autopilot Gain Design — Python Tooling *(→ FlightCode)*
+## 5. Autopilot Gain Design — Python Tooling *(→ LiteAero Flight)*
 
 Python workflow for deriving autopilot gains from the `Aircraft` model. This item is in
-[flight_code.md](flight_code.md) as FC-4 since it produces inputs for the FlightCode
+[flight_code.md](flight_code.md) as FC-4 since it produces inputs for the LiteAero Flight
 `Autopilot` component.
 
 ---
 
-## 6. Autopilot *(→ FlightCode)*
+## 6. Autopilot *(→ LiteAero Flight)*
 
-FlightCode item — see [flight_code.md](flight_code.md) FC-5. Stub header at
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-5. Stub header at
 `include/control/Autopilot.hpp` will be relocated at the repo split.
 
 ---
 
-## 7. Path Representation *(→ FlightCode)*
+## 7. Path Representation *(→ LiteAero Flight)*
 
-FlightCode item — see [flight_code.md](flight_code.md) FC-6. Stub headers at
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-6. Stub headers at
 `include/path/` will be relocated at the repo split.
 
 ---
 
-## 8. Guidance *(→ FlightCode)*
+## 8. Guidance *(→ LiteAero Flight)*
 
-FlightCode item — see [flight_code.md](flight_code.md) FC-7. Stub headers at
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-7. Stub headers at
 `include/guidance/` will be relocated at the repo split.
 
 ---
 
 ## 9. Airfield Traffic Pattern Operations *(→ Project Roadmap)*
 
-Integration item spanning LiteAeroSim and FlightCode — see project roadmap
+Integration item spanning LiteAero Sim and LiteAero Flight — see project roadmap
 [README.md](README.md) as integration item I-4.
 
 ---
 
 ## 10. Airfield Ground Operations *(→ Project Roadmap)*
 
-Integration item spanning LiteAeroSim and FlightCode — see project roadmap
+Integration item spanning LiteAero Sim and LiteAero Flight — see project roadmap
 [README.md](README.md) as integration item I-5.
 
 ---
@@ -404,7 +404,7 @@ public:
 
 ### CMake — Manual Input
 
-Add `src/input/KeyboardInput.cpp` and `src/input/JoystickInput.cpp` to `liteaerosim`.
+Add `src/input/KeyboardInput.cpp` and `src/input/JoystickInput.cpp` to `liteaero-sim`.
 Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
@@ -456,7 +456,7 @@ public:
 
 ### CMake — SimRunner
 
-Add `src/runner/SimRunner.cpp` to `liteaerosim`.
+Add `src/runner/SimRunner.cpp` to `liteaero-sim`.
 Add `test/SimRunner_test.cpp` to the test executable.
 
 ---
@@ -480,9 +480,9 @@ Implement when needed; order within this group follows dependency.
 
 ---
 
-## 15. Estimation Subsystem *(→ FlightCode)*
+## 15. Estimation Subsystem *(→ LiteAero Flight)*
 
-FlightCode item — see [flight_code.md](flight_code.md) FC-8. Stub headers at
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-8. Stub headers at
 `include/estimation/` will be relocated at the repo split.
 
 ---
@@ -552,13 +552,13 @@ Interfaces to both `Aircraft` (load-factor disturbance path) and `Aircraft6DOF` 
 
 ## 19. External Interface Elements
 
-Adapters that connect LiteAeroSim to external systems. All live in the Interface Layer.
+Adapters that connect LiteAero Sim to external systems. All live in the Interface Layer.
 
 | # | Element | Protocol | Depends on |
 | --- | --- | --- | --- |
 | LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (item 13); `Aircraft` or `Aircraft6DOF` |
 | LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (item 13); `Aircraft6DOF` |
-| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (item 13); `NavigationState` (FlightCode) |
+| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (item 13); `NavigationState` (LiteAero Flight) |
 | LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (item 13); `SimulationFrame` (done) |
 
 Each element requires a design document before implementation. `VisualizationLink` transport

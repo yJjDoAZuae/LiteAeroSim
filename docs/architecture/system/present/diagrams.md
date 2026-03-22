@@ -8,7 +8,7 @@
 flowchart LR
     EXT["External Caller<br/>(test harness / future<br/>simulation runner)"]
 
-    subgraph LAS["LiteAeroSim Library"]
+    subgraph LAS["LiteAero Sim Library"]
         direction TB
         ENV["Environment<br/>(Atmosphere, Wind,<br/>Turbulence, Gust)"]
         PHYS["Aircraft Physics<br/>(6-DOF)"]

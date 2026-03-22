@@ -1,7 +1,7 @@
 # Filter Discretization
 
 This document describes the discretization methods used for all discrete filters in
-LiteAeroSim. The canonical method is the **Tustin (bilinear) transform with frequency
+LiteAero Sim. The canonical method is the **Tustin (bilinear) transform with frequency
 prewarping**.
 
 ---

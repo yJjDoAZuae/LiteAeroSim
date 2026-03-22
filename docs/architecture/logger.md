@@ -112,7 +112,7 @@ flowchart TD
    format with published specification, MIT-licensed C++ and Python libraries, and adoption
    in ROS 2, PX4, and automotive simulation.
 
-2. **Protobuf integration** — LiteAeroSim already uses protobuf v3. MCAP natively embeds
+2. **Protobuf integration** — LiteAero Sim already uses protobuf v3. MCAP natively embeds
    protobuf schemas alongside messages, so existing `KinematicState`, `AircraftState`, and
    propulsion proto messages can be logged without any translation layer.
 
@@ -338,7 +338,7 @@ Each MCAP channel carries a metadata map with the following keys:
 
 ### Time Representation
 
-MCAP timestamps are `uint64_t` nanoseconds since Unix epoch. LiteAeroSim's `double time_s`
+MCAP timestamps are `uint64_t` nanoseconds since Unix epoch. LiteAero Sim's `double time_s`
 (simulation seconds from t=0) is stored in the MCAP `log_time` field, offset to a fixed
 epoch (e.g., session start wall-clock time). The simulation time is also stored in the
 proto message's own `time_sec` field for unambiguous reconstruction.

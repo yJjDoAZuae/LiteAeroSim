@@ -1,8 +1,8 @@
-# FlightCode Component — Roadmap
+# LiteAero Flight Component — Roadmap
 
-FlightCode is a separable software system. It is not a subsystem of LiteAeroSim. It will
-reside in a separate `flightcode` repository. Until that repository is created, stub headers
-for FlightCode elements live in the LiteAeroSim repository as temporary placeholders and will
+LiteAero Flight is a separable software system. It is not a subsystem of LiteAero Sim. It will
+reside in a separate `liteaero-flight` repository. Until that repository is created, stub headers
+for LiteAero Flight elements live in the LiteAero Sim repository as temporary placeholders and will
 be relocated at the repo split milestone. Architecture and component boundaries are defined in
 `docs/architecture/system/future/`.
 
@@ -18,7 +18,7 @@ be relocated at the repo split milestone. Architecture and component boundaries 
 
 ## Current State
 
-Stub headers in LiteAeroSim (to be relocated to `flightcode` at repo split):
+Stub headers in LiteAero Sim (to be relocated to `liteaero-flight` at repo split):
 
 | Element | Stub location | Design authority |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Stub headers in LiteAeroSim (to be relocated to `flightcode` at repo split):
 | `WindEstimator` | `include/estimation/WindEstimator.hpp` | [wind_estimator.md](../architecture/wind_estimator.md) |
 | `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
 
-Infrastructure to be migrated from LiteAeroSim at repo split:
+Infrastructure to be migrated from LiteAero Sim at repo split:
 
 - `DynamicElement`, `SisoElement`, `Filter` hierarchy, `Integrator`, `Derivative`,
   `RateLimit`, `Limit`, `SISOPIDFF` → `avraero::control`
@@ -41,13 +41,13 @@ Infrastructure to be migrated from LiteAeroSim at repo split:
 - `TerrainVertex`, `TerrainFacet`, `TerrainLod`, `TerrainTile`, `GeodeticPoint`,
   `GeodeticAABB`, `LocalAABB`, `V_Terrain` → `avraero::terrain`
 - Shared interface types (`AircraftCommand`, `KinematicStateSnapshot`, `NavigationState`,
-  sensor measurement structs) → `flightcode` (target name TBD)
+  sensor measurement structs) → `liteaero-flight` (target name TBD)
 
 ---
 
 ## FC-1. Repository Setup
 
-Create the `flightcode` repository. Set up CMake build system with one target per subsystem,
+Create the `liteaero-flight` repository. Set up CMake build system with one target per subsystem,
 matching the C++ namespace structure:
 
 | CMake target | C++ namespace | Contents |
@@ -62,9 +62,9 @@ matching the C++ namespace structure:
 | `avraero::perception` | `avraero::perception` | Vision navigator, lidar terrain estimator |
 | `avraero::mission_autonomy` | `avraero::mission_autonomy` | Link budget estimator |
 
-Migrate infrastructure and shared interface types from LiteAeroSim. Update LiteAeroSim
-`CMakeLists.txt` to take a versioned dependency on `flightcode`. Apply `avraero::` namespace
-to all migrated code. Verify all LiteAeroSim tests still pass after migration.
+Migrate infrastructure and shared interface types from LiteAero Sim. Update LiteAero Sim
+`CMakeLists.txt` to take a versioned dependency on `liteaero-flight`. Apply `avraero::` namespace
+to all migrated code. Verify all LiteAero Sim tests still pass after migration.
 
 **Prerequisite:** Repo split milestone (see project roadmap `README.md`).
 

@@ -5,14 +5,14 @@ Field-level schema definitions are deferred to the software design phase.
 
 ---
 
-## ICD-8 — Simulation ↔ FlightCode Interface (Plant Interface)
+## ICD-8 — Simulation ↔ LiteAero Flight Interface (Plant Interface)
 
-This is the primary runtime boundary between LiteAeroSim and the FlightCode component.
+This is the primary runtime boundary between LiteAero Sim and the LiteAero Flight component.
 
 **Producers / Consumers:**
 
-- LiteAeroSim → FlightCode: sensor measurements, navigation state (if produced by simulation)
-- FlightCode → LiteAeroSim: `AircraftCommand`
+- LiteAero Sim → LiteAero Flight: sensor measurements, navigation state (if produced by simulation)
+- LiteAero Flight → LiteAero Sim: `AircraftCommand`
 
 **Transport options (any of the following; selected by deployment configuration):**
 
@@ -37,20 +37,20 @@ This is the primary runtime boundary between LiteAeroSim and the FlightCode comp
   MAVLink message types are insufficient, custom message definitions are required.
 - Timing: in real-time SITL, commands must arrive within one timestep; late commands
   are held at last value (zero-order hold).
-- The interface is stateless: LiteAeroSim does not depend on any FlightCode internal state.
+- The interface is stateless: LiteAero Sim does not depend on any LiteAero Flight internal state.
 - In SITL verification venues (UC-2b), the transport must be a container network transport.
   Direct in-process calls and shared-memory IPC are not permitted in verification configurations
   because they cannot be reproduced in the flight software deployment environment.
 
 ---
 
-## ICD-9 — FlightCode ↔ Navigation State Interface
+## ICD-9 — LiteAero Flight ↔ Navigation State Interface
 
 **Producer:** `NavigationFilter` (or `SensorInsSimulation` as a simulation substitute)
 
 **Consumer:** `Autopilot`, `WindEstimator`, Logger
 
-**Transport:** Direct function call (FlightCode component-internal)
+**Transport:** Direct function call (LiteAero Flight component-internal)
 
 **Content:**
 

@@ -3,7 +3,7 @@
 Elements implemented in the current codebase. Elements marked **stub** are defined
 architecturally and have header files but no implementation.
 
-All elements reside within the LiteAeroSim C++ library unless noted as Python tooling.
+All elements reside within the LiteAero Sim C++ library unless noted as Python tooling.
 
 ---
 
@@ -124,7 +124,7 @@ All elements reside within the LiteAeroSim C++ library unless noted as Python to
 
 ---
 
-## Flight Code Stubs (Not Part of LiteAeroSim)
+## Flight Code Stubs (Not Part of LiteAero Sim)
 
 These elements have stub headers in the repository as temporary placeholders. Per the
 future-state architecture, they will be relocated to a separate flight code component.

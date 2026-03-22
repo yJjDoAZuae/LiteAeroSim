@@ -1,6 +1,6 @@
 # Sensor Subsystem — Simulation Models of Sensor Hardware
 
-This document is the design authority for all sensor simulation classes in LiteAeroSim.
+This document is the design authority for all sensor simulation classes in LiteAero Sim.
 It defines the lifecycle contract, the serialization requirements, and the conventions that
 every concrete sensor class must follow.
 

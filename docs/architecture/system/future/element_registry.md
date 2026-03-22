@@ -11,35 +11,35 @@ The future-state system comprises four top-level architectural components:
 
 | Component | Boundary | Deployment |
 | --- | --- | --- |
-| **LiteAeroSim** | Simulation plant: aircraft physics, environment, terrain, sensors, logger | Desktop / test server |
-| **FlightCode** | Autopilot, guidance, path management, navigation | Flight hardware, companion computer; `flightcode` Docker container (SITL verification); or co-resident with LiteAeroSim (development only) |
-| **SimulationRunner** | Execution loop, timing control, batch / real-time modes | Co-resident with LiteAeroSim |
+| **LiteAero Sim** | Simulation plant: aircraft physics, environment, terrain, sensors, logger | Desktop / test server |
+| **LiteAero Flight** | Autopilot, guidance, path management, navigation | Flight hardware, companion computer; `liteaero-flight` Docker container (SITL verification); or co-resident with LiteAero Sim (development only) |
+| **SimulationRunner** | Execution loop, timing control, batch / real-time modes | Co-resident with LiteAero Sim |
 | **External Interfaces** | QGroundControl, game engine, manual input, ArduPilot/PX4 | Various |
 
 ---
 
 ## Container Topology
 
-In SITL verification configurations, LiteAeroSim and FlightCode run in separate Docker
+In SITL verification configurations, LiteAero Sim and LiteAero Flight run in separate Docker
 containers on the same host. This ensures the flight code executes under the same runtime
 environment as an active flight software load.
 
 | Container | Contents | Network role |
 | --- | --- | --- |
-| `liteaerosim` | LiteAeroSim plant, SimulationRunner, logger, external adapters | Exposes ICD-8 port; receives `AircraftCommand`; sends sensor measurements |
-| `flightcode` | Autopilot, guidance, path, navigation | Communicates with `liteaerosim` over ICD-8 network transport |
+| `liteaero-sim` | LiteAero Sim plant, SimulationRunner, logger, external adapters | Exposes ICD-8 port; receives `AircraftCommand`; sends sensor measurements |
+| `liteaero-flight` | Autopilot, guidance, path, navigation | Communicates with `liteaero-sim` over ICD-8 network transport |
 
-The `flightcode` container image is the flight software load image. No simulation-specific
+The `liteaero-flight` container image is the flight software load image. No simulation-specific
 code is included in this image. The container boundary enforces the ICD-8 architectural
 boundary: no shared memory and no direct function calls between containers are possible.
 
 For non-verification development configurations (developer workstations, CI smoke tests),
-LiteAeroSim and FlightCode may run in the same process or as co-processes without container
+LiteAero Sim and LiteAero Flight may run in the same process or as co-processes without container
 isolation. See `decisions.md` — Docker Containerization for SITL Verification.
 
 ---
 
-## LiteAeroSim Elements
+## LiteAero Sim Elements
 
 All present-state elements carry forward (see `present/element_registry.md`), with the
 following additions and clarifications.
@@ -49,7 +49,7 @@ following additions and clarifications.
 | `LandingGear` | **New** | Internal to both `Aircraft` and `Aircraft6DOF`; 2nd-order suspension per strut (spring-damper) for bounce modeling; tyre contact forces (vertical, longitudinal, lateral); nose wheel steering and differential brake inputs; produces `ContactForces`; queries ground elevation via `V_Terrain`; design target is developmental verification of autotakeoff and autolanding — ground contact, bounce, WOW establishment, rollout, taxi; validity bound for `Aircraft` (load-factor): gear-induced pitch and roll moment authority exceedance is not modeled |
 | `ContactForces` | **New** | Plain value struct produced by `LandingGear`; `force_body_n` (Eigen::Vector3f, body frame), `moment_body_nm` (Eigen::Vector3f, body frame), `weight_on_wheels` (bool); consumed differently by each aircraft model: `Aircraft` passes vertical and lateral force components to `LoadFactorAllocator` as disturbance terms and applies moments directly to kinematic update; `Aircraft6DOF` applies all six components directly to equations of motion |
 | `SimulationRunner` | **New** | Execution loop with real-time, scaled-real-time, and batch modes |
-| Flight code stubs | **Relocated** | `Autopilot`, `Guidance`, `Path` stubs removed from LiteAeroSim; relocated to FlightCode component |
+| Flight code stubs | **Relocated** | `Autopilot`, `Guidance`, `Path` stubs removed from LiteAero Sim; relocated to LiteAero Flight component |
 | `V_AeroModel` | **Proposed — not yet designed** | Abstract aerodynamic model interface; produces forces and moments in body frame; decouples the 6DOF integrator from the coefficient axis convention; concrete implementations handle any required body-to-wind or wind-to-body transformation internally |
 | `BodyAxisCoeffModel` | **Proposed — not yet designed** | Implements `V_AeroModel` using body-axis stability derivatives (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular rates; baseline convention for `Aircraft6DOF`; see OQ-16 |
 | `Aircraft6DOF` | **Proposed — not yet designed** | Full 6DOF aircraft dynamics model; depends on `V_AeroModel` for forces and moments; accepts `SurfaceDeflectionCommand` (control surface angles + per-motor throttle) rather than the load-factor `AircraftCommand`; produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4 simulations (no FBW bridge in that topology); see OQ-16 |
@@ -62,10 +62,10 @@ following additions and clarifications.
 
 ---
 
-## FlightCode Elements
+## LiteAero Flight Elements
 
-The FlightCode component is a separable software system. It is not a subsystem of
-LiteAeroSim. Its repository location is to be determined by this architecture definition.
+The LiteAero Flight component is a separable software system. It is not a subsystem of
+LiteAero Sim. Its repository location is to be determined by this architecture definition.
 
 | Element | Responsibility | Ports — Inputs | Ports — Outputs |
 | --- | --- | --- | --- |
@@ -81,19 +81,19 @@ LiteAeroSim. Its repository location is to be determined by this architecture de
 | `LidarTerrainEstimator` | **Proposed — not yet designed** (`avraero::perception`): processes lidar point cloud against terrain model for terrain-relative navigation | lidar measurements, `V_Terrain` | position/altitude observation |
 | `LinkBudgetEstimator` | **Proposed — not yet designed** (`avraero::mission_autonomy`): assesses RF link quality using line-of-sight terrain occlusion analysis; informs waypoint planning and communication link selection | position, `V_Terrain` | link quality estimate |
 
-**Key architectural constraints on FlightCode:**
+**Key architectural constraints on LiteAero Flight:**
 
-- No FlightCode element may hold a pointer or reference into LiteAeroSim simulation
+- No LiteAero Flight element may hold a pointer or reference into LiteAero Sim simulation
   internals. All communication is through defined interface data types.
-- FlightCode elements must support `reset()` and initialization to arbitrary conditions.
+- LiteAero Flight elements must support `reset()` and initialization to arbitrary conditions.
 - Estimation functions (`NavigationFilter`, `WindEstimator`, `FlowAnglesEstimator`) are
   within the Navigation subsystem boundary; they are not within the Autopilot boundary.
 
 **HITL hardware deployment:**
 
-In HITL configurations, FlightCode elements are distributed across two hardware processors:
+In HITL configurations, LiteAero Flight elements are distributed across two hardware processors:
 
-| Processor | Typical FlightCode elements | Notes |
+| Processor | Typical LiteAero Flight elements | Notes |
 | --- | --- | --- |
 | Autopilot board | `Autopilot` (inner-loop control) | ArduPilot or PX4 firmware; stock or modified variant |
 | Companion computer | `NavigationFilter`, `WindEstimator`, `FlowAnglesEstimator`, `PathGuidance`, `VerticalGuidance` | Communicates with autopilot board over MAVLink |
