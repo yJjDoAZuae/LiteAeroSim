@@ -4,11 +4,16 @@
 
 This plan covers FC-1 (flightcode repository creation and repo split), the cross-cutting
 milestone described in `docs/roadmap/README.md` and `docs/roadmap/flight_code.md`. It is
-a two-phase operation:
+a three-phase operation:
 
-- **Phase 1** (Steps 1–10): Build the `flightcode` repository incrementally. LiteAeroSim
-  is not touched. Each step in Phase 1 produces a buildable, tested addition to `flightcode`
-  and is independent of the LiteAeroSim timeline.
+- **Phase 0** (Step 0): Seed the `flightcode` repository from LiteAeroSim using
+  `git filter-repo`, extracting only the commits that touch migrating files. The resulting
+  repository has full LiteAeroSim development history for every file that migrates, with
+  all unrelated history discarded.
+- **Phase 1** (Steps 1–10): Build out the `flightcode` repository — add CMake scaffolding,
+  reorganize paths into the `flightcode` directory layout, apply the `avraero::` namespace
+  changes, add the shared interface target, and relocate FlightCode stubs. LiteAeroSim is
+  not touched. Each step produces a buildable, tested addition to `flightcode`.
 - **Phase 2** (Steps 11–13): Execute the LiteAeroSim repo split as a single coordinated
   event — update CMake to depend on `flightcode`, apply `avraero::simulation` namespace to
   all remaining LiteAeroSim code, and remove code that has migrated. The coordinated
@@ -23,7 +28,8 @@ Namespace decisions are final. All target namespaces are recorded in `decisions.
 
 | Decision | Rationale |
 | --- | --- |
-| Two-phase approach | Phase 1 is risk-free (no changes to LiteAeroSim); Phase 2 is a single coordinated event to avoid a prolonged half-migrated codebase |
+| `git filter-repo` for history extraction | Preserves full LiteAeroSim development history for every migrated file; a plain fork would also carry all terrain, aircraft, and environment history that has no place in a flight-code repository; `git filter-repo` discards that history precisely |
+| Three-phase approach | Phase 0 seeds the repo from history; Phase 1 builds it out independently; Phase 2 is the single coordinated LiteAeroSim update |
 | No forwarding aliases or backward-compat shims | Project is in initial development; no-backward-compat policy applies |
 | `KinematicStateSnapshot` requires a design step | The current `KinematicState` is a rich class with computed properties and serialization; converting it to a plain value struct requires deciding which fields to store vs. derive, and how the control subsystem accesses derived quantities |
 | Terrain type split requires a design step | `TerrainTile` currently bundles mesh data with serialization and file I/O; only the data elements migrate to `avraero::terrain`; the serialization machinery stays in `avraero::simulation`; a class-level split is needed |
@@ -34,13 +40,158 @@ Namespace decisions are final. All target namespaces are recorded in `decisions.
 
 ---
 
+## Phase 0 — Seed the `flightcode` Repository
+
+### Step 0 — Extract History with `git filter-repo`
+
+Clone LiteAeroSim into a new `flightcode` directory and run `git filter-repo` to discard
+every commit that does not touch at least one migrating file. The result is a repository
+whose entire history is relevant to `flightcode`. The original LiteAeroSim repository is
+not modified.
+
+**Prerequisites:** `git filter-repo` must be installed (`pip install git-filter-repo`).
+
+**Procedure:**
+
+```bash
+# Clone LiteAeroSim — this clone becomes flightcode
+git clone /path/to/LiteAeroSim flightcode
+cd flightcode
+
+# Remove the upstream remote; the clone is now independent
+git remote remove origin
+
+# Run filter-repo using the paths file (see below)
+git filter-repo --paths-from-file ../flightcode-migrate-paths.txt
+```
+
+**`flightcode-migrate-paths.txt`** — one path per line, relative to repo root. Directories
+are matched as prefixes (all files below them are kept). Keep this file alongside the repos
+for reference; it is not committed to either repository.
+
+```text
+include/ILogger.hpp
+include/logger/
+src/logger/
+test/Logger_test.cpp
+include/DynamicElement.hpp
+include/SisoElement.hpp
+src/DynamicElement.cpp
+src/SisoElement.cpp
+include/control/Antiwindup.hpp
+include/control/ControlLoop.hpp
+include/control/Derivative.hpp
+include/control/Filter.hpp
+include/control/FilterFIR.hpp
+include/control/FilterSS.hpp
+include/control/FilterSS2.hpp
+include/control/FilterSS2Clip.hpp
+include/control/FilterTF.hpp
+include/control/FilterTF2.hpp
+include/control/Gain.hpp
+include/control/Integrator.hpp
+include/control/Limit.hpp
+include/control/LimitBase.hpp
+include/control/LimitElement.hpp
+include/control/RateLimit.hpp
+include/control/RectilinearTable.hpp
+include/control/SISOPIDFF.hpp
+include/control/TableAxis.hpp
+include/control/Unwrap.hpp
+include/control/control.hpp
+include/control/filter_realizations.hpp
+src/control/Antiwindup.cpp
+src/control/Derivative.cpp
+src/control/FilterFIR.cpp
+src/control/FilterSS.cpp
+src/control/FilterSS2.cpp
+src/control/FilterSS2Clip.cpp
+src/control/FilterSS_copy_from_SS2.cpp
+src/control/FilterTF.cpp
+src/control/FilterTF2.cpp
+src/control/Integrator.cpp
+src/control/Limit.cpp
+src/control/RateLimit.cpp
+src/control/SISOPIDFF.cpp
+src/control/Unwrap.cpp
+src/control/control.cpp
+src/control/filter_realizations.cpp
+test/Antiwindup_test.cpp
+test/Derivative_test.cpp
+test/FilterFIR_test.cpp
+test/FilterRealizations_test.cpp
+test/FilterSS2Clip_test.cpp
+test/FilterSS2_test.cpp
+test/FilterSS_test.cpp
+test/FilterTF2_test.cpp
+test/FilterTF_test.cpp
+test/Gain_test.cpp
+test/Integrator_test.cpp
+test/Limit_test.cpp
+test/RateLimit_test.cpp
+test/RectilinearTable_test.cpp
+test/SISOPIDFF_test.cpp
+test/TableAxis_test.cpp
+test/Unwrap_test.cpp
+include/environment/GeodeticAABB.hpp
+include/environment/GeodeticPoint.hpp
+include/environment/LocalAABB.hpp
+include/environment/Terrain.hpp
+include/environment/TerrainFacet.hpp
+include/environment/TerrainTile.hpp
+include/environment/TerrainVertex.hpp
+test/Terrain_test.cpp
+test/TerrainTile_test.cpp
+include/KinematicState.hpp
+src/KinematicState.cpp
+test/KinematicState_test.cpp
+include/navigation/WGS84.hpp
+src/navigation/WGS84.cpp
+test/WGS84_test.cpp
+```
+
+**Notes on path selection:**
+
+- `include/control/Control*.hpp` and `src/control/Control*.cpp`
+  (`ControlAltitude`, `ControlHeading`, etc.) are intentionally excluded — they stay in
+  LiteAeroSim as `avraero::simulation` elements.
+- `include/KinematicState.hpp` and `src/KinematicState.cpp` are included to preserve
+  history for `KinematicStateSnapshot` (Step 7), even though the current class will be
+  redesigned rather than moved directly.
+- `include/navigation/WGS84.hpp` is included because `KinematicState` depends on it and
+  it is a candidate for the shared interface target; include or exclude after resolving
+  the `WGS84_Datum` dependency question in Step 6.
+- Terrain source files (`src/environment/TerrainTile.cpp` etc.) are excluded until the
+  Step 8 design resolves which implementation code, if any, migrates alongside the headers.
+
+**After `git filter-repo` completes:**
+
+The repository contains only the extracted files at their original LiteAeroSim paths. The
+commit count will be significantly lower than LiteAeroSim's — only commits that touched at
+least one kept path are retained. Verify with `git log --oneline | wc -l` and spot-check
+that `git log include/DynamicElement.hpp` shows the expected history.
+
+Add the new remote and push:
+
+```bash
+git remote add origin <flightcode-remote-url>
+git push -u origin main
+```
+
+**Verification:** `git log --oneline` shows a meaningful history. No files exist outside
+the paths listed above. The repository does not build yet (no CMakeLists.txt) — that is
+expected and addressed in Step 1.
+
+---
+
 ## Phase 1 — Build the `flightcode` Repository
 
 ### Step 1 — Repository Scaffolding and CMake Skeleton
 
-Create the `flightcode` Git repository at the same filesystem level as `LiteAeroSim`.
-Establish the directory layout and CMake build system with one library target per subsystem.
-No source code is added in this step.
+The `flightcode` repository already exists (seeded in Step 0) with source files at their
+original LiteAeroSim paths. This step adds the CMake build system and reorganizes the
+extracted files into the `flightcode` directory layout using `git mv`. No namespace changes
+yet — those are applied per subsystem in Steps 2–8.
 
 **Directory structure:**
 
