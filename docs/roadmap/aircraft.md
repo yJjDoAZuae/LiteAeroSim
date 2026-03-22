@@ -55,18 +55,18 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `DynamicElement` | `include/DynamicElement.hpp` | ✅ Implemented — see [dynamic_element.md](../architecture/dynamic_element.md) |
 | `SisoElement` | `include/SisoElement.hpp` | ✅ Implemented — NVI SISO wrapper over `DynamicElement` |
 | `SensorAirData` | `include/sensor/SensorAirData.hpp` | ✅ Implemented + serialization (JSON + proto) |
-| `SensorGnss` | `include/sensor/SensorGnss.hpp` | 🔲 Stub only |
-| `SensorLaserAlt` | `include/sensor/SensorLaserAlt.hpp` | 🔲 Stub only |
-| `SensorMag` | `include/sensor/SensorMag.hpp` | 🔲 Stub only |
-| `SensorInsSimulation` | `include/sensor/SensorInsSimulation.hpp` | 🔲 Stub only |
+| `SensorGnss` | `include/sensor/SensorGnss.hpp` | 🔲 Planned — stub not yet created |
+| `SensorLaserAlt` | `include/sensor/SensorLaserAlt.hpp` | 🔲 Planned — stub not yet created |
+| `SensorMag` | `include/sensor/SensorMag.hpp` | 🔲 Planned — stub not yet created |
+| `SensorINS` | `include/sensor/SensorINS.hpp` | 🔲 Stub only |
 | `SensorAA` | `include/sensor/SensorAA.hpp` | 🔲 Stub only |
 | `SensorAAR` | `include/sensor/SensorAAR.hpp` | 🔲 Stub only |
 | `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
 | `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
 | `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
-| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
-| `WindEstimator` | `include/estimation/WindEstimator.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
-| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
+| `NavigationFilter` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
+| `WindEstimator` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
+| `FlowAnglesEstimator` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
 | `V_PathSegment` | `include/path/V_PathSegment.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
 | `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
 | `Path` | `include/path/Path.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
@@ -463,8 +463,10 @@ Add `test/SimRunner_test.cpp` to the test executable.
 
 ## 14. Remaining Sensor Models
 
-Not blocking any higher-priority item. Stub headers exist in `include/sensor/`.
-Implement when needed; order within this group follows dependency.
+Not blocking any higher-priority item. Stub headers in `include/sensor/` exist for
+`SensorINS`, `SensorAA`, `SensorAAR`, `SensorRadAlt`, `SensorForwardTerrainProfile`, and
+`SensorTrackEstimator`. Stubs for `SensorMag`, `SensorGnss`, and `SensorLaserAlt` have
+not yet been created. Implement when needed; order within this group follows dependency.
 
 | Class | Depends on | Hardware modeled |
 | --- | --- | --- |
@@ -472,7 +474,7 @@ Implement when needed; order within this group follows dependency.
 | `SensorGnss` | `KinematicState` (done) | GNSS receiver — WGS84 position, NED velocity, SOG/COG, fix type, DOP |
 | `SensorLaserAlt` | Terrain (done) | Laser altimeter — single-beam slant range and AGL altitude |
 | `SensorRadAlt` | Terrain (done) | Radar altimeter — HAG from `Terrain::heightAboveGround_m` with noise and range saturation |
-| `SensorInsSimulation` | `KinematicState` (done), `NavigationFilter` types | INS simulation replacement — truth-plus-error model producing `InsMeasurement` |
+| `SensorINS` | `KinematicState` (done), `NavigationFilter` types | INS simulation replacement — truth-plus-error model producing `InsMeasurement` |
 | `SensorForwardTerrainProfile` | Terrain (done), Guidance | Forward terrain profiling sensor (multi-beam LIDAR / line-scan radar) for terrain-following guidance |
 | `SensorAA` | `KinematicState` (done) | Passive angle/angle sensor (imaging type) — measures two LOS angles, no range |
 | `SensorAAR` | `KinematicState` (done) | Active angle/angle/range sensor (e.g. radar) — measures two LOS angles plus slant range |
@@ -482,8 +484,9 @@ Implement when needed; order within this group follows dependency.
 
 ## 15. Estimation Subsystem *(→ LiteAero Flight)*
 
-LiteAero Flight item — see [flight_code.md](flight_code.md) FC-8. Stub headers at
-`include/estimation/` will be relocated at the repo split.
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-8. No stub headers in
+LiteAero Sim — stubs will be created directly in `liteaero-flight` at the repo split
+(see [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) Step 9).
 
 ---
 

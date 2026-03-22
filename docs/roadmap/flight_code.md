@@ -29,9 +29,9 @@ Stub headers in LiteAero Sim (to be relocated to `liteaero-flight` at repo split
 | `V_PathSegment` | `include/path/V_PathSegment.hpp` | — |
 | `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | — |
 | `Path` | `include/path/Path.hpp` | — |
-| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | [navigation_filter.md](../architecture/navigation_filter.md) |
-| `WindEstimator` | `include/estimation/WindEstimator.hpp` | [wind_estimator.md](../architecture/wind_estimator.md) |
-| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
+| `NavigationFilter` | — (no LiteAero Sim stub; created in `liteaero-flight` at Step 9) | [navigation_filter.md](../architecture/navigation_filter.md) |
+| `WindEstimator` | — (no LiteAero Sim stub; created in `liteaero-flight` at Step 9) | [wind_estimator.md](../architecture/wind_estimator.md) |
+| `FlowAnglesEstimator` | — (no LiteAero Sim stub; created in `liteaero-flight` at Step 9) | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
 
 Infrastructure to be migrated from LiteAero Sim at repo split:
 
