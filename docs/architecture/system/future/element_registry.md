@@ -46,9 +46,19 @@ following additions and clarifications.
 
 | Element | New / Changed | Notes |
 | --- | --- | --- |
-| `LandingGear` | **New** | Ground contact forces and moments; Pacejka magic formula for tyre; 2nd-order suspension; compatible with `V_Terrain` interface |
+| `LandingGear` | **New** | Internal to both `Aircraft` and `Aircraft6DOF`; 2nd-order suspension per strut (spring-damper) for bounce modeling; tyre contact forces (vertical, longitudinal, lateral); nose wheel steering and differential brake inputs; produces `ContactForces`; queries ground elevation via `V_Terrain`; design target is developmental verification of autotakeoff and autolanding — ground contact, bounce, WOW establishment, rollout, taxi; validity bound for `Aircraft` (load-factor): gear-induced pitch and roll moment authority exceedance is not modeled |
+| `ContactForces` | **New** | Plain value struct produced by `LandingGear`; `force_body_n` (Eigen::Vector3f, body frame), `moment_body_nm` (Eigen::Vector3f, body frame), `weight_on_wheels` (bool); consumed differently by each aircraft model: `Aircraft` passes vertical and lateral force components to `LoadFactorAllocator` as disturbance terms and applies moments directly to kinematic update; `Aircraft6DOF` applies all six components directly to equations of motion |
 | `SimulationRunner` | **New** | Execution loop with real-time, scaled-real-time, and batch modes |
 | Flight code stubs | **Relocated** | `Autopilot`, `Guidance`, `Path` stubs removed from LiteAeroSim; relocated to FlightCode component |
+| `V_AeroModel` | **Proposed — not yet designed** | Abstract aerodynamic model interface; produces forces and moments in body frame; decouples the 6DOF integrator from the coefficient axis convention; concrete implementations handle any required body-to-wind or wind-to-body transformation internally |
+| `BodyAxisCoeffModel` | **Proposed — not yet designed** | Implements `V_AeroModel` using body-axis stability derivatives (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular rates; baseline convention for `Aircraft6DOF`; see OQ-16 |
+| `Aircraft6DOF` | **Proposed — not yet designed** | Full 6DOF aircraft dynamics model; depends on `V_AeroModel` for forces and moments; accepts `SurfaceDeflectionCommand` (control surface angles + per-motor throttle) rather than the load-factor `AircraftCommand`; produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4 simulations (no FBW bridge in that topology); see OQ-16 |
+| `FBWController` | **Proposed — not yet designed** | Inner-loop FBW control law that bridges the existing load-factor `AircraftCommand` interface to `SurfaceDeflectionCommand` for `Aircraft6DOF`; when paired with `Aircraft6DOF` forms a drop-in replacement for the existing `Aircraft` model for side-by-side comparison; not used in ArduPilot/PX4 simulation topologies |
+| `SurfaceDeflectionCommand` | **Proposed — not yet designed** | Plain value struct: control surface deflection angles (elevator, aileron, rudder) and per-motor throttle; the native command interface of `Aircraft6DOF`; produced by `FBWController` (when bridging from load-factor) or directly by ArduPilot/PX4 inner-loop controllers |
+| `SensorCamera` | **Proposed — not yet designed** | Synthetic image sensor; generates imagery from terrain and scene model against `V_Terrain`; provides measurements for vision-based navigation in `avraero::perception` |
+| `SensorLidar` | **Proposed — not yet designed** | Synthetic lidar sensor; generates 3D point cloud by ray-casting against `V_Terrain`; provides measurements for terrain-relative navigation and obstacle avoidance |
+| `SensorLaserAGL` | **Proposed — not yet designed** | Synthetic laser altimeter; computes range to terrain directly below by ray-casting against `V_Terrain`; provides above-ground-level height measurement |
+| `SensorLineOfSight` | **Proposed — not yet designed** | Computes RF link quality and occlusion by ray-casting against `V_Terrain`; supports communication link planning and mission autonomy decisions |
 
 ---
 
@@ -64,9 +74,12 @@ LiteAeroSim. Its repository location is to be determined by this architecture de
 | `VerticalGuidance` | Altitude / climb-rate tracking | target altitude, `KinematicState` | altitude / vertical-speed set point |
 | `ParkTracking` | Loiter / station-keep | target point, `KinematicState` | heading and altitude set points |
 | `V_PathSegment`, `PathSegmentHelix`, `Path` | Path representation; cross-track error, along-track distance, desired heading at a query point | `PathQuery` (position, heading) | `PathResponse` |
-| `NavigationFilter` | EKF/UKF navigation: fuses GNSS, air data, magnetometer, INS into navigation state | sensor measurements | `NavigationState` |
+| `NavigationFilter` | EKF/UKF navigation: fuses GNSS, air data, magnetometer, INS, and vision/lidar measurements into navigation state | sensor measurements | `NavigationState` |
 | `WindEstimator` | Estimates wind NED from navigation state and air data | `NavigationState`, `AirDataMeasurement` | wind_NED_mps |
 | `FlowAnglesEstimator` | Estimates alpha and beta from wind estimate and air data | wind estimate, `AirDataMeasurement` | alpha_rad, beta_rad |
+| `VisionNavigator` | **Proposed — not yet designed** (`avraero::perception`): estimates position/attitude from synthetic or real imagery against terrain model; fuses into `NavigationFilter` | camera measurements, `V_Terrain` | position/attitude observation |
+| `LidarTerrainEstimator` | **Proposed — not yet designed** (`avraero::perception`): processes lidar point cloud against terrain model for terrain-relative navigation | lidar measurements, `V_Terrain` | position/altitude observation |
+| `LinkBudgetEstimator` | **Proposed — not yet designed** (`avraero::mission_autonomy`): assesses RF link quality using line-of-sight terrain occlusion analysis; informs waypoint planning and communication link selection | position, `V_Terrain` | link quality estimate |
 
 **Key architectural constraints on FlightCode:**
 

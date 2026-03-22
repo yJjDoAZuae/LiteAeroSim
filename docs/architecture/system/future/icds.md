@@ -102,11 +102,11 @@ This is the primary runtime boundary between LiteAeroSim and the FlightCode comp
 
 **Producer:** `SimRunner` / `VisualizationLink` adapter
 
-**Consumer:** Game engine (external)
+**Consumer:** Godot 4 game engine via GDExtension plugin
 
-**Transport:** TBD (JSON over WebSocket and binary UDP protocol are candidate options)
+**Transport:** UDP to a fixed local port at simulation update rate (typically 100–400 Hz); terrain assets delivered as GLB files (glTF 2.0)
 
-**Content:** `SimulationState` (DFT-13): position, attitude, airspeed, control surface deflections, landing gear state, terrain mesh reference.
+**Content:** `SimulationFrame` (DFT-13): position, attitude, velocity; terrain mesh delivered as pre-exported GLB files, not streamed per-frame.
 
 **Constraints:**
 
