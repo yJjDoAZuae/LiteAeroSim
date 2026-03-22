@@ -58,6 +58,12 @@ public:
     // Angle (rad) at which the negative quadratic reaches cl_min.
     float alphaTrough() const;
 
+    // Angle (rad) at which the positive descending parabola meets the flat plateau (cl_sep).
+    float alphaSep() const;
+
+    // Angle (rad) at which the negative descending parabola meets the flat plateau (cl_sep_neg).
+    float alphaSepNeg() const;
+
     // Returns which piecewise segment contains alpha_rad.
     LiftCurveSegment classify(float alpha_rad) const;
 

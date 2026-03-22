@@ -1,8 +1,8 @@
 # Aircraft Class — Architecture and Interface Design
 
 This document is the design authority for the `Aircraft` class. It covers the ownership
-model, the physics update loop, serialization, JSON initialization, and the integration
-contracts with every owned subsystem.
+model, command processing architecture, the physics update loop, serialization, JSON
+initialization, and the integration contracts with every owned subsystem.
 
 ---
 
@@ -37,10 +37,10 @@ flowchart TD
 ```
 
 | ID | Use Case | Primary Actor | Mechanism |
-|----|----------|---------------|-----------|
+| --- | --- | --- | --- |
 | UC-1 | Advance physics by one timestep | Simulation loop | `Aircraft::step()` |
 | UC-2 | Query current kinematic state | Simulation loop, guidance | `Aircraft::state()` |
-| UC-3 | Initialize from JSON config | Config parser / scenario | `Aircraft::initialize(config)` |
+| UC-3 | Initialize from JSON config | Config parser / scenario | `Aircraft::initialize(config, outer_dt_s)` |
 | UC-4 | Reset to initial conditions | Scenario, test harness | `Aircraft::reset()` |
 | UC-5 | Serialize mid-flight snapshot | Logger, pause/resume | `serializeJson()` / `serializeProto()` |
 | UC-6 | Restore from snapshot | Pause/resume, replay | `deserializeJson()` / `deserializeProto()` |
@@ -52,7 +52,7 @@ flowchart TD
 
 ### UC-1 — Advance Physics by One Timestep
 
-**Trigger:** The simulation loop calls `Aircraft::step()` once per timestep.
+**Trigger:** The simulation loop calls `Aircraft::step()` once per outer timestep.
 
 **Preconditions:** `initialize()` has been called. All inputs are in SI units. Air density
 and wind vector have been computed from `Atmosphere` and `Wind` for the current position
@@ -62,53 +62,71 @@ before this call.
 
 1. Compute true airspeed from `KinematicState::velocity_NED_mps()` and the supplied
    `wind_NED_mps`. Dynamic pressure follows from `rho_kgm3` and airspeed.
-2. Solve for angle of attack (`α`) and sideslip (`β`) using `LoadFactorAllocator::solve()`,
-   which inverts the aerodynamic load equations for the commanded normal and lateral load
-   factors.
-3. Evaluate `CL = LiftCurveModel::evaluate(α)`.
-4. Compute aerodynamic forces in the Wind frame via `AeroPerformance::compute()`.
-5. Advance propulsion: `thrust_n = V_Propulsion::step(throttle, V_air, rho)`.
-6. Decompose thrust into Wind-frame acceleration components; combine with aerodynamic
+2. Record previous-step thrust `T_prev = _propulsion->thrust_n()`.
+3. Clamp raw commanded load factors to airframe structural limits.
+4. Run the inner filter loop `cmd_filter_substeps` times, advancing `_nz_filter`,
+   `_ny_filter`, and `_roll_rate_filter` at the inner timestep `cmd_filter_dt_s`. After the
+   loop, read shaped commands and compute derivatives analytically from filter state.
+5. Solve for angle of attack (`α`) and sideslip (`β`) using `LoadFactorAllocator::solve()`
+   with the shaped load factors and their analytically derived time derivatives.
+6. Evaluate `CL = LiftCurveModel::evaluate(α)`.
+7. Compute aerodynamic forces in the Wind frame via `AeroPerformance::compute()`.
+8. Advance propulsion at the outer rate: `thrust_n = Propulsion::step(throttle, V_air, rho)`.
+9. Decompose thrust into Wind-frame acceleration components; combine with aerodynamic
    forces. Gravity is **not** added separately — it is already embedded in the load factor
-   constraint solved in step 2.
-7. Advance `KinematicState::step()` with the computed Wind-frame acceleration and angular
-   rate inputs.
+   constraint solved in step 5.
+10. Advance `KinematicState::step()` with the computed Wind-frame acceleration, shaped roll
+    rate, and aerodynamic angle inputs.
 
 **Postconditions:** `state()` reflects the aircraft position, velocity, and attitude at
-`time_sec + dt_s`. `V_Propulsion::thrust_n()` reflects the engine thrust at this step.
+`time_sec + outer_dt_s`. `Propulsion::thrust_n()` reflects the engine thrust at this step.
 
-**Alternate flow — stall:** If `LoadFactorAllocator` cannot satisfy the commanded `n` at
-the current airspeed and density (e.g., `q` is too low for the required `CL`), `α` will be
-clamped at the stall boundary. The flight path will deviate from the commanded trajectory;
-no exception is thrown.
+**Alternate flow — stall:** The allocator finds `α` such that
+$q S C_L(\alpha) + T\sin\alpha = n_z\,m\,g$. The achievable load factor
+$N_{z,\text{max}}(\alpha) = (q S C_L(\alpha) + T\sin\alpha)\,/\,(mg)$ has a peak at the `α`
+where its derivative with respect to `α` crosses zero — post-stall $C_L$ falloff reduces the
+aerodynamic contribution while $T\sin\alpha$ continues to rise, and beyond the peak the total
+starts to decrease. Continuing past that point would produce a discontinuous jump in the
+solution. The allocator therefore clamps `α` at the derivative zero-crossing rather than at
+$\alpha_{C_{L,\text{max}}}$. For zero or negative thrust the zero-crossing coincides with
+$\alpha_{C_{L,\text{max}}}$; for positive thrust it occurs at a higher `α`. No exception is
+thrown.
 
 ---
 
 ### UC-3 — Initialize from JSON Config
 
-**Trigger:** Application or test code calls `Aircraft::initialize(config)` after constructing
-the `Aircraft` with a propulsion model.
+**Trigger:** Application or test code calls `Aircraft::initialize(config, outer_dt_s)` after
+constructing the `Aircraft` with a propulsion model.
 
-**Preconditions:** The JSON has been validated by `validate_aircraft_config.py`. The
+**Preconditions:** The JSON has been validated against `aircraft_config_v1`. The
 `Aircraft` has been constructed with a non-null propulsion model.
 
 **Main flow:**
 
-1. Read `inertia.*` and construct `Inertia`; read `airframe.*` and construct
+1. Store `outer_dt_s` (the Simulation's outer integration timestep; Aircraft does not own
+   its value, only stores a copy for filter initialization).
+2. Read `inertia.*` and construct `Inertia`; read `airframe.*` and construct
    `AirframePerformance`.
-2. Read `aircraft.S_ref_m2`, `aircraft.cl_y_beta`.
-3. Construct `LiftCurveModel` from `lift_curve.*` parameters.
-4. Construct `LoadFactorAllocator` from the lift curve, `S_ref_m2`, and `cl_y_beta`.
-5. Construct `AeroPerformance` from `aircraft.S_ref_m2`, `aircraft.cl_y_beta`,
+3. Read `aircraft.S_ref_m2`, `aircraft.cl_y_beta`.
+4. Construct `LiftCurveModel` from `lift_curve.*` parameters.
+5. Construct `LoadFactorAllocator` from the lift curve, `S_ref_m2`, and `cl_y_beta`.
+6. Construct `AeroPerformance` from `aircraft.S_ref_m2`, `aircraft.cl_y_beta`,
    `aircraft.ar`, `aircraft.e`, `aircraft.cd0`.
-6. Construct the initial `KinematicState` from `initial_state.*`; save a copy as
+7. Construct the initial `KinematicState` from `initial_state.*`; save a copy as
    `_initial_state` for `reset()`.
+8. Read `aircraft.cmd_filter_substeps` (integer ≥ 1). Compute
+   `cmd_filter_dt_s = outer_dt_s / cmd_filter_substeps`.
+9. Validate filter parameters against Nyquist limits (see §Command Processing
+   Architecture). Throw `std::invalid_argument` on any violation.
+10. Configure and warm-start `_nz_filter` (`setLowPassSecondIIR`), `_ny_filter`
+    (`setLowPassSecondIIR`), and `_roll_rate_filter` (`setLowPassFirstIIR`).
 
-**Postconditions:** `state()` returns the initial kinematic state. The allocator and lift
-curve are ready for `step()`.
+**Postconditions:** `state()` returns the initial kinematic state. All filters are warm-started
+at their steady-state values. The allocator and lift curve are ready for `step()`.
 
-**Error flow:** If any required field is missing or out of range, `initialize()` throws
-`std::invalid_argument`.
+**Error flow:** If any required field is missing, out of range, or violates a Nyquist
+constraint, `initialize()` throws `std::invalid_argument`.
 
 ---
 
@@ -119,18 +137,121 @@ curve are ready for `step()`.
 **Main flow:** Serialize each stateful subcomponent in turn:
 
 | Component | Method called | What is captured |
-|---|---|---|
+| --- | --- | --- |
 | `KinematicState` | `serializeJson()` | Full state — position, velocity, attitude |
 | `LoadFactorAllocator` | `serializeJson()` | Config + warm-start α, β |
-| `V_Propulsion` | `serializeJson()` | Config + filter state, thrust |
-| `LiftCurveModel` | `serializeJson()` | Config params (stateless — no warm-start) |
+| `Propulsion` | `serializeJson()` | Config + filter state, thrust |
+| `LiftCurveModel` | `serializeJson()` | Config params (stateless) |
 | `AeroPerformance` | `serializeJson()` | Config params (stateless) |
 | `AirframePerformance` | `serializeJson()` | Config params (stateless) |
 | `Inertia` | `serializeJson()` | Config params (stateless) |
 | `_initial_state` | `_initial_state.serializeJson()` | Initial conditions for `reset()` |
+| `_nz_filter` | `_nz_filter.serializeJson()` | 2nd order LP state + config matrices |
+| `_ny_filter` | `_ny_filter.serializeJson()` | 2nd order LP state + config matrices |
+| `_roll_rate_filter` | `_roll_rate_filter.serializeJson()` | 2nd order LP state + config matrices |
 
 **Postconditions:** The returned JSON or byte vector is sufficient to restore the
 aircraft to the exact mid-flight state via `deserializeJson()` / `deserializeProto()`.
+
+---
+
+## Command Processing Architecture
+
+The three commanded axes — normal load factor (Nz), lateral load factor (Ny), and wind-frame
+roll rate — are passed through `FilterSS2Clip` command response filters before reaching the
+physics integrator. These filters model the finite closed-loop bandwidth of the aircraft's
+FBW inner loops: a step command produces a shaped transient rather than an instantaneous jump.
+
+### Filter Types
+
+| Axis | Filter | Parameters |
+| --- | --- | --- |
+| Nz command response | `_nz_filter.setLowPassSecondIIR(cmd_filter_dt_s, nz_wn_rad_s, nz_zeta_nd, 0.f)` | natural frequency and damping ratio |
+| Ny command response | `_ny_filter.setLowPassSecondIIR(cmd_filter_dt_s, ny_wn_rad_s, ny_zeta_nd, 0.f)` | natural frequency and damping ratio |
+| Roll rate command response | `_roll_rate_filter.setLowPassSecondIIR(cmd_filter_dt_s, roll_rate_wn_rad_s, roll_rate_zeta_nd, 0.f)` | natural frequency and damping ratio |
+
+The `tau_zero = 0` argument to `setLowPassSecondIIR` gives a pure 2nd order low-pass (no
+numerator zero). All three filters share the same transfer function form:
+
+$$
+H_\text{nz}(s) = \frac{\omega_{n,\text{nz}}^2}{s^2 + 2\,\zeta_\text{nz}\,\omega_{n,\text{nz}}\,s + \omega_{n,\text{nz}}^2}
+$$
+
+and identically for Ny and roll rate with their own $\omega_n$ and $\zeta$ parameters.
+
+### Inner Substep Loop
+
+The command response filters run at an integer multiple of the outer simulation rate. The
+substep count is a configuration parameter; the inner timestep is derived from it:
+
+```text
+cmd_filter_substeps  — integer ≥ 1, from config
+cmd_filter_dt_s      = outer_dt_s / cmd_filter_substeps
+```
+
+Per `Aircraft::step()` call, the inner loop executes `cmd_filter_substeps` iterations:
+
+```text
+for i in [0, cmd_filter_substeps):
+    n_z_shaped        = _nz_filter.step(n_z_cmd)
+    n_y_shaped        = _ny_filter.step(n_y_cmd)
+    roll_rate_shaped  = _roll_rate_filter.step(cmd.rollRate_Wind_rps)
+```
+
+The same clamped raw command values are fed on every inner substep. Propulsion runs once
+at the outer rate, after the inner loop completes. KinematicState integration also runs
+once at the outer rate.
+
+### Derivative Sourcing
+
+`LoadFactorAllocator::solve()` requires `n_z_dot` and `n_y_dot` — the time derivatives of
+the shaped load factor commands — as feed-forward terms for computing `alphaDot` and
+`betaDot`. These are extracted analytically from the `FilterSS2Clip` state vector after the
+inner substep loop completes, without introducing a separate derivative filter or finite-
+differencing delay.
+
+`FilterSS2Clip::setLowPassSecondIIR` with `tau_zero = 0` uses the Tustin-discretized
+controllable companion form. The `tf2ss` realization gives:
+
+$$
+\Phi = \begin{bmatrix} 0 & 1 \\ -a_2 & -a_1 \end{bmatrix}, \quad
+\Gamma = \begin{bmatrix} 0 \\ 1 \end{bmatrix}, \quad
+H = \begin{bmatrix} b_2 & b_1 \end{bmatrix}, \quad J = b_0
+$$
+
+where $a_i$, $b_i$ are the Tustin-prewarped discrete polynomial coefficients with $a_0 = 1$.
+The filter output is $y[k] = H \cdot x[k] + J \cdot u[k]$, so the discrete approximation
+of the output derivative is:
+
+$$
+\dot{y}[k] \approx \frac{H \cdot \bigl(\Phi\,x[k] + \Gamma\,u[k]\bigr) - y[k]}{dt_\text{inner}}
+$$
+
+This expression uses only quantities already available at the end of the substep loop (x, u,
+and the current output) and adds no new filter lag.
+
+### Nyquist Protection
+
+`initialize()` enforces the following constraints and throws `std::invalid_argument` on any
+violation:
+
+| Constraint | Meaning |
+| --- | --- |
+| `cmd_filter_substeps >= 1` | At least one inner step per outer step |
+| `nz_wn_rad_s * cmd_filter_dt_s < π` | Nz natural frequency below inner Nyquist |
+| `ny_wn_rad_s * cmd_filter_dt_s < π` | Ny natural frequency below inner Nyquist |
+| `roll_rate_wn_rad_s * cmd_filter_dt_s < π` | Roll rate natural frequency below inner Nyquist |
+
+These constraints bind on the **inner** timestep. If `cmd_filter_substeps = 1`, the inner
+and outer timesteps are equal and the constraints bind on the outer rate.
+
+### Warm-Start and Reset
+
+On `initialize()`, each filter is warm-started to its steady-state value for the given
+initial command: `_nz_filter.resetToInput(1.f)` (level flight), `_ny_filter.resetToInput(0.f)`,
+`_roll_rate_filter.resetToInput(0.f)`.
+
+On `reset()`, all three filters are warm-started to the same steady-state values.
 
 ---
 
@@ -146,9 +267,15 @@ classDiagram
         -_aeroPerf : optional~AeroPerformance~
         -_airframe : AirframePerformance
         -_inertia : Inertia
-        -_propulsion : unique_ptr~V_Propulsion~
+        -_propulsion : unique_ptr~Propulsion~
+        -_nz_filter : FilterSS2Clip
+        -_ny_filter : FilterSS2Clip
+        -_roll_rate_filter : FilterSS2Clip
+        -_outer_dt_s : float
+        -_cmd_filter_substeps : int
+        -_cmd_filter_dt_s : float
         +Aircraft(propulsion)
-        +initialize(config) void
+        +initialize(config, outer_dt_s) void
         +reset() void
         +step(time_sec, cmd, wind_NED_mps, rho_kgm3) void
         +state() const KinematicState&
@@ -170,6 +297,10 @@ classDiagram
     class LiftCurveModel {
         +evaluate(alpha_rad) float
         +derivative(alpha_rad) float
+        +alphaPeak() float
+        +alphaTrough() float
+        +alphaSep() float
+        +alphaSepNeg() float
     }
 
     class LoadFactorAllocator {
@@ -185,7 +316,7 @@ classDiagram
         +compute(alpha, beta, q_inf, cl) AeroForces
     }
 
-    class V_Propulsion {
+    class Propulsion {
         <<abstract>>
         +step(throttle_nd, tas_mps, rho_kgm3) float
         +thrust_n() float
@@ -219,12 +350,25 @@ classDiagram
     }
 
     class AircraftCommand {
-        +n : float
+        +n_z : float
         +n_y : float
-        +n_dot : float
-        +n_y_dot : float
         +rollRate_Wind_rps : float
         +throttle_nd : float
+    }
+
+    class FilterSS2Clip {
+        +setLowPassSecondIIR(dt_s, wn, zeta, tau_zero) void
+        +setLowPassFirstIIR(dt_s, tau) void
+        +step(u) float
+        +x() Mat21
+        +phi() Mat22
+        +gamma() Mat21
+        +h() Mat12
+        +j() Mat11
+        +resetToInput(val) void
+        +resetState(x) void
+        +serializeJson() json
+        +deserializeJson(j) void
     }
 
     Aircraft *-- KinematicState : owns (value)
@@ -233,7 +377,8 @@ classDiagram
     Aircraft *-- AeroPerformance : owns (value)
     Aircraft *-- AirframePerformance : owns (value)
     Aircraft *-- Inertia : owns (value)
-    Aircraft o-- V_Propulsion : owns (unique_ptr)
+    Aircraft o-- Propulsion : owns (unique_ptr)
+    Aircraft *-- FilterSS2Clip : owns 3 (value)
     Aircraft ..> AircraftCommand : uses
 ```
 
@@ -246,35 +391,41 @@ classDiagram
 ```cpp
 namespace liteaerosim {
 
-explicit Aircraft(std::unique_ptr<propulsion::V_Propulsion> propulsion);
+explicit Aircraft(std::unique_ptr<propulsion::Propulsion> propulsion);
 ```
 
 Propulsion is injected at construction time so that the concrete engine type
 (`PropulsionJet`, `PropulsionEDF`, `PropulsionProp`) can be varied without touching
-`Aircraft`. The object is **not yet usable** after construction; either `initialize()` (first-time
-setup from a config JSON) or `deserializeJson()` / `deserializeProto()` (reconstitution
-from a snapshot) must be called before `step()`.
+`Aircraft`. The object is **not yet usable** after construction; either `initialize()`
+(first-time setup from a config JSON) or `deserializeJson()` / `deserializeProto()`
+(reconstitution from a snapshot) must be called before `step()`.
 
 ---
 
 ### Lifecycle Methods
 
 ```cpp
-void initialize(const nlohmann::json& config);
+void initialize(const nlohmann::json& config, float outer_dt_s);
 ```
+
+`outer_dt_s` is the Simulation's outer integration timestep in seconds. The Simulation owns
+this value; `Aircraft` receives it here so it can compute `cmd_filter_dt_s` and configure the
+command response filters. It is not stored in the aircraft config JSON.
 
 Reads `aircraft_config_v1` JSON and constructs all owned subsystems in dependency order:
 inertia and airframe first, then lift curve, then aero performance and load factor allocator
-(which reference the lift curve), then the initial `KinematicState`. Throws
-`std::invalid_argument` if any required field is missing or invalid.
+(which reference the lift curve), then the initial `KinematicState`, then the command response
+filters. Throws `std::invalid_argument` if any required field is missing, invalid, or violates
+a Nyquist constraint.
 
 ```cpp
 void reset();
 ```
 
 Resets `KinematicState` to the initial conditions recorded at `initialize()` time, calls
-`LoadFactorAllocator::reset()`, and calls `V_Propulsion::reset()`. After `reset()`,
-the aircraft is in the same state as immediately after `initialize()`.
+`LoadFactorAllocator::reset()`, calls `Propulsion::reset()`, and warm-starts all three command
+response filters to their steady-state values. After `reset()`, the aircraft is in the same
+state as immediately after `initialize()`.
 
 ---
 
@@ -282,23 +433,24 @@ the aircraft is in the same state as immediately after `initialize()`.
 
 ```cpp
 struct AircraftCommand {
-    float n;                  // commanded normal load factor (g)
-    float n_y;                // commanded lateral load factor (g)
-    float n_dot;              // time derivative of n (g/s) — drives alphaDot
-    float n_y_dot;            // time derivative of n_y (g/s) — drives betaDot
-    float rollRate_Wind_rps;  // wind-frame roll rate command (rad/s)
-    float throttle_nd;        // normalized throttle [0, 1]
+    float n_z               = 1.f;  // commanded normal load factor (g)
+    float n_y               = 0.f;  // commanded lateral load factor (g)
+    float rollRate_Wind_rps = 0.f;  // commanded wind-frame roll rate (rad/s)
+    float throttle_nd       = 0.f;  // normalized throttle [0, 1]
 };
 ```
 
-| Field | SI unit | Valid range | Description |
-|---|---|---|---|
-| `n` | g | (−∞, +∞) | Normal load factor; 1.0 = level flight at 1 g |
-| `n_y` | g | (−∞, +∞) | Lateral load factor; 0 = coordinated flight |
-| `n_dot` | g/s | — | Rate of change of `n`; used to compute `alphaDot` |
-| `n_y_dot` | g/s | — | Rate of change of `n_y`; used to compute `betaDot` |
-| `rollRate_Wind_rps` | rad/s | — | Wind-frame roll rate; passed directly to `KinematicState::step()` |
-| `throttle_nd` | — | [0, 1] | Normalized throttle demand |
+| Field | SI unit | Description |
+| --- | --- | --- |
+| `n_z` | g | Normal load factor command; 1.0 = level flight at 1 g |
+| `n_y` | g | Lateral load factor command; 0 = coordinated flight |
+| `rollRate_Wind_rps` | rad/s | Wind-frame roll rate command |
+| `throttle_nd` | — | Normalized throttle demand [0, 1] |
+
+`n_z` and `n_y` are the raw pilot or autopilot commands. They are clamped to structural limits
+and then shaped by `_nz_filter` / `_ny_filter` before reaching the load factor allocator.
+Shaped derivatives are not on the command interface — they are computed internally from filter
+state (see §Command Processing Architecture).
 
 ---
 
@@ -312,14 +464,14 @@ void step(double time_sec,
 ```
 
 | Parameter | SI unit | Description |
-|---|---|---|
+| --- | --- | --- |
 | `time_sec` | s | Absolute simulation time at this step |
 | `cmd` | mixed | Commanded inputs (see `AircraftCommand` table above) |
 | `wind_NED_mps` | m/s | Ambient wind vector in NED frame — supplied by `Wind` model |
-| `rho_kgm3` | kg/m³ | Local air density — supplied by `Atmosphere::isa()` |
+| `rho_kgm3` | kg/m³ | Local air density — supplied by `Atmosphere::state()` |
 
 `step()` has no return value. All outputs are read through `state()` and
-`V_Propulsion::thrust_n()` after the call.
+`Propulsion::thrust_n()` after the call.
 
 ---
 
@@ -335,7 +487,7 @@ reference across a `step()` call if they need a snapshot; copy the object instea
 Derived quantities available from `KinematicState` after `step()`:
 
 | Quantity | Method | Unit |
-|---|---|---|
+| --- | --- | --- |
 | Position (WGS84) | `state().positionDatum()` | rad / m |
 | Velocity (NED) | `state().velocity_NED_mps()` | m/s |
 | Euler angles | `state().eulers()` | rad |
@@ -363,21 +515,32 @@ its full configuration and internal state.
 
 ```json
 {
-    "schema_version": 1,
-    "type": "Aircraft",
-    "kinematic_state":  { ... },
-    "initial_state":    { ... },
-    "allocator":        { ... },
-    "lift_curve":       { ... },
-    "aero_performance": { ... },
-    "airframe":         { ... },
-    "inertia":          { ... },
-    "propulsion":       { ... }
+    "schema_version":      1,
+    "type":                "Aircraft",
+    "kinematic_state":     { ... },
+    "initial_state":       { ... },
+    "allocator":           { ... },
+    "lift_curve":          { ... },
+    "aero_performance":    { ... },
+    "airframe":            { ... },
+    "inertia":             { ... },
+    "propulsion":          { ... },
+    "cmd_filter_substeps": 1,
+    "cmd_filter_dt_s":     0.02,
+    "nz_wn_rad_s":         15.0,
+    "nz_zeta_nd":          0.7,
+    "ny_wn_rad_s":         12.0,
+    "ny_zeta_nd":          0.7,
+    "roll_rate_wn_rad_s":  10.0,
+    "roll_rate_zeta_nd":   0.7,
+    "nz_filter":           { ... },
+    "ny_filter":           { ... },
+    "roll_rate_filter":    { ... }
 }
 ```
 
 | Field | Source | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `"schema_version"` | constant 1 | Verified on deserialize; mismatch throws |
 | `"type"` | constant `"Aircraft"` | Verified on deserialize; mismatch throws |
 | `"kinematic_state"` | `_state.serializeJson()` | Full kinematic state at snapshot time |
@@ -388,17 +551,26 @@ its full configuration and internal state.
 | `"airframe"` | `_airframe.serializeJson()` | Structural envelope limits |
 | `"inertia"` | `_inertia.serializeJson()` | Mass properties |
 | `"propulsion"` | `_propulsion->serializeJson()` | Engine type, config, and filter state |
+| `"cmd_filter_substeps"` | `_cmd_filter_substeps` | Integer inner step count |
+| `"cmd_filter_dt_s"` | `_cmd_filter_dt_s` | Inner timestep (s) |
+| `"nz_wn_rad_s"` | config param | Nz natural frequency (rad/s) |
+| `"nz_zeta_nd"` | config param | Nz damping ratio |
+| `"ny_wn_rad_s"` | config param | Ny natural frequency (rad/s) |
+| `"ny_zeta_nd"` | config param | Ny damping ratio |
+| `"roll_rate_wn_rad_s"` | config param | Roll rate natural frequency (rad/s) |
+| `"roll_rate_zeta_nd"` | config param | Roll rate damping ratio |
+| `"nz_filter"` | `_nz_filter.serializeJson()` | Full state-space matrices + state vector |
+| `"ny_filter"` | `_ny_filter.serializeJson()` | Full state-space matrices + state vector |
+| `"roll_rate_filter"` | `_roll_rate_filter.serializeJson()` | Full state-space matrices + state vector |
 
 #### Deserialize Contract
 
 - If `"schema_version"` ≠ 1 or `"type"` ≠ `"Aircraft"`, throws `std::runtime_error`.
-- `"propulsion"."type"` must match the concrete `V_Propulsion` subclass injected at
-  construction; the propulsion subclass's own `deserializeJson()` enforces this.
-- `deserializeJson()` does **not** require a prior `initialize()` call — the snapshot
-  contains all data needed to reconstruct the aerodynamics and kinematic state. However,
-  the correct `V_Propulsion` concrete subclass **must** have been injected at construction
-  before calling `deserializeJson()`; the propulsion model is not re-created from the
-  snapshot (item 5 scope).
+- `"propulsion"."type"` must match the concrete `Propulsion` subclass injected at
+  construction.
+- `deserializeJson()` does **not** require a prior `initialize()` call. However, the correct
+  `Propulsion` concrete subclass **must** have been injected at construction before calling
+  `deserializeJson()`.
 - After `deserializeJson()`, the next `step()` call must produce the same output as if the
   simulation had never been interrupted.
 
@@ -408,47 +580,57 @@ its full configuration and internal state.
 
 ### Step Execution Order
 
-```
+```text
 1. V_air  = (state().velocity_NED_mps() - wind_NED_mps).norm()
    q_inf  = 0.5 * rho_kgm3 * V_air²
 
 2. T_prev = _propulsion->thrust_n()        // from previous step (or 0 at t=0)
 
 3. Clamp commanded load factors to airframe structural limits:
-       n_cmd   = clamp(cmd.n,   _airframe.g_min_nd, _airframe.g_max_nd)
+       n_z_cmd = clamp(cmd.n_z, _airframe.g_min_nd, _airframe.g_max_nd)
        n_y_cmd = clamp(cmd.n_y, _airframe.g_min_nd, _airframe.g_max_nd)
 
-4. LoadFactorInputs lf_in {
-       .n        = n_cmd,
-       .n_y      = n_y_cmd,
+4. Inner filter loop — runs cmd_filter_substeps times at cmd_filter_dt_s:
+       for i in [0, cmd_filter_substeps):
+           n_z_shaped        = _nz_filter.step(n_z_cmd)
+           n_y_shaped        = _ny_filter.step(n_y_cmd)
+           roll_rate_shaped  = _roll_rate_filter.step(cmd.rollRate_Wind_rps)
+
+5. Compute shaped-command derivatives from filter state (see §Derivative Sourcing):
+       n_z_dot = derived analytically from _nz_filter.x(), .phi(), .gamma(), .h(), .j()
+       n_y_dot = derived analytically from _ny_filter.x(), .phi(), .gamma(), .h(), .j()
+
+6. LoadFactorInputs lf_in {
+       .n_z      = n_z_shaped,
+       .n_y      = n_y_shaped,
        .q_inf    = q_inf,
        .thrust_n = T_prev,
        .mass_kg  = _inertia.mass_kg,
-       .n_dot    = cmd.n_dot,
-       .n_y_dot  = cmd.n_y_dot
+       .n_z_dot  = n_z_dot,
+       .n_y_dot  = n_y_dot
    }
    LoadFactorOutputs lf = _allocator->solve(lf_in)
 
-5. float CL = _liftCurve->evaluate(lf.alpha_rad)
+7. float CL = _liftCurve->evaluate(lf.alpha_rad)
 
-6. AeroForces F = _aeroPerf->compute(lf.alpha_rad, lf.beta_rad, q_inf, CL)
+8. AeroForces F = _aeroPerf->compute(lf.alpha_rad, lf.beta_rad, q_inf, CL)
    // F.x_n < 0 (drag),  F.y_n (side force),  F.z_n < 0 (lift upward)
 
-7. float T  = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3)
+9. float T  = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3)   // outer rate
 
-8. float cα = cosf(lf.alpha_rad),  sα = sinf(lf.alpha_rad)
-   float cβ = cosf(lf.beta_rad),   sβ = sinf(lf.beta_rad)
-   Eigen::Vector3f a_Wind {
-       (T * cα * cβ  + F.x_n) / _inertia.mass_kg,
-       (-T * cα * sβ + F.y_n) / _inertia.mass_kg,
-       (-T * sα      + F.z_n) / _inertia.mass_kg
-   }
+10. float cα = cosf(lf.alpha_rad),  sα = sinf(lf.alpha_rad)
+    float cβ = cosf(lf.beta_rad),   sβ = sinf(lf.beta_rad)
+    Eigen::Vector3f a_Wind {
+        (T * cα * cβ  + F.x_n) / _inertia.mass_kg,
+        (-T * cα * sβ + F.y_n) / _inertia.mass_kg,
+        (-T * sα      + F.z_n) / _inertia.mass_kg
+    }
 
-9. _state.step(time_sec, a_Wind,
-               cmd.rollRate_Wind_rps,
-               lf.alpha_rad,  lf.beta_rad,
-               lf.alphaDot_rps, lf.betaDot_rps,
-               wind_NED_mps)
+11. _state.step(time_sec, a_Wind,
+                roll_rate_shaped,
+                lf.alpha_rad,  lf.beta_rad,
+                lf.alphaDot_rps, lf.betaDot_rps,
+                wind_NED_mps)
 ```
 
 ### Wind-Frame Force Decomposition
@@ -469,11 +651,11 @@ where $F_x < 0$ (drag), $F_z < 0$ (lift directed negative-down, i.e., upward).
 **Gravity accounting:** The `LoadFactorAllocator` solves the constraint
 
 $$
-q\,S\,C_L + T\sin\alpha = n\,m\,g
+q\,S\,C_L + T\sin\alpha = n_z\,m\,g
 $$
 
-The gravitational term $n\,m\,g$ is entirely consumed within that constraint. The
-Wind-frame acceleration computed in step 7 is the **kinematic** (non-gravitational)
+The gravitational term $n_z\,m\,g$ is entirely consumed within that constraint. The
+Wind-frame acceleration computed in step 10 is the **kinematic** (non-gravitational)
 acceleration; `KinematicState::step()` integrates it directly without adding $g$ again.
 
 ### Data Flow Diagram
@@ -487,19 +669,21 @@ flowchart LR
         direction TB
         VAS["1. V_air / q_inf"]
         ELP["3. Envelope clamp"]
-        LFA["4. LoadFactorAllocator"]
-        LCM["5. LiftCurveModel"]
-        AER["6. AeroPerformance"]
-        PROP["7. V_Propulsion"]
-        ACCEL["8. Wind-frame accel"]
-        KIN["9. KinematicState"]
+        FLT["4–5. Command filters\n_nz / _ny / _roll_rate\n+ derivative extraction"]
+        LFA["6. LoadFactorAllocator"]
+        LCM["7. LiftCurveModel"]
+        AER["8. AeroPerformance"]
+        PROP["9. Propulsion (outer rate)"]
+        ACCEL["10. Wind-frame accel"]
+        KIN["11. KinematicState"]
     end
 
     CMD --> VAS
     ENV --> VAS
     VAS --> ELP
     CMD --> ELP
-    ELP --> LFA
+    ELP --> FLT
+    FLT --> LFA
     LFA --> LCM
     LCM --> LFA
     LFA --> AER
@@ -510,8 +694,8 @@ flowchart LR
     PROP --> ACCEL
     AER --> ACCEL
     LFA --> ACCEL
+    FLT --> KIN
     ACCEL --> KIN
-    CMD --> KIN
     ENV --> KIN
     KIN --> VAS
 ```
@@ -521,15 +705,21 @@ flowchart LR
 ## Ownership and Memory Model
 
 | Member | Type | Lifetime | Notes |
-|---|---|---|---|
-| `_state` | `KinematicState` | Value member — lives with `Aircraft` | Fully owned; no sharing |
-| `_initial_state` | `KinematicState` | Value member — lives with `Aircraft` | Saved by `initialize()` for `reset()` |
-| `_liftCurve` | `std::optional<LiftCurveModel>` | Inline optional (no default ctor) | Emplaced by `initialize()` / `deserializeJson()`; stateless after construction |
-| `_allocator` | `std::optional<LoadFactorAllocator>` | Inline optional (no default ctor) | Holds `const&` to `_liftCurve` — `Aircraft` is non-movable to prevent dangling reference |
-| `_aeroPerf` | `std::optional<AeroPerformance>` | Inline optional (no default ctor) | Emplaced by `initialize()` / `deserializeJson()`; stateless after construction |
-| `_airframe` | `AirframePerformance` | Value member | Envelope limits — clamped before `LoadFactorAllocator`; stateless |
-| `_inertia` | `Inertia` | Value member | Mass and inertia — `mass_kg` replaces bare scalar; `Ixx/Iyy/Izz` reserved for future 6-DOF moment equations |
-| `_propulsion` | `std::unique_ptr<V_Propulsion>` | Heap-allocated, owned | Injected at construction; non-null invariant |
+| --- | --- | --- | --- |
+| `_state` | `KinematicState` | Value member | Fully owned; no sharing |
+| `_initial_state` | `KinematicState` | Value member | Saved by `initialize()` for `reset()` |
+| `_liftCurve` | `std::optional<LiftCurveModel>` | Inline optional | Emplaced by `initialize()` / `deserializeJson()`; stateless after construction |
+| `_allocator` | `std::optional<LoadFactorAllocator>` | Inline optional | Holds `const&` to `_liftCurve` — `Aircraft` is non-movable |
+| `_aeroPerf` | `std::optional<AeroPerformance>` | Inline optional | Emplaced by `initialize()` / `deserializeJson()`; stateless |
+| `_airframe` | `AirframePerformance` | Value member | Envelope limits |
+| `_inertia` | `Inertia` | Value member | Mass properties |
+| `_propulsion` | `std::unique_ptr<Propulsion>` | Heap-allocated, owned | Injected at construction; non-null invariant |
+| `_nz_filter` | `control::FilterSS2Clip` | Value member | Nz command response (2nd order LP) |
+| `_ny_filter` | `control::FilterSS2Clip` | Value member | Ny command response (2nd order LP) |
+| `_roll_rate_filter` | `control::FilterSS2Clip` | Value member | Roll rate command response (2nd order LP) |
+| `_outer_dt_s` | `float` | Value member | Copy of Simulation's outer timestep; used at initialize() time only |
+| `_cmd_filter_substeps` | `int` | Value member | Integer inner step multiplier |
+| `_cmd_filter_dt_s` | `float` | Value member | `outer_dt_s / cmd_filter_substeps` |
 
 **Invariant:** `_propulsion` must never be null after construction. If the caller passes
 `nullptr`, the constructor throws `std::invalid_argument`.
@@ -543,24 +733,33 @@ and leave the reference dangling.
 
 ## Initialization — JSON Config Mapping
 
-The `aircraft_config_v1` schema maps to `Aircraft` members as follows:
+The `aircraft_config_v1` schema maps to `Aircraft` members as follows. The outer integration
+timestep (`outer_dt_s`) is **not** in the JSON — it is passed as a separate parameter to
+`initialize()`.
 
 | JSON path | C++ type | Aircraft member / usage |
-|---|---|---|
+| --- | --- | --- |
 | `inertia.mass_kg` | `float` | `_inertia.mass_kg` |
-| `inertia.Ixx_kgm2` | `float` | `_inertia.Ixx_kgm2` (reserved for 6-DOF) |
-| `inertia.Iyy_kgm2` | `float` | `_inertia.Iyy_kgm2` (reserved for 6-DOF) |
-| `inertia.Izz_kgm2` | `float` | `_inertia.Izz_kgm2` (reserved for 6-DOF) |
+| `inertia.Ixx_kgm2` | `float` | `_inertia.Ixx_kgm2` |
+| `inertia.Iyy_kgm2` | `float` | `_inertia.Iyy_kgm2` |
+| `inertia.Izz_kgm2` | `float` | `_inertia.Izz_kgm2` |
 | `airframe.g_max_nd` | `float` | `_airframe.g_max_nd` |
 | `airframe.g_min_nd` | `float` | `_airframe.g_min_nd` |
 | `airframe.tas_max_mps` | `float` | `_airframe.tas_max_mps` |
 | `airframe.mach_max_nd` | `float` | `_airframe.mach_max_nd` |
-| `aircraft.S_ref_m2` | `float` | `AeroPerformance`, `LoadFactorAllocator` constructor args |
-| `aircraft.cl_y_beta` | `float` | `AeroPerformance`, `LoadFactorAllocator` constructor args |
-| `aircraft.ar` | `float` | `AeroPerformance` constructor arg — wing aspect ratio |
-| `aircraft.e` | `float` | `AeroPerformance` constructor arg — Oswald efficiency |
-| `aircraft.cd0` | `float` | `AeroPerformance` constructor arg — zero-lift drag coefficient |
-| `lift_curve.cl_alpha` | `float` | `LiftCurveParams::cl_alpha` → `LiftCurveModel` |
+| `aircraft.S_ref_m2` | `float` | `AeroPerformance`, `LoadFactorAllocator` |
+| `aircraft.cl_y_beta` | `float` | `AeroPerformance`, `LoadFactorAllocator` |
+| `aircraft.ar` | `float` | `AeroPerformance` — wing aspect ratio |
+| `aircraft.e` | `float` | `AeroPerformance` — Oswald efficiency |
+| `aircraft.cd0` | `float` | `AeroPerformance` — zero-lift drag coefficient |
+| `aircraft.cmd_filter_substeps` | `int` | `_cmd_filter_substeps`; must be ≥ 1 |
+| `aircraft.nz_wn_rad_s` | `float` | Nz command response natural frequency (rad/s) |
+| `aircraft.nz_zeta_nd` | `float` | Nz command response damping ratio |
+| `aircraft.ny_wn_rad_s` | `float` | Ny command response natural frequency (rad/s) |
+| `aircraft.ny_zeta_nd` | `float` | Ny command response damping ratio |
+| `aircraft.roll_rate_wn_rad_s` | `float` | Roll rate command response natural frequency (rad/s) |
+| `aircraft.roll_rate_zeta_nd` | `float` | Roll rate command response damping ratio |
+| `lift_curve.cl_alpha` | `float` | `LiftCurveParams::cl_alpha` |
 | `lift_curve.cl_max` | `float` | `LiftCurveParams::cl_max` |
 | `lift_curve.cl_min` | `float` | `LiftCurveParams::cl_min` |
 | `lift_curve.delta_alpha_stall` | `float` | `LiftCurveParams::delta_alpha_stall` |
@@ -570,12 +769,12 @@ The `aircraft_config_v1` schema maps to `Aircraft` members as follows:
 | `initial_state.latitude_rad` | `double` | `WGS84_Datum` → `KinematicState` |
 | `initial_state.longitude_rad` | `double` | `WGS84_Datum` → `KinematicState` |
 | `initial_state.altitude_m` | `float` | `WGS84_Datum` → `KinematicState` |
-| `initial_state.velocity_north_mps` | `float` | `velocity_NED_mps(0)` → `KinematicState` |
-| `initial_state.velocity_east_mps` | `float` | `velocity_NED_mps(1)` → `KinematicState` |
-| `initial_state.velocity_down_mps` | `float` | `velocity_NED_mps(2)` → `KinematicState` |
-| `initial_state.wind_north_mps` | `float` | `wind_NED_mps(0)` → `KinematicState` |
-| `initial_state.wind_east_mps` | `float` | `wind_NED_mps(1)` → `KinematicState` |
-| `initial_state.wind_down_mps` | `float` | `wind_NED_mps(2)` → `KinematicState` |
+| `initial_state.velocity_north_mps` | `float` | `velocity_NED_mps(0)` |
+| `initial_state.velocity_east_mps` | `float` | `velocity_NED_mps(1)` |
+| `initial_state.velocity_down_mps` | `float` | `velocity_NED_mps(2)` |
+| `initial_state.wind_north_mps` | `float` | `wind_NED_mps(0)` |
+| `initial_state.wind_east_mps` | `float` | `wind_NED_mps(1)` |
+| `initial_state.wind_down_mps` | `float` | `wind_NED_mps(2)` |
 
 ---
 
@@ -591,14 +790,17 @@ self-contained — a caller must not need to call `initialize()` before or after
 ### Component Serialization
 
 | Component | Internal state | What is serialized |
-|---|---|---|
+| --- | --- | --- |
 | `KinematicState` | Yes | Full state — position, velocity, attitude |
 | `LoadFactorAllocator` | Yes — `_alpha_prev`, `_beta_prev` | Config + warm-start α, β |
-| `V_Propulsion` | Yes — filter state, `_thrust_n` | Config + engine-specific state |
+| `Propulsion` | Yes — filter state, `_thrust_n` | Config + engine-specific state |
 | `LiftCurveModel` | No | Config params only |
 | `AeroPerformance` | No | Config params only |
 | `AirframePerformance` | No | Config params only |
 | `Inertia` | No | Config params only |
+| `_nz_filter` | Yes — state vector x, matrices Φ/Γ/H/J | Full `FilterSS2Clip` snapshot via `serializeJson()` |
+| `_ny_filter` | Yes | Full `FilterSS2Clip` snapshot via `serializeJson()` |
+| `_roll_rate_filter` | Yes | Full `FilterSS2Clip` snapshot via `serializeJson()` |
 
 ### Protobuf Message
 
@@ -606,60 +808,74 @@ Defined in `proto/liteaerosim.proto`:
 
 ```proto
 message AircraftState {
-    int32                     schema_version   = 1;
-    KinematicState            kinematic_state  = 2;
-    KinematicState            initial_state    = 3;
-    LoadFactorAllocatorState  allocator        = 4;
-    LiftCurveParams           lift_curve       = 5;
-    AeroPerformanceParams     aero_performance = 6;
-    AirframePerformanceParams airframe         = 7;
-    InertiaParams             inertia          = 8;
+    int32                     schema_version      = 1;
+    KinematicState            kinematic_state     = 2;
+    KinematicState            initial_state       = 3;
+    LoadFactorAllocatorState  allocator           = 4;
+    LiftCurveParams           lift_curve          = 5;
+    AeroPerformanceParams     aero_performance    = 6;
+    AirframePerformanceParams airframe            = 7;
+    InertiaParams             inertia             = 8;
     oneof propulsion {
         PropulsionJetState  jet  = 9;
         PropulsionEdfState  edf  = 10;
         PropulsionPropState prop = 11;
     }
+    int32          cmd_filter_substeps  = 12;
+    float          cmd_filter_dt_s      = 13;
+    float          nz_wn_rad_s          = 14;
+    float          nz_zeta_nd           = 15;
+    repeated float nz_filter_x          = 16;
+    float          ny_wn_rad_s          = 17;
+    float          ny_zeta_nd           = 18;
+    repeated float ny_filter_x          = 19;
+    float          roll_rate_wn_rad_s   = 20;
+    float          roll_rate_zeta_nd    = 22;
+    repeated float roll_rate_filter_x   = 21;
 }
 ```
 
-The `oneof propulsion` field encodes both the propulsion type and its warm-start state in a
-single discriminated union — no separate `"type"` string is needed at the proto level. Each
-config struct (`LiftCurveParams`, `AeroPerformanceParams`, `AirframePerformanceParams`,
-`InertiaParams`) is a flat message of scalar fields with no nested state.
+Fields 12–21 capture the command processing configuration and filter state vectors.
+`deserializeProto()` calls `set*IIR` with the stored parameters (to reconstruct the Φ, Γ,
+H, J matrices) and then `resetState(x)` to restore the exact filter state without a
+steady-state backsolve.
 
 ---
 
 ## Interface Contracts
 
 | Precondition | Method | Postcondition |
-|---|---|---|
+| --- | --- | --- |
 | `propulsion != nullptr` | constructor | Object constructed; `_propulsion` is non-null |
 | `propulsion == nullptr` | constructor | throws `std::invalid_argument` |
 | `initialize()` not yet called | `step()` | undefined behavior (asserts in debug) |
-| Valid `aircraft_config_v1` JSON | `initialize()` | All subsystems constructed; `state()` = initial state |
+| Valid `aircraft_config_v1` JSON | `initialize(config, outer_dt_s)` | All subsystems constructed; `state()` = initial state |
+| `cmd_filter_substeps < 1` | `initialize()` | throws `std::invalid_argument` |
+| `nz_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
+| `ny_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
+| `roll_rate_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
 | Any malformed field | `initialize()` | throws `std::invalid_argument` |
 | Any command, any airspeed | `step()` | No throw; allocator clamps to envelope |
 | After `reset()` | `state()` | Returns initial `KinematicState` from `initialize()` |
 | Valid self-contained snapshot | `deserializeJson()` / `deserializeProto()` | Fully reconstituted; `step()` may be called without `initialize()` |
-| Snapshot `"type"` = `"Aircraft"` | `deserializeJson()` | State restored; next `step()` output is identical |
 | Snapshot `"type"` ≠ `"Aircraft"` | `deserializeJson()` | throws `std::runtime_error` |
 | Schema version ≠ 1 | `deserializeJson()` / `deserializeProto()` | throws `std::runtime_error` |
 
 ---
 
-## Why `Aircraft` Is Not a `DynamicBlock`
+## Why `Aircraft` Is Not a `DynamicElement`
 
-`DynamicBlock` models **scalar SISO** elements: one float input, one float output, per
-the NVI pattern in [`dynamic_block.md`](dynamic_block.md).
+`DynamicElement` models **scalar SISO** elements: one float input, one float output, per
+the NVI pattern in [`dynamic_element.md`](dynamic_element.md).
 
-`Aircraft::step()` takes six heterogeneous inputs (`AircraftCommand` + wind + density) and
+`Aircraft::step()` takes four heterogeneous inputs (`AircraftCommand` + wind + density) and
 produces no scalar output — its output is a rich `KinematicState` struct. Forcing this into
 a SISO interface would require artificial input multiplexing and would hide the semantically
 meaningful parameter names.
 
 `Aircraft` instead follows the same **lifecycle convention** (`initialize` → `reset` →
-`step` → `serialize/deserialize`) without inheriting from `DynamicBlock`. This pattern is
-consistent with `V_Propulsion`, which also has a multi-input `step()`.
+`step` → `serialize/deserialize`) without inheriting from `DynamicElement`. This pattern is
+consistent with `Propulsion`, which also has a multi-input `step()`.
 
 ---
 
@@ -676,10 +892,10 @@ sequenceDiagram
     participant AP   as Autopilot
 
     App ->> AC   : Aircraft(std::move(propulsion))
-    App ->> AC   : initialize(config_json)
+    App ->> AC   : initialize(config_json, outer_dt_s)
 
     loop Each timestep
-        App  ->> ATM  : AtmosphericState s = Atmosphere::isa(state.positionDatum().altitude_m)
+        App  ->> ATM  : AtmosphericState s = Atmosphere::state(altitude_m)
         App  ->> WND  : wind = wind.wind_NED_mps(position, time)
         App  ->> AP   : cmd  = autopilot.step(state, path_resp, wind, rho)
         App  ->> AC   : step(time, cmd, wind, s.density_kgm3)
@@ -695,20 +911,24 @@ sequenceDiagram
 caller's responsibility. This keeps the Domain Layer's boundary clean: `Aircraft` is a
 pure physics integrator; environment state is injected per step.
 
+The outer integration timestep is owned by the **Simulation** (or scenario setup code) and
+is passed to `Aircraft::initialize()`. `Aircraft` does not access any global clock.
+
 ---
 
 ## File Map
 
 | File | Contents |
-|---|---|
+| --- | --- |
 | `include/Aircraft.hpp` | Class declaration, `AircraftCommand` struct |
 | `src/Aircraft.cpp` | Implementation of `initialize`, `reset`, `step`, serialization |
 | `test/Aircraft_test.cpp` | Unit tests — construction, step physics, serialization round-trips |
 | `docs/schemas/aircraft_config_v1.md` | JSON config schema (inputs to `initialize()`) |
-| `docs/architecture/propulsion.md` | Design authority for `V_Propulsion` and all engine types |
+| `docs/architecture/propulsion.md` | Design authority for `Propulsion` and all engine types |
 | `include/KinematicState.hpp` | Kinematic state owned by `Aircraft` |
 | `include/aerodynamics/LiftCurveModel.hpp` | Lift curve owned by `Aircraft` |
 | `include/aerodynamics/LoadFactorAllocator.hpp` | Load factor solver owned by `Aircraft` |
 | `include/aerodynamics/AeroPerformance.hpp` | Aerodynamic force model owned by `Aircraft` |
-| `include/airframe/AirframePerformance.hpp` | Structural/operational envelope limits owned by `Aircraft` |
-| `include/airframe/Inertia.hpp` | Mass and inertia properties owned by `Aircraft` |
+| `include/airframe/AirframePerformance.hpp` | Structural/operational envelope limits |
+| `include/airframe/Inertia.hpp` | Mass and inertia properties |
+| `include/control/FilterSS2Clip.hpp` | Command response filter (Tustin 2nd-order state-space with output clip) |

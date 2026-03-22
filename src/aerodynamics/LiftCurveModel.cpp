@@ -76,13 +76,10 @@ float LiftCurveModel::derivative(float alpha_rad) const {
     return 0.0f;
 }
 
-float LiftCurveModel::alphaPeak() const {
-    return _alpha_peak;
-}
-
-float LiftCurveModel::alphaTrough() const {
-    return _alpha_peak_neg;
-}
+float LiftCurveModel::alphaPeak()    const { return _alpha_peak; }
+float LiftCurveModel::alphaTrough()  const { return _alpha_peak_neg; }
+float LiftCurveModel::alphaSep()     const { return _alpha_sep; }
+float LiftCurveModel::alphaSepNeg()  const { return _alpha_sep_neg; }
 
 LiftCurveSegment LiftCurveModel::classify(float alpha_rad) const {
     if (alpha_rad < _alpha_sep_neg)   return LiftCurveSegment::FullySeparatedNegative;

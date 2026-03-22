@@ -689,9 +689,11 @@ C_{L_\alpha} & \alpha_{*,neg} \leq \alpha \leq \alpha_* \\[4pt]
 \end{cases}
 $$
 
-### Peak and Trough Angles
+### Key Boundary Angles
 
 `alphaPeak()` returns $\alpha_{peak}$ — the angle at which the positive quadratic reaches $C_{L,max}$ with zero slope. `alphaTrough()` returns $\alpha_{peak,neg}$ — the angle at which the negative quadratic reaches $C_{L,min}$ with zero slope.
+
+`alphaSep()` returns $\alpha_{sep}$ — the angle at which the positive descending parabola meets the flat post-stall plateau ($C_L = C_{L,sep}$). `alphaSepNeg()` returns the symmetric angle on the negative side. These mark the outer boundary of the parabolic CL domain; beyond them $C_L' = 0$ and the derivative of $f$ reduces to $T\cos\alpha$.
 
 ---
 
@@ -763,7 +765,7 @@ Newton's method is then run from $\alpha_0$ rather than from a fixed starting po
 | $< 0$ | Post-stall | $\alpha$ on the descending limb in the transition region |
 | $= 0$ | Fold point | Aircraft is at the stall limit; predictor is ill-conditioned |
 
-**Fold point and stall limit.** $f'(\alpha_{prev}) \to 0$ signals that the aircraft is at the load factor ceiling. Two outcomes:
+**Fold point and stall limit.** $f'(\alpha_{prev}) \to 0$ signals that the aircraft is at the load factor ceiling — the fold point where $f'(\alpha) = q_\infty S C_L'(\alpha) + T\cos\alpha = 0$. This fold point is **not** fixed at $\alpha_{peak}$: for $T = 0$ it coincides with $\alpha_{peak}$ (where $C_L' = 0$), but for $T > 0$ it lies above $\alpha_{peak}$ because the $T\cos\alpha$ term keeps $f'$ positive past the CL peak. Two outcomes:
 
 1. If the commanded $n_k\,mg > \max_\alpha f(\alpha) + n_{k-1}\,mg$, no root exists — the load factor demand exceeds what lift and thrust can provide. Saturate $\alpha$ at $\alpha_{prev}$ (the fold point), set a stall-limit flag, and clamp $n$ to the achievable maximum.
 2. If $n_k\,mg$ has decreased (load factor released), the fold is exiting and a root on the pre-stall side can be found by bracketed search in $(\alpha_*, \alpha_{prev})$.

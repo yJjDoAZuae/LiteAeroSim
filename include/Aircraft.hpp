@@ -6,6 +6,7 @@
 #include "aerodynamics/LoadFactorAllocator.hpp"
 #include "airframe/AirframePerformance.hpp"
 #include "airframe/Inertia.hpp"
+#include "control/FilterSS2Clip.hpp"
 #include "propulsion/Propulsion.hpp"
 #include <Eigen/Dense>
 #include <cstdint>
@@ -18,12 +19,10 @@ namespace liteaerosim {
 
 // Inputs to a single Aircraft::step() call.
 struct AircraftCommand {
-    float n               = 1.f;   // commanded normal load factor (g)
-    float n_y             = 0.f;   // commanded lateral load factor (g)
-    float n_dot           = 0.f;   // d(n)/dt (1/s) — for alphaDot computation
-    float n_y_dot         = 0.f;   // d(n_y)/dt (1/s) — for betaDot computation
-    float rollRate_Wind_rps = 0.f; // commanded wind-frame roll rate (rad/s)
-    float throttle_nd     = 0.f;   // normalized throttle [0, 1]
+    float n_z               = 1.f;   // commanded normal load factor (g)
+    float n_y               = 0.f;   // commanded lateral load factor (g)
+    float rollRate_Wind_rps = 0.f;   // commanded wind-frame roll rate (rad/s)
+    float throttle_nd       = 0.f;   // normalized throttle [0, 1]
 };
 
 // Top-level aircraft physics model.
@@ -48,8 +47,9 @@ public:
     Aircraft& operator=(Aircraft&&)      = delete;
 
     // Initialize all subsystems from a validated aircraft_config_v1 JSON object.
+    // outer_dt_s — integration timestep owned by the Simulation (s); stored for reference.
     // Throws std::invalid_argument if any required field is missing or out of range.
-    void initialize(const nlohmann::json& config);
+    void initialize(const nlohmann::json& config, float outer_dt_s);
 
     // Reset all warm-start state to the initial conditions from the last initialize() call.
     void reset();
@@ -77,14 +77,24 @@ public:
     void                 deserializeProto(const std::vector<uint8_t>& bytes);
 
 private:
-    KinematicState                                       _state;
-    KinematicState                                       _initial_state;
-    std::optional<LiftCurveModel>                        _liftCurve;
-    std::optional<LoadFactorAllocator>                  _allocator;
-    std::optional<aerodynamics::AeroPerformance>        _aeroPerf;
-    AirframePerformance                                 _airframe;
-    Inertia                                             _inertia;
+    KinematicState                                    _state;
+    KinematicState                                    _initial_state;
+    std::optional<LiftCurveModel>                     _liftCurve;
+    std::optional<LoadFactorAllocator>                _allocator;
+    std::optional<aerodynamics::AeroPerformance>      _aeroPerf;
+    AirframePerformance                               _airframe;
+    Inertia                                           _inertia;
     std::unique_ptr<propulsion::Propulsion>           _propulsion;
+
+    // IIR-filtered command processing (Nz, Ny derivative; roll rate low-pass).
+    control::FilterSS2Clip _n_z_deriv;
+    control::FilterSS2Clip _n_y_deriv;
+    control::FilterSS2Clip _roll_rate_filter;
+    float                  _outer_dt_s          = 0.02f;  // integration timestep from Simulation
+    int                    _cmd_filter_substeps  = 1;      // filter steps per Aircraft::step()
+    float                  _cmd_filter_dt_s      = 0.02f;  // outer_dt_s / cmd_filter_substeps
+    float                  _cmd_deriv_tau_s      = 0.5f;
+    float                  _cmd_roll_rate_tau_s  = 0.1f;
 };
 
 } // namespace liteaerosim

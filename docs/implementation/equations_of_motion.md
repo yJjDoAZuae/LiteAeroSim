@@ -8,7 +8,7 @@ Implementation decisions for the EOM subsystem. For algorithm design and math, s
 ## Files
 
 | File | Role |
-|------|------|
+| --- | --- |
 | `include/KinematicState.hpp` | Kinematic state interface |
 | `src/KinematicState.cpp` | KinematicState implementation |
 | `include/aerodynamics/LiftCurveModel.hpp` | 5-region lift curve interface |
@@ -37,7 +37,7 @@ Constructor 1 accepts an initial `q_nw` and stores it directly.  Constructor 2 (
 takes `q_nb` directly) derives both α and β exactly from the body-frame velocity
 projection, then computes `_q_nw`:
 
-```
+```text
 // body-frame velocity components (u forward, v right, w down)
 v_body = C_BN * v_NED
 
@@ -74,7 +74,7 @@ nonlinear WGS84 geodetic rate functions.
 #### WGS84_Datum API
 
 | Method | Purpose |
-|--------|---------|
+| --- | --- |
 | `latitudeGeodetic_rad()` / `setLatitudeGeodetic_rad(double)` | Geodetic latitude |
 | `longitude_rad()` / `setLongitude_rad(double)` | Longitude |
 | `height_WGS84_m()` / `setHeight_WGS84_m(float)` | WGS84 ellipsoidal altitude |
@@ -85,7 +85,7 @@ nonlinear WGS84 geodetic rate functions.
 
 All implemented as rotation-matrix products on stored state:
 
-```
+```text
 velocity_Wind_mps()      = C_WN * (v_NED − wind_NED)
 velocity_Body_mps()      = C_BN * v_NED
 acceleration_Wind_mps()  = C_WN * a_NED
@@ -100,7 +100,7 @@ longitudeRate_rps()      = _positionDatum.longitudeRate(v_NED[1])
 specific upstream subsystem and passed in each simulation step:
 
 | Parameter | Source | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `time_sec` | Simulation clock | Absolute simulation time |
 | `acceleration_Wind_mps` | Aerodynamic / propulsion model | Net Wind-frame acceleration (lift + drag + thrust + gravity expressed in Wind frame) |
 | `rollRate_Wind_rps` | Roll-control model | Wind-axis roll rate $p_W$ — drives `_q_nw` propagation |
@@ -133,15 +133,26 @@ intended behavior before depending on `q_nl()` for inertial navigation calculati
 
 ### Newton Solver Guards
 
-Two guards prevent divergence when the demanded load factor exceeds the pre-stall ceiling:
+Two guards prevent divergence when the demanded load factor exceeds the achievable ceiling.
+The ceiling is not simply `alphaPeak()` when thrust is positive: the normal thrust component
+$T\sin\alpha$ continues to grow past $\alpha_{peak}$, so the load-factor ceiling
+$N_{z,max}(\alpha) = (qS C_L(\alpha) + T\sin\alpha)/(mg)$ peaks at α* where
+$f'(\alpha^*) = qS C_L'(\alpha^*) + T\cos\alpha^* = 0$, which lies above `alphaPeak()`
+whenever $T > 0$.
 
-**Overshoot guard** (inside the Newton loop): if a step would move α past `alphaPeak()`,
-break immediately, set `stall = true`, `alpha = alphaPeak()`.  This prevents oscillation
-across the CL peak when no pre-stall solution exists — without this guard the solver
-alternates between the linear and post-peak quadratic slopes indefinitely.
+**Overshoot guard** (inside the Newton loop): before evaluating $f'$ at the proposed step
+`alpha_new`, clamp it to the CL parabolic domain using `alphaSep()` / `alphaSepNeg()`.
+In the flat separated plateau $f'(\alpha) = T\cos\alpha$, which stays positive until
+$\alpha > \pi/2$, so without this clamp large thrust would let Newton escape the physical
+domain entirely.  After clamping, if `f'(alpha_hi) <= 0`, the f′-zero crossing lies between
+the current iterate and the clamped point: bisect the interval (30 iterations, ~30 bits of
+precision) to pin it.  Set `stall = true` and break.  For $T = 0$ the crossing coincides
+exactly with `alphaPeak()` / `alphaTrough()`, preserving the zero-thrust behavior.
 
-**Fold guard**: if `|f'(α)| < kTol`, the derivative has vanished (CL' = 0 at the stall
-vertex, T ≈ 0).  Same action: `stall = true`, `alpha = alphaPeak()`.
+**Fold guard**: if `|f'(α)| < kTol` at the current iterate, the iterate is already at the
+f′-zero crossing.  Stay at the current α (do not snap to `alphaPeak()`) and set
+`stall = true`.  For $T = 0$ this fires at `alphaPeak()` as before; for $T > 0$ it fires
+at the correct crossing above `alphaPeak()`.
 
 The β solver's derivative `g'(β) = q·S·C_Yβ − T·cos(α)·cos(β)` is always ≤ 0 for
 C_Yβ < 0, guaranteeing a unique root and no fold condition.
@@ -158,10 +169,10 @@ discontinuous change in demand.
 ## Test Coverage
 
 | Suite | Tests | File |
-|-------|-------|------|
+| --- | --- | --- |
 | KinematicState | 52 | `test/KinematicState_test.cpp` |
 | LiftCurveModel | 16 | `test/LiftCurveModel_test.cpp` |
-| LoadFactorAllocator | 5 | `test/LoadFactorAllocator_test.cpp` |
+| LoadFactorAllocator | 19 | `test/LoadFactorAllocator_test.cpp` |
 
 ---
 

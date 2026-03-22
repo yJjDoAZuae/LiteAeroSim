@@ -23,7 +23,8 @@ Aircraft::Aircraft(std::unique_ptr<propulsion::Propulsion> propulsion)
 // initialize()
 // ---------------------------------------------------------------------------
 
-void Aircraft::initialize(const nlohmann::json& config) {
+void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
+    _outer_dt_s = outer_dt_s;
     // 1. Inertia — read directly from config section (no schema_version in aircraft_config_v1)
     const auto& in_sec = config.at("inertia");
     _inertia.mass_kg   = in_sec.at("mass_kg").get<float>();
@@ -50,7 +51,7 @@ void Aircraft::initialize(const nlohmann::json& config) {
     lcp.cl_sep_neg            = lc.at("cl_sep_neg").get<float>();
     _liftCurve.emplace(lcp);
 
-    // 4. Aerodynamic performance
+    // 4. Aerodynamic performance and command-derivative filter config
     const auto& ac = config.at("aircraft");
     aerodynamics::AeroPerformanceConfig aero_cfg;
     aero_cfg.s_ref_m2  = ac.at("S_ref_m2").get<float>();
@@ -61,6 +62,24 @@ void Aircraft::initialize(const nlohmann::json& config) {
     const float S_ref_m2  = aero_cfg.s_ref_m2;
     const float cl_y_beta = aero_cfg.cl_y_beta;
     _aeroPerf.emplace(aero_cfg);
+
+    _cmd_filter_substeps  = ac.at("cmd_filter_substeps").get<int>();
+    if (_cmd_filter_substeps < 1)
+        throw std::invalid_argument("Aircraft::initialize: cmd_filter_substeps must be >= 1");
+    _cmd_deriv_tau_s      = ac.at("cmd_deriv_tau_s").get<float>();
+    _cmd_roll_rate_tau_s  = ac.at("cmd_roll_rate_tau_s").get<float>();
+    _cmd_filter_dt_s      = outer_dt_s / static_cast<float>(_cmd_filter_substeps);
+    // Nyquist constraints: cmd_deriv_tau_s is bounded by the outer rate (n_z/n_y commands
+    // arrive once per Aircraft::step()); cmd_roll_rate_tau_s is bounded by the inner rate.
+    if (_cmd_deriv_tau_s < 2.0f * outer_dt_s)
+        throw std::invalid_argument(
+            "Aircraft::initialize: cmd_deriv_tau_s must be >= 2 * outer_dt_s (outer Nyquist)");
+    if (_cmd_roll_rate_tau_s < 2.0f * _cmd_filter_dt_s)
+        throw std::invalid_argument(
+            "Aircraft::initialize: cmd_roll_rate_tau_s must be >= 2 * cmd_filter_dt_s (inner Nyquist)");
+    _n_z_deriv.setDerivIIR(_cmd_filter_dt_s, _cmd_deriv_tau_s);
+    _n_y_deriv.setDerivIIR(_cmd_filter_dt_s, _cmd_deriv_tau_s);
+    _roll_rate_filter.setLowPassFirstIIR(_cmd_filter_dt_s, _cmd_roll_rate_tau_s);
 
     // 5. Load factor allocator (references _liftCurve — must be emplaced after step 3)
     _allocator.emplace(*_liftCurve, S_ref_m2, cl_y_beta);
@@ -95,6 +114,9 @@ void Aircraft::initialize(const nlohmann::json& config) {
 
 void Aircraft::reset() {
     _state = _initial_state;
+    _n_z_deriv.resetToInput(1.f);
+    _n_y_deriv.resetToInput(0.f);
+    _roll_rate_filter.resetToInput(0.f);
     _allocator->reset();
     _propulsion->reset();
 }
@@ -114,31 +136,42 @@ void Aircraft::step(double time_sec,
     const float q_inf = 0.5f * rho_kgm3 * V_air * V_air;
 
     // 3. Clamp load factors to airframe structural limits
-    const float n_cmd   = std::clamp(cmd.n,   _airframe.g_min_nd, _airframe.g_max_nd);
+    const float n_cmd   = std::clamp(cmd.n_z, _airframe.g_min_nd, _airframe.g_max_nd);
     const float n_y_cmd = std::clamp(cmd.n_y, _airframe.g_min_nd, _airframe.g_max_nd);
 
-    // 4. Solve for α and β
+    // 4. Inner filter loop: Nz/Ny derivative filters and roll rate low-pass.
+    //    Each runs _cmd_filter_substeps times at dt = outer_dt / n.
+    float n_z_dot          = 0.f;
+    float n_y_dot          = 0.f;
+    float rollRate_filt_rps = 0.f;
+    for (int i = 0; i < _cmd_filter_substeps; ++i) {
+        n_z_dot          = _n_z_deriv.step(n_cmd);
+        n_y_dot          = _n_y_deriv.step(n_y_cmd);
+        rollRate_filt_rps = _roll_rate_filter.step(cmd.rollRate_Wind_rps);
+    }
+
+    // 5. Solve for α and β
     LoadFactorInputs lfa_in;
-    lfa_in.n        = n_cmd;
+    lfa_in.n_z      = n_cmd;
     lfa_in.n_y      = n_y_cmd;
     lfa_in.q_inf    = q_inf;
     lfa_in.thrust_n = _propulsion->thrust_n();   // previous-step thrust (0 on first call)
     lfa_in.mass_kg  = _inertia.mass_kg;
-    lfa_in.n_dot    = cmd.n_dot;
-    lfa_in.n_y_dot  = cmd.n_y_dot;
+    lfa_in.n_z_dot  = n_z_dot;
+    lfa_in.n_y_dot  = n_y_dot;
     const LoadFactorOutputs lfa_out = _allocator->solve(lfa_in);
 
-    // 5. Lift coefficient
+    // 6. Lift coefficient
     const float cl = _liftCurve->evaluate(lfa_out.alpha_rad);
 
-    // 6. Aerodynamic forces in Wind frame
+    // 7. Aerodynamic forces in Wind frame
     const aerodynamics::AeroForces F =
         _aeroPerf->compute(lfa_out.alpha_rad, lfa_out.beta_rad, q_inf, cl);
 
-    // 7. Advance propulsion
+    // 8. Advance propulsion
     const float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3);
 
-    // 8. Wind-frame acceleration.
+    // 9. Wind-frame acceleration.
     //    Thrust decomposition (Wind frame, X forward, Y right, Z down):
     //      Tx =  T·cos(α)·cos(β)
     //      Ty = -T·cos(α)·sin(β)
@@ -154,10 +187,10 @@ void Aircraft::step(double time_sec,
     const float ay = (-T * ca * sb + F.y_n) / m;
     const float az = (-T * sa      + F.z_n) / m;
 
-    // 9. Advance kinematic state
+    // 10. Advance kinematic state
     _state.step(time_sec,
                 Eigen::Vector3f{ax, ay, az},
-                cmd.rollRate_Wind_rps,
+                rollRate_filt_rps,
                 lfa_out.alpha_rad,
                 lfa_out.beta_rad,
                 lfa_out.alphaDot_rps,
@@ -175,6 +208,13 @@ nlohmann::json Aircraft::serializeJson() const {
     j["type"]            = "Aircraft";
     j["kinematic_state"] = _state.serializeJson();
     j["initial_state"]   = _initial_state.serializeJson();
+    j["cmd_filter_substeps"]  = _cmd_filter_substeps;
+    j["cmd_filter_dt_s"]      = _cmd_filter_dt_s;
+    j["cmd_deriv_tau_s"]      = _cmd_deriv_tau_s;
+    j["cmd_roll_rate_tau_s"]  = _cmd_roll_rate_tau_s;
+    j["n_z_deriv"]            = _n_z_deriv.serializeJson();
+    j["n_y_deriv"]            = _n_y_deriv.serializeJson();
+    j["roll_rate_filter"]     = _roll_rate_filter.serializeJson();
     j["airframe"]        = _airframe.serializeJson();
     j["inertia"]         = _inertia.serializeJson();
     if (_liftCurve)  j["lift_curve"]      = _liftCurve->serializeJson();
@@ -203,6 +243,13 @@ void Aircraft::deserializeJson(const nlohmann::json& j) {
 
     _state.deserializeJson(j.at("kinematic_state"));
     _initial_state.deserializeJson(j.at("initial_state"));
+    _cmd_filter_substeps = j.at("cmd_filter_substeps").get<int>();
+    _cmd_filter_dt_s     = j.at("cmd_filter_dt_s").get<float>();
+    _cmd_deriv_tau_s     = j.at("cmd_deriv_tau_s").get<float>();
+    _cmd_roll_rate_tau_s = j.at("cmd_roll_rate_tau_s").get<float>();
+    _n_z_deriv.deserializeJson(j.at("n_z_deriv"));
+    _n_y_deriv.deserializeJson(j.at("n_y_deriv"));
+    _roll_rate_filter.deserializeJson(j.at("roll_rate_filter"));
 
     if (_propulsion) {
         _propulsion->deserializeJson(j.at("propulsion"));
@@ -227,6 +274,16 @@ static std::vector<uint8_t> serializeSubMessage(const T& msg) {
 std::vector<uint8_t> Aircraft::serializeProto() const {
     las_proto::AircraftState proto;
     proto.set_schema_version(1);
+    proto.set_cmd_filter_substeps(_cmd_filter_substeps);
+    proto.set_cmd_filter_dt_s(_cmd_filter_dt_s);
+    proto.set_cmd_deriv_tau_s(_cmd_deriv_tau_s);
+    proto.set_cmd_roll_rate_tau_s(_cmd_roll_rate_tau_s);
+    proto.add_n_z_deriv_x(_n_z_deriv.x()(0, 0));
+    proto.add_n_z_deriv_x(_n_z_deriv.x()(1, 0));
+    proto.add_n_y_deriv_x(_n_y_deriv.x()(0, 0));
+    proto.add_n_y_deriv_x(_n_y_deriv.x()(1, 0));
+    proto.add_roll_rate_filter_x(_roll_rate_filter.x()(0, 0));
+    proto.add_roll_rate_filter_x(_roll_rate_filter.x()(1, 0));
 
     *proto.mutable_kinematic_state()  = parseSubMessage<las_proto::KinematicState>(_state.serializeProto());
     *proto.mutable_initial_state()    = parseSubMessage<las_proto::KinematicState>(_initial_state.serializeProto());
@@ -267,6 +324,25 @@ void Aircraft::deserializeProto(const std::vector<uint8_t>& bytes) {
 
     _state.deserializeProto(serializeSubMessage(proto.kinematic_state()));
     _initial_state.deserializeProto(serializeSubMessage(proto.initial_state()));
+    _cmd_filter_substeps = proto.cmd_filter_substeps();
+    _cmd_filter_dt_s     = proto.cmd_filter_dt_s();
+    _cmd_deriv_tau_s     = proto.cmd_deriv_tau_s();
+    _cmd_roll_rate_tau_s = proto.cmd_roll_rate_tau_s();
+    _n_z_deriv.setDerivIIR(_cmd_filter_dt_s, _cmd_deriv_tau_s);
+    _n_y_deriv.setDerivIIR(_cmd_filter_dt_s, _cmd_deriv_tau_s);
+    _roll_rate_filter.setLowPassFirstIIR(_cmd_filter_dt_s, _cmd_roll_rate_tau_s);
+    Mat21 nz_x;
+    nz_x(0, 0) = proto.n_z_deriv_x_size() >= 2 ? proto.n_z_deriv_x(0) : 0.f;
+    nz_x(1, 0) = proto.n_z_deriv_x_size() >= 2 ? proto.n_z_deriv_x(1) : 0.f;
+    _n_z_deriv.resetState(nz_x);
+    Mat21 ny_x;
+    ny_x(0, 0) = proto.n_y_deriv_x_size() >= 2 ? proto.n_y_deriv_x(0) : 0.f;
+    ny_x(1, 0) = proto.n_y_deriv_x_size() >= 2 ? proto.n_y_deriv_x(1) : 0.f;
+    _n_y_deriv.resetState(ny_x);
+    Mat21 rr_x;
+    rr_x(0, 0) = proto.roll_rate_filter_x_size() >= 2 ? proto.roll_rate_filter_x(0) : 0.f;
+    rr_x(1, 0) = proto.roll_rate_filter_x_size() >= 2 ? proto.roll_rate_filter_x(1) : 0.f;
+    _roll_rate_filter.resetState(rr_x);
 
     if (_propulsion) {
         switch (proto.propulsion_case()) {

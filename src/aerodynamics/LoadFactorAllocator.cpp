@@ -26,38 +26,59 @@ LoadFactorOutputs LoadFactorAllocator::solve(const LoadFactorInputs& in) {
     bool  positive_stall = false;
     bool  negative_stall = false;
 
-    const float alpha_peak   = _lift.alphaPeak();
-    const float alpha_trough = _lift.alphaTrough();
     for (int i = 0; i < kMaxIter; ++i) {
-        const float fval   = qS * _lift.evaluate(alpha)   + T * std::sin(alpha) - in.n * mg;
+        const float fval   = qS * _lift.evaluate(alpha)   + T * std::sin(alpha) - in.n_z * mg;
         const float fprime = qS * _lift.derivative(alpha) + T * std::cos(alpha);
 
-        // Fold guard: derivative vanishes at a stall vertex (C_L'=0, T≈0).
-        // Determine which vertex by checking the sign of the current α.
+        // Fold guard: f'(α) ≈ 0 means we are at α* (the f'-zero crossing that
+        // caps the achievable Nz envelope).  Stay at the current α — it already
+        // is the best achievable value — rather than snapping to alpha_peak,
+        // which would be wrong for T > 0 where α* > alpha_peak.
         if (std::abs(fprime) < kTol) {
             if (alpha >= 0.0f) {
                 positive_stall = true;
-                alpha = alpha_peak;
             } else {
                 negative_stall = true;
-                alpha = alpha_trough;
             }
             break;
         }
 
         const float alpha_new = alpha - fval / fprime;
 
-        // Overshoot guards: if Newton would cross a stall vertex, demand
-        // exceeds the CL envelope and no pre-stall solution exists.
-        if (alpha_new > alpha_peak) {
-            positive_stall = true;
-            alpha = alpha_peak;
-            break;
+        // Overshoot guards: if Newton would cross α* (the f'-zero crossing that caps
+        // the achievable Nz envelope) there is no higher-|α| pre-stall solution.
+        // Clamp the proposed step to the parabolic CL domain [alpha_sep_neg, alpha_sep]
+        // before evaluating f' — in the flat separated plateau f' = T·cos(α), which
+        // can stay positive well past alpha_sep and mislead Newton to escape entirely.
+        if (alpha_new > alpha) {
+            const float alpha_hi = std::min(alpha_new, _lift.alphaSep());
+            const float fp_hi    = qS * _lift.derivative(alpha_hi) + T * std::cos(alpha_hi);
+            if (fp_hi <= 0.0f) {
+                float lo = alpha, hi = alpha_hi;
+                for (int j = 0; j < 30; ++j) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (qS * _lift.derivative(mid) + T * std::cos(mid) > 0.0f) lo = mid;
+                    else                                                          hi = mid;
+                }
+                alpha = 0.5f * (lo + hi);
+                positive_stall = true;
+                break;
+            }
         }
-        if (alpha_new < alpha_trough) {
-            negative_stall = true;
-            alpha = alpha_trough;
-            break;
+        if (alpha_new < alpha) {
+            const float alpha_lo = std::max(alpha_new, _lift.alphaSepNeg());
+            const float fp_lo    = qS * _lift.derivative(alpha_lo) + T * std::cos(alpha_lo);
+            if (fp_lo <= 0.0f) {
+                float lo = alpha_lo, hi = alpha;
+                for (int j = 0; j < 30; ++j) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (qS * _lift.derivative(mid) + T * std::cos(mid) > 0.0f) hi = mid;
+                    else                                                          lo = mid;
+                }
+                alpha = 0.5f * (lo + hi);
+                negative_stall = true;
+                break;
+            }
         }
 
         const bool converged = std::abs(alpha_new - alpha) < kTol;
@@ -69,11 +90,11 @@ LoadFactorOutputs LoadFactorAllocator::solve(const LoadFactorInputs& in) {
 
     // ── alphaDot: implicit function theorem on f(α, n) = 0 ───────────────────
     // df/dα · dα/dt + df/dn · dn/dt = 0
-    // df/dn = -m·g  →  dα/dt = m·g · n_dot / f'(α)
+    // df/dn_z = -m·g  →  dα/dt = m·g · n_z_dot / f'(α)
     const float fprime_alpha = qS * _lift.derivative(alpha) + T * std::cos(alpha);
     float alphaDot = 0.f;
     if (!positive_stall && !negative_stall && std::abs(fprime_alpha) > kTol) {
-        alphaDot = mg * in.n_dot / fprime_alpha;
+        alphaDot = mg * in.n_z_dot / fprime_alpha;
     }
 
     // ── β solver ─────────────────────────────────────────────────────────────

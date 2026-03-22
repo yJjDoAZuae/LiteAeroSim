@@ -6,12 +6,12 @@
 
 // Inputs to the load-factor allocator for a single solve() call.
 struct LoadFactorInputs {
-    float n;              // commanded normal load factor (g)
+    float n_z;            // commanded normal load factor (g)
     float n_y;            // commanded lateral load factor (g)
     float q_inf;          // dynamic pressure (Pa)
     float thrust_n;       // thrust magnitude (N)
     float mass_kg;        // aircraft mass (kg)
-    float n_dot   = 0.f;  // time derivative of n (1/s) — used to compute alphaDot
+    float n_z_dot = 0.f;  // time derivative of n (1/s) — used to compute alphaDot
     float n_y_dot = 0.f;  // time derivative of n_y (1/s) — used to compute betaDot
 };
 

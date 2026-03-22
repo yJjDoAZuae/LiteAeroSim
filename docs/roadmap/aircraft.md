@@ -29,8 +29,8 @@ system integration, and interface details are to be determined by item 1.
 | Component | File | Status |
 | ----------- | ------ | -------- |
 | `KinematicState` | `include/KinematicState.hpp` | ✅ Implemented + serialization (JSON + proto) |
-| `LiftCurveModel` | `include/aerodynamics/LiftCurveModel.hpp` | ✅ Implemented + serialization (JSON + proto) |
-| `LoadFactorAllocator` | `include/aerodynamics/LoadFactorAllocator.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `LiftCurveModel` | `include/aerodynamics/LiftCurveModel.hpp` | ✅ Implemented + serialization (JSON + proto); `alphaSep()` / `alphaSepNeg()` accessors added |
+| `LoadFactorAllocator` | `include/aerodynamics/LoadFactorAllocator.hpp` | ✅ Implemented + serialization (JSON + proto); alpha-ceiling guard corrected for positive thrust (see item 20) |
 | `WGS84_Datum` | `include/navigation/WGS84.hpp` | ✅ Implemented |
 | `AeroPerformance` | `include/aerodynamics/AeroPerformance.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `AirframePerformance` | `include/airframe/AirframePerformance.hpp` | ✅ Implemented + serialization (JSON + proto) |
@@ -103,6 +103,110 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 17 | `Antiwindup` redesign — `AntiwindupConfig` struct with `enum class Direction`; `update(float)` replaces `operator=(float)`; `configure()`, `reset()`, `serializeJson()`/`deserializeJson()` added; `name` field removed; uninitialized-boolean bug fixed; `Integrator` serialization extended to embed `"antiwindup"` array | `Antiwindup_test.cpp` — 12 tests; `Integrator_test.cpp` — 2 new tests; all 408 tests pass |
 | 18 | Control subsystem refactoring (Steps A–J, all nine issues in [`control_interface_review.md`](../architecture/control_interface_review.md)) — `FilterError`/`DiscretizationMethod` promoted to `enum class`; `LimitBase` deleted, `Limit`/`RateLimit` rebased to `SisoElement`; `Gain` API cleaned up (`set()`, `value()`, stubs removed); `FilterSS2Clip`, `FilterTF2`, `FilterTF`, `FilterFIR`, `FilterSS` migrated to NVI (`onStep()`/`onSerializeJson()`/`onDeserializeJson()`); shadow `_in`/`_out` members and no-op `Filter` defaults removed; `Unwrap` `ref_` field added (`setReference()`, NVI routing, serialization); `SISOPIDFF` derives from `DynamicElement` with full lifecycle, `snake_case_` member renames (`Kp`→`proportional_gain_`, `I`→`integrator_`, etc.), private limits, `ControlLoop` accessor renames (`out()`→`output()`, `pid`→`controller_`); `Integrator`/`Derivative` private member renames (`_dt`→`dt_s_`, `_Tau`→`tau_s_`, `limit`→`limit_`) | `FilterSS2Clip_test.cpp`, `FilterTF2_test.cpp`, `FilterFIR_test.cpp` (new), `FilterSS_test.cpp`, `Unwrap_test.cpp`, `SISOPIDFF_test.cpp` (new) — 29 new tests; 435 pass, 2 pre-existing `FilterTFTest` failures unchanged |
 | 19 | `SensorAirData` — pitot-static air data computer; differential pressure ($q_c$) and static pressure ($P_s$) transducers with Gaussian noise, first-order Tustin lag, and fuselage crossflow pressure error (two-port symmetric crosslinked model); derives IAS, CAS, EAS, TAS, Mach, barometric altitude (Kollsman-referenced, troposphere + tropopause), OAT; RNG pimpl with seed + advance serialization; JSON + proto round-trips | `SensorAirData_test.cpp` — 19 tests; 454 pass, 2 pre-existing `FilterTFTest` failures unchanged |
+| 20 | `LoadFactorAllocator` alpha-ceiling fix — Newton overshoot and fold guards corrected for positive-thrust case; the achievable-Nz ceiling is at $\alpha^*$ (where $f'(\alpha) = qSC_L'(\alpha) + T\cos\alpha = 0$), not at `alphaPeak()`, when $T > 0$; overshoot guard now clamps the proposed Newton step to the CL parabolic domain using `LiftCurveModel::alphaSep()` / `alphaSepNeg()` before checking $f'$, preventing escape into the flat separated plateau where $f' = T\cos\alpha$ stays positive until $\alpha > \pi/2$; bisects to locate $\alpha^*$ when the guard fires; fold guard stays at current iterate rather than snapping to `alphaPeak()`; `LiftCurveModel::alphaSep()` and `alphaSepNeg()` added to public interface; design documentation updated in `docs/implementation/equations_of_motion.md` and `docs/algorithms/equations_of_motion.md` | 4 new tests in `LoadFactorAllocator_test.cpp`; 19 tests total; 458 pass, 2 pre-existing `FilterTFTest` failures unchanged |
+
+---
+
+## 0. Aircraft Command Processing Redesign
+
+The current `Aircraft` command processing is structurally wrong. The Nz, Ny, and roll rate
+commands enter the physics loop through bare derivative filters (`FilterSS2Clip::setDerivIIR`)
+and a 1st-order roll rate low-pass respectively. This does not model how a real FBW aircraft
+responds to commanded load factors and roll rate. A real FBW inner loop has a finite closed-loop
+bandwidth that shapes how the aircraft responds to pilot commands — the response to a step command
+is not instantaneous but follows a characteristic 2nd-order (or higher) transient. The plant model
+must include this behavior so that guidance and autopilot algorithms developed against it see a
+physically realistic command response behavior.
+
+### What Needs to Be Designed
+
+**Axis command response filters.** Each of the three commanded axes needs a command shaping filter
+that maps the raw pilot/autopilot command to the shaped command that drives the physics:
+
+- **Nz axis** — a 2nd-order low-pass filter on the commanded Nz, parameterized by a natural
+  frequency and damping ratio that represents the aircraft's closed-loop short-period/FBW bandwidth.
+  The shaped Nz output drives the load factor allocator.
+- **Ny axis** — same architecture as Nz, with its own bandwidth parameters.
+- **Roll rate axis** — a 2nd-order or 1st-order command response filter on the commanded roll rate,
+  parameterized by a bandwidth that represents the roll axis FBW closed-loop response.
+
+**Derivative terms for feed-forward.** `LoadFactorAllocator::solve()` accepts `n_z_dot` and
+`n_y_dot` as feed-forward terms for α-dot and β-dot estimation. These must be the time derivatives
+of the *shaped* Nz and Ny commands (not the raw commands). The design must define how these
+derivatives are produced — options include:
+
+- Differentiating the 2nd-order filter output with a separate derivative filter.
+- Computing the derivative analytically from the 2nd-order filter's state vector (exact, no
+  additional lag introduced).
+
+**Inner substep loop.** The command response filters run at a higher rate than the outer
+rigid-body integrator step. The design must specify:
+
+- The substep parameter (integer n: filter runs at `outer_dt / n`).
+- Which quantities are substepped (command response filters only; propulsion and kinematic
+  integration remain at the outer rate).
+- How the substepped filter output is handed off to the outer-rate allocator and integrator.
+
+**Nyquist constraints.** All filter bandwidths must be validated at initialization against the
+Nyquist frequency of their respective update rates. The design must specify which update rate
+(inner or outer) governs each parameter.
+
+**Serialization.** Full JSON and proto round-trips for all new filter states. `AircraftState`
+proto message updated accordingly. `aircraft_config_v1` schema document updated.
+
+### Scope of Current Implementation to Discard or Rework
+
+The following elements of the current `Aircraft` implementation were added without a design
+authority document and must be reviewed against the design produced by this item before any
+are retained:
+
+- `_n_z_deriv`, `_n_y_deriv` (`setDerivIIR`) — derivative filters on the *raw* commands.
+  Retain only if the design confirms this is the correct source for `n_z_dot`/`n_y_dot`.
+- `_roll_rate_filter` (`setLowPassFirstIIR`) — 1st-order roll rate smoothing. To be replaced
+  by the 2nd-order command response filter specified by the design.
+- `_cmd_filter_substeps`, `_cmd_filter_dt_s`, `_cmd_deriv_tau_s`, `_cmd_roll_rate_tau_s` —
+  config parameters added without a design; must be reconciled with or replaced by the
+  parameters defined in the design document.
+
+### Deliverables
+
+1. ✅ Design authority document at `docs/architecture/aircraft.md` updated to cover the
+   command processing architecture: filter topology (all three axes `setLowPassSecondIIR`),
+   parameter definitions, Nyquist constraints, inner substep mechanics, derivative sourcing
+   from filter state vector.
+2. `aircraft_config_v1` schema document (`docs/schemas/aircraft_config_v1.md`) updated —
+   the `aircraft` section currently documents only the five aero-geometry fields; the six
+   command-filter parameters (`cmd_filter_substeps`, `nz_wn_rad_s`, `nz_zeta_nd`,
+   `ny_wn_rad_s`, `ny_zeta_nd`, `roll_rate_wn_rad_s`, `roll_rate_zeta_nd`) are absent.
+3. Implementation following TDD: failing tests before production code. The implementation
+   still uses `setDerivIIR` for the Nz and Ny filters and `setLowPassFirstIIR` for the
+   roll-rate filter, and reads `cmd_deriv_tau_s` / `cmd_roll_rate_tau_s` from config
+   rather than the natural-frequency and damping-ratio parameters the design prescribes.
+4. Fixture JSON files (`test/data/aircraft/`) updated to match new config schema.
+
+---
+
+## 0a. LoadFactorAllocator — Branch-Continuation Predictor
+
+`docs/algorithms/equations_of_motion.md` documents a first-order predictor for the
+Newton warm-start that uses the implicit function theorem to estimate the new $\alpha$
+from the load-factor step change:
+
+$$\alpha_0 = \alpha_\text{prev} + \frac{\delta n \cdot mg}{f'(\alpha_\text{prev})}$$
+
+The current implementation uses only the plain warm-start $\alpha_0 = \alpha_\text{prev}$
+with no predictor step. For slowly varying load-factor commands the difference is
+negligible (Newton converges in 2–4 iterations either way), but for large discontinuous
+steps — such as those from an autopilot mode transition or a gust response — the plain
+warm-start may track a different branch and converge slowly. The predictor eliminates
+that risk.
+
+### Deliverables — Predictor
+
+1. Implement the first-order predictor in `LoadFactorAllocator::solve()`.
+2. Add a test case demonstrating that a large step-change in commanded Nz (e.g., from 1 g
+   to 3 g in a single call) converges in fewer iterations with the predictor than without.
+3. Update `docs/implementation/equations_of_motion.md` to remove the noted gap.
 
 ---
 
@@ -254,10 +358,10 @@ from `Aircraft` trim and `AeroCoeffEstimator` outputs.
 
 ## 6. Autopilot — Inner Loop Knobs-Mode Tracking
 
-_Flight code component — not part of LiteAeroSim. Repository placement and build system
+*Flight code component — not part of LiteAeroSim. Repository placement and build system
 integration are to be determined by item 1 (Architecture Definition). A stub header exists
 at `include/control/Autopilot.hpp` as a temporary placeholder and will be relocated once
-the architecture is established._
+the architecture is established.*
 
 `Autopilot` implements the inner closed-loop layer. It tracks pilot-style set point commands
 corresponding to "knobs" modes — altitude hold, vertical speed hold, heading hold, and roll
@@ -268,10 +372,10 @@ for batch testing) as well as deployment as flight software.
 
 ### Interface sketch
 
-_To be defined during design. Inputs will include the kinematic state, atmospheric state,
+*To be defined during design. Inputs will include the kinematic state, atmospheric state,
 and a set point struct (target altitude, target vertical speed, target heading, target roll
 attitude). The output command type and its interface to the simulation plant model will be
-defined by the architecture._
+defined by the architecture.*
 
 ### Tests
 
@@ -293,9 +397,9 @@ as a component co-resident with the LiteAeroSim simulation for integration testi
 
 ## 7. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
 
-_Flight code component — not part of LiteAeroSim. Repository placement and build system
+*Flight code component — not part of LiteAeroSim. Repository placement and build system
 integration are to be determined by item 1. Stub headers exist at `include/path/` as
-temporary placeholders. The namespace shown below is provisional._
+temporary placeholders. The namespace shown below is provisional.*
 
 A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
 cross-track error, along-track distance, and desired heading at a query position. The
@@ -351,9 +455,9 @@ To be determined by item 1.
 
 ## 8. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
 
-_Flight code component — not part of LiteAeroSim. Repository placement and build system
+*Flight code component — not part of LiteAeroSim. Repository placement and build system
 integration are to be determined by item 1. Stub headers exist at `include/guidance/` as
-temporary placeholders._
+temporary placeholders.*
 
 Guidance is the outer loop that wraps around the `Autopilot`. It converts path and altitude
 errors into set point commands (target altitude, vertical speed, heading, roll attitude) that
@@ -401,10 +505,10 @@ To be determined by item 1.
 
 ## 9. Airfield Traffic Pattern Operations
 
-_This item is a flight code and integration item, not a LiteAeroSim item. LiteAeroSim
+*This item is a flight code and integration item, not a LiteAeroSim item. LiteAeroSim
 provides the simulation plant. The autopilot and guidance (items 6–8) are the flight code
 components that execute the traffic pattern behavior. This item defines the operational
-requirements, mode sequencing, and integration architecture for traffic pattern operations._
+requirements, mode sequencing, and integration architecture for traffic pattern operations.*
 
 Define autotakeoff and autolanding behavior for fixed-wing aircraft operating in a standard
 traffic pattern. Behavior definitions are drawn from FAA non-towered airfield VFR operations

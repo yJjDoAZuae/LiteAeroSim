@@ -18,18 +18,20 @@ headers and `proto/liteaerosim.proto`; they are not reproduced here.
 
 | Field | Unit | Description |
 | --- | --- | --- |
-| `n` | g | Commanded normal load factor |
+| `n_z` | g | Commanded normal load factor |
 | `n_y` | g | Commanded lateral load factor |
-| `n_dot` | 1/s | Rate of change of `n` (for alpha-dot feed-forward) |
-| `n_y_dot` | 1/s | Rate of change of `n_y` (for beta-dot feed-forward) |
 | `rollRate_Wind_rps` | rad/s | Commanded wind-frame roll rate |
 | `throttle_nd` | nd | Normalized throttle [0, 1] |
 
 **Constraints:**
 
 - All values SI. No unit conversion inside `Aircraft`.
-- `n = 1` is 1 g (level, unaccelerated flight). `n = 0` is zero g (free fall).
+- `n_z = 1` is 1 g (level, unaccelerated flight). `n_z = 0` is zero g (free fall).
 - `throttle_nd` is clamped to [0, 1] inside `Aircraft`; the caller need not pre-clamp.
+- Load factor rate terms (`n_z_dot`, `n_y_dot`) for alpha-dot and beta-dot feed-forward
+  are computed internally by `Aircraft` via an IIR filtered differentiator
+  (`FilterSS2Clip::setDerivIIR`) applied to the clamped commands. They are not part of
+  the external interface. The filter time constant and step size are configuration parameters.
 
 ---
 
