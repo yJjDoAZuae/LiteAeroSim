@@ -1,5 +1,26 @@
 # LiteAero Flight Repository Migration — Implementation Plan
 
+## Progress
+
+| Step | Description | Status |
+| --- | --- | --- |
+| 0 | Extract history with `git filter-repo`; push to remote | Complete |
+| 1 | Repository scaffolding and CMake skeleton | Not started |
+| 2 | `liteaero::log`: ILogger and logging infrastructure | Not started |
+| 3 | `liteaero::control`: `DynamicElement` and `SisoElement` | Not started |
+| 4 | `liteaero::control`: Filter hierarchy | Not started |
+| 5 | `liteaero::control`: SISO elements and scheduling infrastructure | Not started |
+| 6 | `KinematicStateSnapshot` design document | Not started |
+| 7 | Shared interface target: `KinematicStateSnapshot`, `AircraftCommand`, `NavigationState` | Not started |
+| 8 | `liteaero::terrain`: Terrain element types and `V_Terrain` | Not started |
+| 9 | LiteAero Flight stub headers | Not started |
+| 10 | liteaero-flight build and test verification | Not started |
+| 11 | LiteAero Sim CMake: dependency on `liteaero-flight` | Not started |
+| 12 | LiteAero Sim namespace migration and code removal | Not started |
+| 13 | Final build and regression verification | Not started |
+
+---
+
 ## Context
 
 This plan covers FC-1 (liteaero-flight repository creation and repo split), the cross-cutting
@@ -38,6 +59,7 @@ Namespace decisions are final. All target namespaces are recorded in `decisions.
 | `ControlLoop` and `Control*` elements stay in LiteAero Sim | `ControlAltitude`, `ControlHeading`, `ControlHeadingRate`, `ControlLoadFactor`, `ControlRoll`, `ControlVerticalSpeed`, and `ControlLoop` are simulation-internal; they will use `liteaero::control` infrastructure after Phase 2 but remain in `liteaero::simulation` |
 | Estimation stubs (`NavigationFilter`, `WindEstimator`, `FlowAnglesEstimator`) are part of Phase 1 | Create them in `liteaero-flight` at Step 9, not in LiteAero Sim; any LiteAero Sim stub files for these must be removed |
 | ICD ownership follows the component that defines the type | `liteaero-flight` owns the ICDs for its inputs and outputs (`AircraftCommand`, `KinematicStateSnapshot`, `NavigationState`, sensor measurement structs, `V_Terrain`, `ILogger`/`LogSource`); these live in `liteaero-flight/docs/interfaces/icds.md`; LiteAero Sim owns only its internal ICDs (`AtmosphericState`, `EnvironmentState`, and any future sim-internal interfaces); at Step 12 the liteaero-sim ICD entries for flight-owned types are replaced with cross-references to `liteaero-flight/docs/interfaces/icds.md` |
+| Conan for dependency management in `liteaero-flight` | `liteaero-flight` uses Conan (`conanfile.txt` with `CMakeDeps` + `CMakeToolchain` generators), the same approach as LiteAero Sim; `CMakeLists.txt` consumes all dependencies via `find_package` against Conan-provided package configs; protobuf and mcap must be added to `conanfile.txt` (LiteAero Sim handles these via FetchContent fallback — liteaero-flight does not need that fallback); verify ConanCenter availability for mcap before Step 1 |
 
 ---
 
@@ -200,10 +222,7 @@ yet — those are applied per subsystem in Steps 2–8.
 liteaero-flight/
   CMakeLists.txt          # root — defines all targets, fetches dependencies
   cmake/
-    Dependencies.cmake    # FetchContent for googletest, nlohmann/json, protobuf, Eigen
-  CMakeLists.txt          # root — defines all targets, fetches dependencies
-  cmake/
-    Dependencies.cmake    # FetchContent for googletest, nlohmann/json, protobuf, Eigen
+    Dependencies.cmake    # FetchContent for googletest, nlohmann/json, protobuf; find_package for Eigen
   include/
     liteaero/
       log/
@@ -231,7 +250,7 @@ liteaero-flight/
   proto/
     liteaero_flight.proto
   docs/
-    guidelines/           # general.md and cpp.md copied from LiteAero Sim
+    guidelines/           # general.md, cpp.md, and python.md copied from LiteAero Sim
     interfaces/
       icds.md             # stub — populated at Step 7
     architecture/         # populated per step alongside code
@@ -245,13 +264,37 @@ liteaero-flight/
       README.md
 ```
 
-The root `CMakeLists.txt` defines one `STATIC` library target per subsystem, each with
-the matching `liteaero::X` alias, and sets up `FetchContent` for Eigen, nlohmann/json,
-protobuf, and googletest (same versions pinned in LiteAero Sim). All targets share the
-root `include/` directory. No target links anything yet — dependency edges are added per step.
+**Dependency management — Conan:** `liteaero-flight` uses the same Conan approach as
+LiteAero Sim: a `conanfile.txt` at the repo root with `CMakeDeps` + `CMakeToolchain`
+generators. `CMakeLists.txt` consumes all dependencies via `find_package` against
+Conan-provided package configs. LiteAero Sim's `conanfile.txt` declares
+`nlohmann_json/3.12.0`, `eigen/3.4`, and `gtest`; liteaero-flight's `conanfile.txt` adds
+protobuf and mcap. Verify ConanCenter availability for mcap before starting this step; if
+unavailable, add a FetchContent fallback in `CMakeLists.txt` matching LiteAero Sim's mcap
+pattern. Trochoids is not required in Phase 1 and is deferred.
 
-**Verification:** `cmake -B build && cmake --build build` produces an empty build with no
-errors.
+The root `CMakeLists.txt` defines one `STATIC` library target per subsystem, each with
+the matching `liteaero::X` alias, and consumes all dependencies via `find_package` against
+Conan-provided package configs. All targets share the root `include/` directory. No target
+links anything yet — dependency edges are added per step.
+
+**docs/guidelines/cpp.md — adaptation required:** Copy `cpp.md` from LiteAero Sim and
+rewrite the "External Dependency Management" section to describe Conan instead of
+FetchContent. The decision tree, tier descriptions, and `Dependencies.cmake` patterns in
+the LiteAero Sim version do not apply to `liteaero-flight`. Replace them with the Conan
+workflow: `conanfile.txt` declarations, `conan install`, and `find_package` consumption in
+`CMakeLists.txt`. The dependency registry lives in `conanfile.txt`, not in a CMake comment
+block. All other sections of `cpp.md` (naming, serialization, testing, code style) copy
+unchanged.
+
+**docs/guidelines/python.md — copy unchanged.** When Python tooling is first added to
+`liteaero-flight`, it uses `uv` with `pyproject.toml` in a `python/` subdirectory, matching
+LiteAero Sim exactly. No adaptation required; the `python/` directory is not created until
+Python tooling is first added.
+
+**Verification:** `conan install . --output-folder=build --build=missing &&
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake &&
+cmake --build build` produces an empty build with no errors.
 
 ---
 
