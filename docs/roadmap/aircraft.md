@@ -6,13 +6,12 @@
 throttle. It lives in the Domain Layer and has no I/O, no display logic, and no unit
 conversions.
 
-**Note on system scope.** Item 1 defines the system architecture, which establishes that
-LiteAeroSim is the simulation component only. Autopilot, guidance, path representation,
-and navigation are flight code components that are architecturally separate from the
-simulation. Their design and implementation (items 2 onward that address flight code) will
-follow the component boundaries established in item 1. Until the architecture is defined,
-items addressing flight code components are placeholders; their repository location, build
-system integration, and interface details are to be determined by item 1.
+**Note on system scope.** LiteAeroSim is the simulation plant only. Autopilot, guidance,
+path representation, navigation, and gain scheduling are FlightCode components that are
+architecturally separate. Their design and implementation items are in
+[flight_code.md](flight_code.md). Items in this document are LiteAeroSim items only.
+The system architecture is complete — see `docs/architecture/system/future/` and the
+project roadmap [README.md](README.md) for cross-cutting milestones.
 
 **Item process.** All items follow a documentation-first process:
 
@@ -65,16 +64,16 @@ system integration, and interface details are to be determined by item 1.
 | `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
 | `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
 | `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
-| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | 🔲 Stub only — see [navigation_filter.md](../architecture/navigation_filter.md) |
-| `WindEstimator` | `include/estimation/WindEstimator.hpp` | 🔲 Stub only — see [wind_estimator.md](../architecture/wind_estimator.md) |
-| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | 🔲 Stub only — see [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
-| `V_PathSegment` | `include/path/V_PathSegment.hpp` | 🔲 Stub only |
-| `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | 🔲 Stub only |
-| `Path` | `include/path/Path.hpp` | 🔲 Stub only |
-| `PathGuidance` | `include/guidance/PathGuidance.hpp` | 🔲 Stub only |
-| `VerticalGuidance` | `include/guidance/VerticalGuidance.hpp` | 🔲 Stub only |
-| `ParkTracking` | `include/guidance/ParkTracking.hpp` | 🔲 Stub only |
-| `Autopilot` | `include/control/Autopilot.hpp` | 🔲 Stub only |
+| `NavigationFilter` | `include/estimation/NavigationFilter.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-8 |
+| `WindEstimator` | `include/estimation/WindEstimator.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-8 |
+| `FlowAnglesEstimator` | `include/estimation/FlowAnglesEstimator.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-8 |
+| `V_PathSegment` | `include/path/V_PathSegment.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-6 |
+| `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-6 |
+| `Path` | `include/path/Path.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-6 |
+| `PathGuidance` | `include/guidance/PathGuidance.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-7 |
+| `VerticalGuidance` | `include/guidance/VerticalGuidance.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-7 |
+| `ParkTracking` | `include/guidance/ParkTracking.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-7 |
+| `Autopilot` | `include/control/Autopilot.hpp` | → FlightCode — see [flight_code.md](flight_code.md) FC-5 |
 
 ---
 
@@ -105,6 +104,7 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 19 | `SensorAirData` — pitot-static air data computer; differential pressure ($q_c$) and static pressure ($P_s$) transducers with Gaussian noise, first-order Tustin lag, and fuselage crossflow pressure error (two-port symmetric crosslinked model); derives IAS, CAS, EAS, TAS, Mach, barometric altitude (Kollsman-referenced, troposphere + tropopause), OAT; RNG pimpl with seed + advance serialization; JSON + proto round-trips | `SensorAirData_test.cpp` — 19 tests; 454 pass, 2 pre-existing `FilterTFTest` failures unchanged |
 | 20 | `LoadFactorAllocator` alpha-ceiling fix — Newton overshoot and fold guards corrected for positive-thrust case; the achievable-Nz ceiling is at $\alpha^*$ (where $f'(\alpha) = qSC_L'(\alpha) + T\cos\alpha = 0$), not at `alphaPeak()`, when $T > 0$; overshoot guard now clamps the proposed Newton step to the CL parabolic domain using `LiftCurveModel::alphaSep()` / `alphaSepNeg()` before checking $f'$, preventing escape into the flat separated plateau where $f' = T\cos\alpha$ stays positive until $\alpha > \pi/2$; bisects to locate $\alpha^*$ when the guard fires; fold guard stays at current iterate rather than snapping to `alphaPeak()`; `LiftCurveModel::alphaSep()` and `alphaSepNeg()` added to public interface; design documentation updated in `docs/implementation/equations_of_motion.md` and `docs/algorithms/equations_of_motion.md` | 4 new tests in `LoadFactorAllocator_test.cpp`; 19 tests total; 458 pass, 2 pre-existing `FilterTFTest` failures unchanged |
 | 0a | `LoadFactorAllocator` branch-continuation predictor — first-order warm-start $\alpha_0 = \alpha_\text{prev} + \delta n_z \cdot mg / f'(\alpha_\text{prev})$ and symmetric $\beta_0$ formula added to `solve()`; predictor is skipped at the stall ceiling ($f' \approx 0$) or when the raw prediction would fall outside $[\alpha_\text{sep\_neg}, \alpha_\text{sep}]$ (domain guard prevents cross-branch jumps on cold-start excess-demand calls); `_n_z_prev` and `_n_y_prev` added as serialized state fields in both JSON (`n_z_prev_nd`, `n_y_prev_nd`) and proto (`LoadFactorAllocatorState` fields 6–7); `iterations` (alpha solver iteration count) added to `LoadFactorOutputs`; `reset()` clears all four warm-start fields; `docs/implementation/equations_of_motion.md` §Warm-Starting updated | 3 new tests in `LoadFactorAllocator_test.cpp`: `PredictorReducesIterationsOnLinearStep` (iterations == 1 for an exact linear-region prediction), `PredictorJsonRoundTrip_IncludesNzPrevAndNyPrev`, `PredictorProtoRoundTrip_IncludesNzPrev`; 22 tests total |
+| 21 | **System architecture definition** — future-state system architecture model covering: originating requirements, use cases (UC-1 through UC-7), element registry (LiteAeroSim, FlightCode, SimulationRunner, External Interface elements), data flow type and instance registries, interface control documents (ICD-8 through ICD-12), architectural decisions (30 recorded), open questions (all pre-design questions resolved; design-phase questions tracked); system boundary between LiteAeroSim simulation plant and FlightCode established; Docker containerization model for SITL verification defined; `avraero::` namespace structure and CMake target structure decided; repo split plan defined | No code tests — deliverable is the architecture document set under `docs/architecture/system/future/` |
 | 0b | `LoadFactorAllocator` test coverage extension — 8 new tests close continuity and domain-coverage gaps identified by code review. **White-box tests** (4): full positive and negative Nz sweeps through stall verifying the clamp value against `alphaPeak()`/`alphaTrough()`; fine-step sweep across the C¹ Linear→IncipientStall boundary confirming both segments are traversed; stall warm-start limitation test documenting that `reset()` is required after a discontinuous Nz jump. **Black-box tests** (4): uniform 500-step monotonicity sweeps from 0 to ±10 g for T = 0 (positive and negative) and T = `kLargeThrust` (positive); point-wise perturbation test at 37 grid points (T = 0, −9 g to +9 g) and 19 grid points (T > 0, 0 to +9 g) using fresh allocators. Stall warm-start limitation documented in `docs/implementation/equations_of_motion.md` §Stall Warm-Start Limitation | 30 tests total in `LoadFactorAllocator_test.cpp` |
 
 ---
@@ -188,7 +188,9 @@ are retained:
 
 ---
 
-## 1. Flight Code and Simulation Architecture Definition
+## 1. Flight Code and Simulation Architecture Definition ✅
+
+✅ Complete — see delivered item 21 and `docs/architecture/system/future/`.
 
 Define a system architecture model that will inform all subsequent software development. The model will be encoded in Markdown documentation with Mermaid diagrams and tables, organized under `docs/architecture/`, and treated as the primary source of truth for system design. The model will include:
 
@@ -223,47 +225,10 @@ The navigation system is a separable flight code component that derives kinemati
 
 ---
 
-## 2. Gain Scheduling — Design
+## 2. Gain Scheduling *(→ FlightCode)*
 
-`Gain<T, NumAxes>` currently holds template parameters for value type and scheduling
-axis count, but the scheduling logic is unimplemented (stubs removed in delivered item 18,
-Step C). This item defines the full gain scheduling architecture. Gain scheduling is a
-general-purpose library capability used beyond PID loops — it may parameterize model
-coefficients, limits, or other algorithm inputs in both simulation and flight code.
-Fundamentally, a gain is an object that produces a value parameterized by the current
-aircraft state (a combination of flight condition and configuration). Within a PID it is a
-multiplicative coefficient, but it may also enter an algorithm as an additive term or in
-other ways. The `Gain` class does not need convenience methods for every mathematical
-pattern of use; it only needs to expose its current value to the calling function.
-
-### Scope to Define
-
-The design must address at minimum:
-
-- **Lookup methods** — what interpolation strategies are supported (e.g. rectilinear
-  table bilinear, nearest-neighbor, polynomial fit) and how they are selected.
-- **Axis dimensions** — how `NumAxes` maps to physical scheduling variables
-  (e.g. airspeed, altitude, angle of attack); how axes are labeled and units enforced.
-- **Lookup domain constraint functions** — how constraint functions are applied to ensure that lookup occurs only within the valid domain of the scheduling inputs.
-- **Lookup parameterization** — which flight condition and aircraft configuration values are available as scheduling axes; use cases that drive axis requirements.
-- **Runtime update** — how a scheduled gain is evaluated at each step given the current
-  scheduling variable values; whether evaluation is synchronous with `SISOPIDFF::step()`
-  or driven externally.
-- **Serialization** — how the gain table is stored and restored (JSON + proto).
-- **Initialization** — whether the gain table is loaded from a file, embedded in config
-  JSON, or populated programmatically.
-
-### Deliverables — Gain Scheduling
-
-Design authority document at `docs/architecture/gain_scheduling.md`.
-Plan implementation to follow TDD: failing tests before production code.
-Do not implement in this task.
-
----
-
-## 3. Gain Scheduling — Implementation
-
-Implement the design produced in item 2. Follow TDD: write failing tests before production code.
+Gain scheduling is a FlightCode infrastructure item. Design and implementation are in
+[flight_code.md](flight_code.md) as FC-2 and FC-3.
 
 ---
 
@@ -271,12 +236,16 @@ Implement the design produced in item 2. Follow TDD: write failing tests before 
 
 `LandingGear` is a Domain Layer physics component that models the contact forces and
 moments exerted on the airframe by the landing gear during ground operations (taxi,
-takeoff roll, and landing roll). It produces forces and moments in the body frame that
-are added to the aerodynamic and propulsion contributions in `Aircraft::step()`.
+takeoff roll, and landing roll). It produces `ContactForces` (body-frame force vector,
+body-frame moment vector, and `weight_on_wheels` flag) and is internal to both `Aircraft`
+and `Aircraft6DOF`.
+The integration architecture and fidelity target are decided — see
+`docs/architecture/system/future/decisions.md §LandingGear integration model and fidelity target`.
 
-Produce documentation of requirements, architecture, algorithm design, verification, and implementation plan.
+This item produces the design authority document at `docs/architecture/landing_gear.md`.
+Implementation is item 18. Do not implement in this item.
 
-### Scope — Gain Scheduling
+### Scope — LandingGear Design
 
 The design must address at minimum:
 
@@ -322,214 +291,46 @@ Implementation follows TDD: failing tests before production code.
 
 ---
 
-## 5. Autopilot Gain Design — Python Tooling
+## 5. Autopilot Gain Design — Python Tooling *(→ FlightCode)*
 
-Python workflow that derives autopilot control gains from the aircraft model. This is a
-prerequisite for item 6 (`Autopilot`) — the C++ implementation is parameterized by gains
-computed here.
-
-Scope to be defined when this item is scheduled. Expected to use Python control-system
-libraries (e.g. `python-control`, `scipy.signal`) applied to linearized models extracted
-from `Aircraft` trim and `AeroCoeffEstimator` outputs.
+Python workflow for deriving autopilot gains from the `Aircraft` model. This item is in
+[flight_code.md](flight_code.md) as FC-4 since it produces inputs for the FlightCode
+`Autopilot` component.
 
 ---
 
-## 6. Autopilot — Inner Loop Knobs-Mode Tracking
+## 6. Autopilot *(→ FlightCode)*
 
-*Flight code component — not part of LiteAeroSim. Repository placement and build system
-integration are to be determined by item 1 (Architecture Definition). A stub header exists
-at `include/control/Autopilot.hpp` as a temporary placeholder and will be relocated once
-the architecture is established.*
-
-`Autopilot` implements the inner closed-loop layer. It tracks pilot-style set point commands
-corresponding to "knobs" modes — altitude hold, vertical speed hold, heading hold, and roll
-attitude hold. Guidance (item 8) is the outer loop that wraps around it and supplies the set
-point commands. Control gains are derived by the Python gain design workflow (item 5). The
-autopilot must support simulation use cases (reset and initialization to arbitrary conditions
-for batch testing) as well as deployment as flight software.
-
-### Interface Sketch — Autopilot
-
-*To be defined during design. Inputs will include the kinematic state, atmospheric state,
-and a set point struct (target altitude, target vertical speed, target heading, target roll
-attitude). The output command type and its interface to the simulation plant model will be
-defined by the architecture.*
-
-### Tests — Autopilot
-
-- Altitude hold: starting from a displaced altitude, output drives altitude error to zero
-  within the expected settling time.
-- Heading hold: starting from a heading offset, output drives heading error to zero without
-  overshoot beyond a specified bound.
-- Roll attitude hold: commanded roll angle is tracked with correct steady-state and transient.
-- Vertical speed hold: commanded climb rate is tracked correctly.
-- JSON and proto round-trips preserve filter states.
-- Reset and re-initialization to arbitrary conditions produces correct initial output.
-
-### Build Integration — Autopilot
-
-To be determined by item 1. The component must be buildable as standalone flight code and
-as a component co-resident with the LiteAeroSim simulation for integration testing.
+FlightCode item — see [flight_code.md](flight_code.md) FC-5. Stub header at
+`include/control/Autopilot.hpp` will be relocated at the repo split.
 
 ---
 
-## 7. Path Representation — `V_PathSegment`, `PathSegmentHelix`, `Path`
+## 7. Path Representation *(→ FlightCode)*
 
-*Flight code component — not part of LiteAeroSim. Repository placement and build system
-integration are to be determined by item 1. Stub headers exist at `include/path/` as
-temporary placeholders. The namespace shown below is provisional.*
-
-A `Path` is an ordered sequence of `V_PathSegment` objects. Each segment exposes a
-cross-track error, along-track distance, and desired heading at a query position. The
-initial concrete segment type is `PathSegmentHelix` (straight line is a degenerate helix
-with infinite radius).
-
-### Interface Sketch — Path
-
-```cpp
-// Provisional — namespace and location subject to architecture definition (item 1)
-namespace path {
-
-struct PathQuery {
-    Eigen::Vector3f position_NED_m;
-    float heading_rad;
-};
-
-struct PathResponse {
-    float crosstrack_error_m;     // positive = right of path
-    float along_track_m;          // distance from segment start
-    float desired_heading_rad;    // commanded heading at query point
-    float desired_altitude_m;
-    bool  segment_complete;       // true when along_track_m >= segment_length_m
-};
-
-class V_PathSegment {
-public:
-    virtual PathResponse query(const PathQuery& q) const = 0;
-    virtual float length_m() const = 0;
-    virtual ~V_PathSegment() = default;
-};
-
-} // namespace path
-```
-
-### Tests — `PathSegmentHelix`
-
-- On a straight segment (infinite radius), cross-track error equals the perpendicular
-  distance from the line.
-- At the midpoint of a circular arc, `desired_heading_rad` is tangent to the arc.
-- `segment_complete` is false before the end and true after `along_track_m >= length_m`.
-
-### Tests — `Path`
-
-- A path with two segments advances to the second segment when the first is complete.
-- `Path::query()` delegates to the active segment.
-
-### Build Integration — Path
-
-To be determined by item 1.
+FlightCode item — see [flight_code.md](flight_code.md) FC-6. Stub headers at
+`include/path/` will be relocated at the repo split.
 
 ---
 
-## 8. Guidance — `PathGuidance`, `VerticalGuidance`, `ParkTracking`
+## 8. Guidance *(→ FlightCode)*
 
-*Flight code component — not part of LiteAeroSim. Repository placement and build system
-integration are to be determined by item 1. Stub headers exist at `include/guidance/` as
-temporary placeholders.*
-
-Guidance is the outer loop that wraps around the `Autopilot`. It converts path and altitude
-errors into set point commands (target altitude, vertical speed, heading, roll attitude) that
-are fed to `Autopilot::step()`. Each guidance class is stateful and implements reset,
-step, and serialization in accordance with the component lifecycle defined in item 1.
-
-### `PathGuidance` — Lateral Path Tracking
-
-Implements a nonlinear guidance law (L1 or similar) that commands a target heading or roll
-attitude set point to null cross-track error against a path segment.
-
-### `VerticalGuidance` — Altitude / Climb-Rate Hold
-
-Commands target altitude or vertical speed set points to track a target altitude or climb
-rate profile.
-
-### `ParkTracking` — Loiter / Station-Keep
-
-Commands the aircraft to orbit a fixed ground point at a specified radius and altitude by
-producing heading and altitude set point commands to `Autopilot`.
-
-### Tests — `PathGuidance`
-
-- With zero cross-track error and correct heading, commanded heading set point matches
-  current heading (no corrective input).
-- With a large cross-track error, the commanded heading correction is bounded within a
-  specified maximum bank angle equivalent.
-
-### Tests — `VerticalGuidance`
-
-- With aircraft at target altitude, commanded altitude set point matches current altitude
-  (no corrective input).
-- With aircraft below target altitude, commanded vertical speed set point is positive.
-
-### Tests — Serialization
-
-- JSON and proto round-trips preserve filter state; next `step()` output matches between
-  original and restored instances.
-
-### Build Integration — Guidance
-
-To be determined by item 1.
+FlightCode item — see [flight_code.md](flight_code.md) FC-7. Stub headers at
+`include/guidance/` will be relocated at the repo split.
 
 ---
 
-## 9. Airfield Traffic Pattern Operations
+## 9. Airfield Traffic Pattern Operations *(→ Project Roadmap)*
 
-*This item is a flight code and integration item, not a LiteAeroSim item. LiteAeroSim
-provides the simulation plant. The autopilot and guidance (items 6–8) are the flight code
-components that execute the traffic pattern behavior. This item defines the operational
-requirements, mode sequencing, and integration architecture for traffic pattern operations.*
-
-Define autotakeoff and autolanding behavior for fixed-wing aircraft operating in a standard
-traffic pattern. Behavior definitions are drawn from FAA non-towered airfield VFR operations
-and AMA club field conventions.
-
-### Scope — Traffic Pattern
-
-- **Normal pattern operations** — pattern entry, upwind, crosswind, downwind, base, and
-  final legs; pattern exit; go-around.
-- **Off-nominal handling** — aborted takeoff, aborted landing, expedited approach,
-  short-field and high-performance variants.
-- **Pilot operator interface** — switch inputs mappable to RC transmitter channels for
-  initiating aborts, go-arounds, and traffic sequencing; behavior must be visually
-  interpretable and rule-compliant.
-- **Traffic pattern definition** — wind-referenced flow direction; operator-side handedness
-  (aircraft remain on the far side of the field from operators); geofence envelope; safe
-  loiter point (altitude- and laterally-separated from the active pattern); RC link range
-  margin; nominal flight path angles for climb, approach, and touchdown; touchdown zone and
-  rotation initiation region geometry.
-- **ArduPilot / PX4 integration architecture** — define the integration model: options
-  include full replacement of the autopilot's internal autotakeoff/autolanding modes,
-  partial override via a companion computer or offboard computation node, or mode
-  sequencing via Lua scripting. The autopilot and guidance components may be collocated
-  with the simulation or hosted on separate compute resources. The architecture must
-  accommodate all of these configurations.
-
-### Example behavior
-
-A go-around from final approach initiates a full-power climb at safe airspeed, reconfigures
-the aircraft for climb, and holds the extended runway centerline until terrain and obstacle
-separation is confirmed. The aircraft then transitions to the climbout phase of the traffic
-pattern as if departing from a normal takeoff.
+Integration item spanning LiteAeroSim and FlightCode — see project roadmap
+[README.md](README.md) as integration item I-4.
 
 ---
 
-## 10. Airfield Ground Operations
+## 10. Airfield Ground Operations *(→ Project Roadmap)*
 
-Define the operational sequence for ground operations at an RC airfield, from power-up through parking. The design document will cover (non-exhaustively):
-
-- **Pre-flight** — hardware-in-the-loop simulation; system parameterization; power-up; GPS acquisition and EKF alignment; bench systems test; pre-takeoff systems test
-- **Runway operations** — taxi to runway; runway survey; taxi to takeoff position; low-speed takeoff roll test and abort; high-speed takeoff roll test and abort; takeoff roll with transition to autotakeoff mode
-- **Post-flight** — landing rollout; back-taxi; taxi pausing for traffic; taxi to parking
-- **Sequencing and safety** — define go/no-go criteria at each phase transition; define abort procedures and recovery actions
+Integration item spanning LiteAeroSim and FlightCode — see project roadmap
+[README.md](README.md) as integration item I-5.
 
 ---
 
@@ -679,13 +480,102 @@ Implement when needed; order within this group follows dependency.
 
 ---
 
-## 15. Estimation Subsystem
+## 15. Estimation Subsystem *(→ FlightCode)*
 
-Flight code estimation algorithms. Stub headers exist in `include/estimation/` (to be
-created). Each derives from `DynamicElement` directly. Design authorities listed below.
+FlightCode item — see [flight_code.md](flight_code.md) FC-8. Stub headers at
+`include/estimation/` will be relocated at the repo split.
 
-| Class | Depends on | Design authority |
-| --- | --- | --- |
-| `NavigationFilter` | `SensorGnss`, `SensorAirData`, `SensorMag` | [navigation_filter.md](../architecture/navigation_filter.md) |
-| `WindEstimator` | `NavigationFilter` or `SensorInsSimulation`, `SensorAirData` | [wind_estimator.md](../architecture/wind_estimator.md) |
-| `FlowAnglesEstimator` | `WindEstimator`, `SensorAirData` | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
+---
+
+## 16. Aerodynamic Coefficient Design Study
+
+Prerequisite for item 17 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Cannot be designed
+without first defining how aerodynamic coefficients will be obtained and running the model
+design process through several example aircraft configurations. This item produces the
+design study that resolves OQ-16(c).
+
+### Deliverables — Aerodynamic Coefficient Design Study
+
+Design study document defining: aerodynamic coefficient data sources (wind tunnel, CFD,
+DATCOM, flight test); data formats and axes conventions; coefficient model format for
+`BodyAxisCoeffModel` across the range of anticipated fixed-wing configurations. Must be
+complete before item 17 begins.
+
+---
+
+## 17. Aircraft6DOF — Design and Implementation
+
+Full 6DOF aircraft dynamics model. Depends on item 16 (aero coefficient design study).
+Architecture placeholders are defined in `docs/architecture/system/future/element_registry.md`.
+
+### Scope
+
+- **`V_AeroModel`** — abstract aerodynamic model interface; produces forces and moments in
+  body frame; decouples the 6DOF integrator from the coefficient axis convention.
+- **`BodyAxisCoeffModel`** — implements `V_AeroModel` using body-axis stability derivatives
+  (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular
+  rates. Coefficient model format defined by item 16.
+- **`Aircraft6DOF`** — full 6DOF dynamics; depends on `V_AeroModel` for forces and moments;
+  accepts `SurfaceDeflectionCommand` (control surface deflection angles + per-motor
+  throttle); produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4
+  simulations (no FBW bridge in that topology).
+- **`FBWController`** — inner-loop FBW control law bridging the existing load-factor
+  `AircraftCommand` interface to `SurfaceDeflectionCommand` for `Aircraft6DOF`; when paired
+  with `Aircraft6DOF` forms a drop-in replacement for `Aircraft` for side-by-side
+  comparison; not used in ArduPilot/PX4 topologies.
+- **`SurfaceDeflectionCommand`** — plain value struct: control surface deflection angles
+  (elevator, aileron, rudder) and per-motor throttle.
+
+### Deliverables — Aircraft6DOF
+
+Design authority document. Implementation follows TDD. All new elements include JSON +
+proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must both produce
+`KinematicStateSnapshot` to enable transparent substitution.
+
+---
+
+## 18. LandingGear — Implementation
+
+Implement the design produced in item 4. Architecture decisions are recorded in
+`docs/architecture/system/future/decisions.md` (LandingGear integration model and fidelity
+target). Design authority document at `docs/architecture/landing_gear.md` must exist before
+implementation begins (item 4 deliverable).
+
+Produces `ContactForces` (6-component body-frame force + moment + `weight_on_wheels` flag).
+Accepts nose wheel steering angle and differential brake demands. Implements 2nd-order
+suspension per strut and tyre contact force model. Queries ground elevation via `V_Terrain`.
+
+Interfaces to both `Aircraft` (load-factor disturbance path) and `Aircraft6DOF` (full
+6-component EOM input). Follow TDD: write failing tests before production code.
+
+---
+
+## 19. External Interface Elements
+
+Adapters that connect LiteAeroSim to external systems. All live in the Interface Layer.
+
+| # | Element | Protocol | Depends on |
+| --- | --- | --- | --- |
+| LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (item 13); `Aircraft` or `Aircraft6DOF` |
+| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (item 13); `Aircraft6DOF` |
+| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (item 13); `NavigationState` (FlightCode) |
+| LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (item 13); `SimulationFrame` (done) |
+
+Each element requires a design document before implementation. `VisualizationLink` transport
+and axis convention are decided (see `docs/architecture/terrain.md §Game Engine Integration`
+and `docs/architecture/system/future/decisions.md §Game engine for real-time visualization`).
+
+---
+
+## 20. Synthetic Perception Sensors — Proposed
+
+The following sensor elements are proposed and not yet designed. They depend on `V_Terrain`
+for geometry queries. Design items will be scheduled when prerequisite sensor and terrain
+models are stable.
+
+| Element | Responsibility |
+| --- | --- |
+| `SensorCamera` | Synthetic image sensor; generates imagery from terrain and scene model against `V_Terrain` |
+| `SensorLidar` | Synthetic lidar; generates 3D point cloud by ray-casting against `V_Terrain` |
+| `SensorLaserAGL` | Synthetic laser altimeter; computes AGL range by ray-casting against `V_Terrain` |
+| `SensorLineOfSight` | Computes RF link quality and terrain occlusion by ray-casting against `V_Terrain` |
