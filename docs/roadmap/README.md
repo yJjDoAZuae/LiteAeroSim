@@ -49,3 +49,4 @@ milestones. Detailed design for each item will be documented before implementati
 | [aircraft.md](aircraft.md) | LiteAeroSim simulation plant — Aircraft, environment, terrain, sensors, sim runner, external interfaces, visualization |
 | [flight_code.md](flight_code.md) | FlightCode component — autopilot, guidance, path, navigation, estimation, gain scheduling |
 | [terrain-implementation-plan.md](terrain-implementation-plan.md) | Terrain subsystem implementation record (complete) |
+| [flightcode-migration-plan.md](flightcode-migration-plan.md) | FlightCode repository creation and repo split — implementation plan |
