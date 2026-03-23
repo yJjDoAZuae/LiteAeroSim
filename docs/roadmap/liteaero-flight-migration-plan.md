@@ -5,7 +5,7 @@
 | Step | Description | Status |
 | --- | --- | --- |
 | 0 | Extract history with `git filter-repo`; push to remote | Complete |
-| 1 | Repository scaffolding and CMake skeleton | Not started |
+| 1 | Repository scaffolding and CMake skeleton | Complete |
 | 2 | `liteaero::log`: ILogger and logging infrastructure | Not started |
 | 3 | `liteaero::control`: `DynamicElement` and `SisoElement` | Not started |
 | 4 | `liteaero::control`: Filter hierarchy | Not started |
@@ -59,7 +59,7 @@ Namespace decisions are final. All target namespaces are recorded in `decisions.
 | `ControlLoop` and `Control*` elements stay in LiteAero Sim | `ControlAltitude`, `ControlHeading`, `ControlHeadingRate`, `ControlLoadFactor`, `ControlRoll`, `ControlVerticalSpeed`, and `ControlLoop` are simulation-internal; they will use `liteaero::control` infrastructure after Phase 2 but remain in `liteaero::simulation` |
 | Estimation stubs (`NavigationFilter`, `WindEstimator`, `FlowAnglesEstimator`) are part of Phase 1 | Create them in `liteaero-flight` at Step 9, not in LiteAero Sim; any LiteAero Sim stub files for these must be removed |
 | ICD ownership follows the component that defines the type | `liteaero-flight` owns the ICDs for its inputs and outputs (`AircraftCommand`, `KinematicStateSnapshot`, `NavigationState`, sensor measurement structs, `V_Terrain`, `ILogger`/`LogSource`); these live in `liteaero-flight/docs/interfaces/icds.md`; LiteAero Sim owns only its internal ICDs (`AtmosphericState`, `EnvironmentState`, and any future sim-internal interfaces); at Step 12 the liteaero-sim ICD entries for flight-owned types are replaced with cross-references to `liteaero-flight/docs/interfaces/icds.md` |
-| Conan for dependency management in `liteaero-flight` | `liteaero-flight` uses Conan (`conanfile.txt` with `CMakeDeps` + `CMakeToolchain` generators), the same approach as LiteAero Sim; `CMakeLists.txt` consumes all dependencies via `find_package` against Conan-provided package configs; protobuf and mcap must be added to `conanfile.txt` (LiteAero Sim handles these via FetchContent fallback — liteaero-flight does not need that fallback); verify ConanCenter availability for mcap before Step 1 |
+| Conan for dependency management in both repos | Both `liteaero-flight` and LiteAero Sim use Conan 2.x (`conanfile.txt` with `CMakeDeps` + `CMakeToolchain` generators, profile `liteaero-gcc`); `CMakeLists.txt` consumes all ConanCenter dependencies via `find_package`; mcap is not in ConanCenter and uses FetchContent pattern 1b in both repos; trochoids and tinygltf are LiteAero Sim-only FetchContent deps that do not appear in `liteaero-flight` |
 
 ---
 
@@ -216,46 +216,42 @@ original LiteAero Sim paths. This step adds the CMake build system and reorganiz
 extracted files into the `liteaero-flight` directory layout using `git mv`. No namespace changes
 yet — those are applied per subsystem in Steps 2–8.
 
-**Directory structure:**
+**Directory structure (as delivered):**
 
 ```text
 liteaero-flight/
-  CMakeLists.txt          # root — defines all targets, fetches dependencies
-  cmake/
-    Dependencies.cmake    # FetchContent for googletest, nlohmann/json, protobuf; find_package for Eigen
+  CMakeLists.txt          # root — Conan find_package for all deps; FetchContent for mcap
+  conanfile.txt           # eigen/3.4.0, nlohmann_json/3.12.0, gtest/1.14.0, protobuf/3.21.12
+  .gitignore
+  CLAUDE.md
   include/
     liteaero/
-      log/
-      control/
-      terrain/
-      interfaces/         # name TBD — resolved in Step 6
-      nav/
-      guidance/
-      autopilot/
+      log/                # ILogger.hpp, Logger.hpp, LogSource.hpp, LogReader.hpp
+      control/            # DynamicElement.hpp, SisoElement.hpp, Filter hierarchy, SISO elements
+      terrain/            # V_Terrain.hpp, TerrainTile.hpp, TerrainVertex.hpp, …
+      nav/                # WGS84.hpp
+    KinematicState.hpp    # preserved from filter-repo; redesign deferred to Step 6
   src/
-    log/
-    control/
-    terrain/
-    nav/
-    guidance/
-    autopilot/
+    log/                  # Logger.cpp, LogReader.cpp, mcap_impl.cpp
+    control/              # DynamicElement.cpp, SisoElement.cpp, Filter impls, SISO impls
+    nav/                  # WGS84.cpp
+    KinematicState.cpp    # preserved from filter-repo; redesign deferred to Step 6
   test/
-    log/
-    control/
-    terrain/
-    interfaces/
-    nav/
-    guidance/
-    autopilot/
+    log/                  # Logger_test.cpp
+    control/              # 15 test files
+    terrain/              # Terrain_test.cpp, TerrainTile_test.cpp
+    nav/                  # WGS84_test.cpp
+    KinematicState_test.cpp  # preserved from filter-repo; deferred to Step 6
   proto/
-    liteaero_flight.proto
+    liteaero_flight.proto # stub — messages added per step
   docs/
-    guidelines/           # general.md, cpp.md, and python.md copied from LiteAero Sim
+    guidelines/           # general.md, cpp.md (Conan-adapted), python.md
     interfaces/
       icds.md             # stub — populated at Step 7
-    architecture/         # populated per step alongside code
-    algorithms/           # populated per step alongside code
-    roadmap/              # populated per step alongside code
+    architecture/
+      README.md
+    algorithms/
+      README.md
     testing/
       strategy.md
     installation/
@@ -264,37 +260,22 @@ liteaero-flight/
       README.md
 ```
 
-**Dependency management — Conan:** `liteaero-flight` uses the same Conan approach as
-LiteAero Sim: a `conanfile.txt` at the repo root with `CMakeDeps` + `CMakeToolchain`
-generators. `CMakeLists.txt` consumes all dependencies via `find_package` against
-Conan-provided package configs. LiteAero Sim's `conanfile.txt` declares
-`nlohmann_json/3.12.0`, `eigen/3.4`, and `gtest`; liteaero-flight's `conanfile.txt` adds
-protobuf and mcap. Verify ConanCenter availability for mcap before starting this step; if
-unavailable, add a FetchContent fallback in `CMakeLists.txt` matching LiteAero Sim's mcap
-pattern. Trochoids is not required in Phase 1 and is deferred.
+**Notes on Step 1 as delivered vs. original spec:**
 
-The root `CMakeLists.txt` defines one `STATIC` library target per subsystem, each with
-the matching `liteaero::X` alias, and consumes all dependencies via `find_package` against
-Conan-provided package configs. All targets share the root `include/` directory. No target
-links anything yet — dependency edges are added per step.
+- `guidance/` and `autopilot/` subdirectories are not created in Step 1; they are created in Step 9 when stub headers migrate.
+- CMake targets are `INTERFACE` (not `STATIC`) in Step 1 because no source files carry the new `liteaero::` namespace yet; targets become `STATIC` as each subsystem's namespace migration is applied in Steps 2–8.
+- mcap is not in ConanCenter; it uses FetchContent pattern 1b in `CMakeLists.txt`, consistent with LiteAero Sim.
+- No `cmake/Dependencies.cmake` file — dependency declarations live directly in the root `CMakeLists.txt` dependency block.
 
-**docs/guidelines/cpp.md — adaptation required:** Copy `cpp.md` from LiteAero Sim and
-rewrite the "External Dependency Management" section to describe Conan instead of
-FetchContent. The decision tree, tier descriptions, and `Dependencies.cmake` patterns in
-the LiteAero Sim version do not apply to `liteaero-flight`. Replace them with the Conan
-workflow: `conanfile.txt` declarations, `conan install`, and `find_package` consumption in
-`CMakeLists.txt`. The dependency registry lives in `conanfile.txt`, not in a CMake comment
-block. All other sections of `cpp.md` (naming, serialization, testing, code style) copy
-unchanged.
+**Verification (as executed):**
 
-**docs/guidelines/python.md — copy unchanged.** When Python tooling is first added to
-`liteaero-flight`, it uses `uv` with `pyproject.toml` in a `python/` subdirectory, matching
-LiteAero Sim exactly. No adaptation required; the `python/` directory is not created until
-Python tooling is first added.
+```bash
+PATH="/c/msys64/ucrt64/bin:$PATH" conan install . --output-folder=build --build=missing --profile=liteaero-gcc
+PATH="/c/msys64/ucrt64/bin:$PATH" cmake -B build -G "MinGW Makefiles" -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+PATH="/c/msys64/ucrt64/bin:$PATH" mingw32-make -C build
+```
 
-**Verification:** `conan install . --output-folder=build --build=missing &&
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake &&
-cmake --build build` produces an empty build with no errors.
+Result: proto target builds clean. All other targets are INTERFACE stubs (no compiled sources). Test executables are built but fail to compile because test files still use the old include paths — this is the expected known-failure state for Step 1; include paths are updated in Steps 2–8.
 
 ---
 
