@@ -32,6 +32,7 @@ target_include_directories(liteaerosim
 target_link_libraries(liteaerosim
     PUBLIC
         liteaero::log
+        liteaero::control
     PRIVATE
         Eigen3::Eigen
         nlohmann_json::nlohmann_json

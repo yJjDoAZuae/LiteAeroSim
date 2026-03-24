@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DynamicElement.hpp"
+#include <liteaero/control/DynamicElement.hpp>
 #include <cstdint>
 #include <vector>
 
@@ -15,7 +15,7 @@ namespace liteaerosim::propulsion {
 /// Proto serialization is included here because Aircraft dispatches
 /// deserializeProto() generically through this base pointer. Each concrete
 /// subclass serializes to and from its own proto message type.
-class Propulsion : public liteaerosim::DynamicElement {
+class Propulsion : public liteaero::control::DynamicElement {
 public:
     /// Advance propulsion state by one timestep and return thrust magnitude (N).
     ///   throttle_nd — normalized throttle demand [0, 1]

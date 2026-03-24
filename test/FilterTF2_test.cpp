@@ -6,6 +6,7 @@
 
 using namespace liteaerosim::control;
 using namespace liteaerosim;
+using liteaero::control::SisoElement;
 
 TEST(FilterTF2Test, Instantiation00) {
 

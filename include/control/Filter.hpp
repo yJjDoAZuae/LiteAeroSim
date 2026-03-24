@@ -1,6 +1,6 @@
 #pragma once
 
-#include "SisoElement.hpp"
+#include <liteaero/control/SisoElement.hpp>
 #include "control/control.hpp"
 #include <Eigen/Dense>
 
@@ -12,7 +12,7 @@ namespace liteaerosim::control {
 /// All concrete filters (FilterSS2, FilterSS2Clip, FilterTF, FilterTF2,
 /// FilterFIR, FilterSS) derive from this class and implement the full
 /// SisoElement NVI lifecycle.
-class Filter : public liteaerosim::SisoElement {
+class Filter : public liteaero::control::SisoElement {
 public:
     constexpr static char maxNumStates = liteaerosim::kFilterMaxStates;
 

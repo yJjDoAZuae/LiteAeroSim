@@ -1,8 +1,19 @@
 # DynamicElement — Unified Base Class for Dynamic Components
 
-This document is the design authority for `DynamicElement`, the unified abstract base class
-for all stateful, time-evolving components in LiteAero Sim. It defines the lifecycle
-contract, the NVI pattern, and the logging interface.
+`DynamicElement` and `SisoElement` now reside in **`liteaero-flight`**
+(`liteaero::control` namespace, `liteaero::control` CMake target).
+The canonical design authority for those two classes is
+[liteaero-flight/docs/architecture/dynamic_element.md](../../liteaero-flight/docs/architecture/dynamic_element.md).
+
+This document covers:
+
+- The `DynamicElement` / `SisoElement` interface as it applies to LiteAero Sim components
+- The `Filter` abstract base and its concrete implementations (still in LiteAero Sim)
+- The `Propulsion` hierarchy (still in LiteAero Sim)
+- Control sub-elements (`Limit`, `RateLimit`, `Integrator`, `Derivative`, `Unwrap`, `SISOPIDFF`)
+- The complete class hierarchy
+- The serialization contract
+- The logging interface
 
 ---
 
@@ -34,13 +45,16 @@ through thin base classes.
 
 ## `DynamicElement` Interface
 
+`DynamicElement` lives in `liteaero-flight`. LiteAero Sim components consume it via the
+`liteaero::control` CMake target.
+
 ```cpp
-// include/DynamicElement.hpp
+// liteaero-flight/include/liteaero/control/DynamicElement.hpp
 #pragma once
-#include "ILogger.hpp"
+#include <liteaero/log/ILogger.hpp>
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim {
+namespace liteaero::control {
 
 class DynamicElement {
 public:
@@ -50,24 +64,24 @@ public:
     virtual void reset();
     [[nodiscard]] nlohmann::json serializeJson() const;
     void deserializeJson(const nlohmann::json& state);
-    void attachLogger(ILogger* logger) noexcept;
+    void attachLogger(liteaero::log::ILogger* logger) noexcept;
 
 protected:
     virtual void           onInitialize(const nlohmann::json& config) = 0;
     virtual void           onReset()                                   = 0;
     virtual nlohmann::json onSerializeJson()                   const   = 0;
     virtual void           onDeserializeJson(const nlohmann::json&)    = 0;
-    virtual void           onLog(ILogger& /*logger*/)          const   {}
+    virtual void           onLog(liteaero::log::ILogger& /*logger*/) const {}
     virtual int            schemaVersion()                     const   = 0;
     virtual const char*    typeName()                          const   = 0;
 
-    ILogger* logger_ = nullptr;
+    liteaero::log::ILogger* logger_ = nullptr;
 
 private:
     void validateSchema(const nlohmann::json& state) const;
 };
 
-} // namespace liteaerosim
+} // namespace liteaero::control
 ```
 
 `initialize()` and `deserializeJson()` validate `"schema_version"` before forwarding to
@@ -85,10 +99,13 @@ component-specific. Each concrete class declares `serializeProto()` /
 ## `SisoElement`
 
 `SisoElement` is the abstract base for all single-input, single-output dynamic elements.
-It derives from `DynamicElement` and adds the SISO step interface:
+It derives from `DynamicElement` and adds the SISO step interface. It lives in
+`liteaero-flight` alongside `DynamicElement`.
 
 ```cpp
-// include/SisoElement.hpp
+// liteaero-flight/include/liteaero/control/SisoElement.hpp
+namespace liteaero::control {
+
 class SisoElement : public DynamicElement {
 public:
     [[nodiscard]] float in()  const { return in_; }
@@ -105,6 +122,8 @@ protected:
     virtual float onStep(float u) = 0;
     void onReset() override {}
 };
+
+} // namespace liteaero::control
 ```
 
 The public `step(float u)` is the NVI entry point: it records `in_` and `out_`, calls
@@ -125,6 +144,9 @@ it declares no lifecycle hook defaults. Every concrete filter must implement the
 `DynamicElement` lifecycle: `onInitialize`, `onSerializeJson`, `onDeserializeJson`,
 `schemaVersion`, `typeName`, and `onStep`.
 
+`Filter` currently lives in LiteAero Sim (`liteaerosim::control` namespace,
+`include/control/Filter.hpp`) and will be migrated to `liteaero::control` in Step 4.
+
 ### Filter implementations
 
 | Class | Description |
@@ -140,10 +162,11 @@ it declares no lifecycle hook defaults. Every concrete filter must implement the
 
 ## `Propulsion` (under `DynamicElement`)
 
-`Propulsion` derives from `DynamicElement` directly and adds the propulsion-specific
-`step(throttle, tas, rho)` signature, `thrust_n()` accessor, and proto serialization
-methods. All concrete propulsion models (`PropulsionJet`, `PropulsionEDF`, `PropulsionProp`,
-`MotorElectric`, `MotorPiston`) derive from `Propulsion` and implement the full lifecycle.
+`Propulsion` derives from `liteaero::control::DynamicElement` directly and adds the
+propulsion-specific `step(throttle, tas, rho)` signature, `thrust_n()` accessor, and
+proto serialization methods. All concrete propulsion models (`PropulsionJet`, `PropulsionEDF`,
+`PropulsionProp`, `MotorElectric`, `MotorPiston`) derive from `Propulsion` and implement
+the full lifecycle.
 
 `Motor` is a stateless abstract interface — it does not derive from `DynamicElement`.
 
@@ -152,18 +175,21 @@ methods. All concrete propulsion models (`PropulsionJet`, `PropulsionEDF`, `Prop
 ## Control Sub-elements
 
 `Limit`, `RateLimit`, `Integrator`, `Derivative`, and `Unwrap` all derive from
-`SisoElement`. Each carries the full `DynamicElement` lifecycle: `initialize()`, `reset()`,
-`serializeJson()`, `deserializeJson()`. These elements are used both standalone and embedded
-within larger elements such as `SISOPIDFF`; both use cases benefit from a uniform lifecycle.
+`liteaero::control::SisoElement`. Each carries the full `DynamicElement` lifecycle:
+`initialize()`, `reset()`, `serializeJson()`, `deserializeJson()`. These elements are used
+both standalone and embedded within larger elements such as `SISOPIDFF`; both use cases
+benefit from a uniform lifecycle.
 
-`SISOPIDFF` derives from `DynamicElement` and implements the full lifecycle:
-`onInitialize()`, `onReset()`, `onSerializeJson()`, `onDeserializeJson()`. Its
-`onSerializeJson()` assembles a composite snapshot by delegating to each embedded member
-(`FilterSS2Clip` × 6, `Integrator`, `Derivative`, `Unwrap` × 2). This makes the full
-mid-flight PID state saveable and restorable as a unit.
+`SISOPIDFF` derives from `liteaero::control::DynamicElement` and implements the full
+lifecycle. Its `onSerializeJson()` assembles a composite snapshot by delegating to each
+embedded member (`FilterSS2Clip` × 6, `Integrator`, `Derivative`, `Unwrap` × 2). This
+makes the full mid-flight PID state saveable and restorable as a unit.
 
 `Gain` is a template and does not derive from `SisoElement`. Its scalar value is
 serialized directly (as a JSON number) within the `SISOPIDFF` snapshot.
+
+These sub-elements currently live in LiteAero Sim (`liteaerosim::control` namespace) and
+will be migrated to `liteaero::control` in Step 5.
 
 ---
 
@@ -172,25 +198,25 @@ serialized directly (as a JSON number) within the `SISOPIDFF` snapshot.
 ### DynamicElement tree
 
 ```text
-liteaerosim::DynamicElement
+liteaero::control::DynamicElement                     [liteaero-flight]
 │
-├── liteaerosim::SisoElement
-│   ├── liteaerosim::control::Filter        (pure abstract — no lifecycle defaults)
+├── liteaero::control::SisoElement                    [liteaero-flight]
+│   ├── liteaerosim::control::Filter  (pure abstract) [liteaero-sim — migrates Step 4]
 │   │   ├── FilterSS2
 │   │   ├── FilterSS2Clip
 │   │   ├── FilterTF
 │   │   ├── FilterTF2
 │   │   ├── FilterFIR
 │   │   └── FilterSS
-│   ├── liteaerosim::control::Limit
-│   ├── liteaerosim::control::RateLimit
-│   ├── liteaerosim::control::Integrator
-│   ├── liteaerosim::control::Derivative
-│   └── liteaerosim::control::Unwrap
+│   ├── liteaerosim::control::Limit                   [liteaero-sim — migrates Step 5]
+│   ├── liteaerosim::control::RateLimit               [liteaero-sim — migrates Step 5]
+│   ├── liteaerosim::control::Integrator              [liteaero-sim — migrates Step 5]
+│   ├── liteaerosim::control::Derivative              [liteaero-sim — migrates Step 5]
+│   └── liteaerosim::control::Unwrap                  [liteaero-sim — migrates Step 5]
 │
-├── liteaerosim::control::SISOPIDFF
+├── liteaerosim::control::SISOPIDFF                   [liteaero-sim — migrates Step 5]
 │
-├── liteaerosim::propulsion::Propulsion
+├── liteaerosim::propulsion::Propulsion               [liteaero-sim]
 │   ├── PropulsionJet
 │   ├── PropulsionEDF
 │   ├── PropulsionProp
@@ -253,17 +279,22 @@ Every `DynamicElement` subclass serializes a complete, self-describing JSON snap
 
 ## Logging Interface
 
-Logging is injected via a pointer to `ILogger`. The base class calls `onLog()` at the end
-of every `step()` when a logger is attached. Elements are not required to implement
-`onLog()` — the default is a no-op.
+Logging is injected via a pointer to `liteaero::log::ILogger`. The base class calls
+`onLog()` at the end of every `step()` when a logger is attached. Elements are not
+required to implement `onLog()` — the default is a no-op.
 
 ```cpp
+// liteaero-flight/include/liteaero/log/ILogger.hpp
+namespace liteaero::log {
+
 class ILogger {
 public:
     virtual ~ILogger() = default;
     virtual void log(std::string_view channel, float value_si) = 0;
     virtual void log(std::string_view channel, const nlohmann::json& snapshot) = 0;
 };
+
+} // namespace liteaero::log
 ```
 
 Loggers are attached at scenario setup time, not in constructors.
@@ -281,10 +312,10 @@ phase.
 
 ## Files
 
-| File | Contents |
-| --- | --- |
-| `include/DynamicElement.hpp` | Root abstract base |
-| `src/DynamicElement.cpp` | `initialize`, `reset`, `serializeJson`, `deserializeJson`, `attachLogger` |
-| `include/SisoElement.hpp` | SISO NVI wrapper over `DynamicElement` |
-| `src/SisoElement.cpp` | `step`, `reset` |
-| `include/control/Filter.hpp` | Abstract filter base over `SisoElement` |
+| File | Contents | Location |
+| --- | --- | --- |
+| `include/liteaero/control/DynamicElement.hpp` | Root abstract base | liteaero-flight |
+| `src/control/DynamicElement.cpp` | `initialize`, `reset`, `serializeJson`, `deserializeJson`, `attachLogger` | liteaero-flight |
+| `include/liteaero/control/SisoElement.hpp` | SISO NVI wrapper over `DynamicElement` | liteaero-flight |
+| `src/control/SisoElement.cpp` | `step`, `reset` | liteaero-flight |
+| `include/control/Filter.hpp` | Abstract filter base over `SisoElement` | liteaero-sim |

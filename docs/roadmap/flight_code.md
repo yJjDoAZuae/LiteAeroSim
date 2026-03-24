@@ -1,9 +1,9 @@
 # LiteAero Flight Component — Roadmap
 
-LiteAero Flight is a separable software system. It is not a subsystem of LiteAero Sim. It will
-reside in a separate `liteaero-flight` repository. Until that repository is created, stub headers
-for LiteAero Flight elements live in the LiteAero Sim repository as temporary placeholders and will
-be relocated at the repo split milestone. Architecture and component boundaries are defined in
+LiteAero Flight is a separable software system. It is not a subsystem of LiteAero Sim. It resides
+in the `liteaero-flight` sibling repository (consumed by LiteAero Sim via `add_subdirectory`). The
+repo split is in progress — see [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md)
+for the step-by-step record. Architecture and component boundaries are defined in
 `docs/architecture/system/future/`.
 
 **Item process.** All items follow a documentation-first process:
@@ -18,7 +18,16 @@ be relocated at the repo split milestone. Architecture and component boundaries 
 
 ## Current State
 
-Stub headers in LiteAero Sim (to be relocated to `liteaero-flight` at repo split):
+### Migrated to `liteaero-flight` (Steps 0–3 complete)
+
+| Element | Location in liteaero-flight | Step |
+| --- | --- | --- |
+| `ILogger` | `include/liteaero/log/ILogger.hpp` — `liteaero::log` | 2 |
+| `Logger`, `LogSource`, `LogReader` | `include/liteaero/log/`, `src/log/` — `liteaero::log` | 2 |
+| `DynamicElement` | `include/liteaero/control/DynamicElement.hpp` — `liteaero::control` | 3 |
+| `SisoElement` | `include/liteaero/control/SisoElement.hpp` — `liteaero::control` | 3 |
+
+### Stub headers in LiteAero Sim (to be relocated to `liteaero-flight`)
 
 | Element | Stub location | Design authority |
 | --- | --- | --- |
@@ -33,40 +42,37 @@ Stub headers in LiteAero Sim (to be relocated to `liteaero-flight` at repo split
 | `WindEstimator` | — (no LiteAero Sim stub; created in `liteaero-flight` at Step 9) | [wind_estimator.md](../architecture/wind_estimator.md) |
 | `FlowAnglesEstimator` | — (no LiteAero Sim stub; created in `liteaero-flight` at Step 9) | [flow_angles_estimator.md](../architecture/flow_angles_estimator.md) |
 
-Infrastructure to be migrated from LiteAero Sim at repo split:
+### Infrastructure remaining to migrate from LiteAero Sim
 
-- `DynamicElement`, `SisoElement`, `Filter` hierarchy, `Integrator`, `Derivative`,
-  `RateLimit`, `Limit`, `SISOPIDFF` → `liteaero::control`
-- `ILogger` and logging sinks → `liteaero::log`
+- `Filter` hierarchy, `Integrator`, `Derivative`, `RateLimit`, `Limit`, `SISOPIDFF` → `liteaero::control` (Steps 4–5)
 - `TerrainVertex`, `TerrainFacet`, `TerrainLod`, `TerrainTile`, `GeodeticPoint`,
-  `GeodeticAABB`, `LocalAABB`, `V_Terrain` → `liteaero::terrain`
+  `GeodeticAABB`, `LocalAABB`, `V_Terrain` → `liteaero::terrain` (Step 8)
 - Shared interface types (`AircraftCommand`, `KinematicStateSnapshot`, `NavigationState`,
-  sensor measurement structs) → `liteaero-flight` (target name TBD)
+  sensor measurement structs) → `liteaero-flight` (Step 7)
 
 ---
 
 ## FC-1. Repository Setup
 
-Create the `liteaero-flight` repository. Set up CMake build system with one target per subsystem,
-matching the C++ namespace structure:
+✅ **In Progress** — Steps 0–3 complete. See [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) for the full record.
 
-| CMake target | C++ namespace | Contents |
-| --- | --- | --- |
-| `liteaero::log` | `liteaero::log` | `ILogger`, logging sinks |
-| `liteaero::control` | `liteaero::control` | `DynamicElement`, `SisoElement`, `Filter` hierarchy, `Integrator`, `Derivative`, `RateLimit`, `Limit`, `SISOPIDFF` |
-| `liteaero::terrain` | `liteaero::terrain` | Terrain mesh types, `V_Terrain` |
-| Shared interface target (name TBD) | — | `AircraftCommand`, `KinematicStateSnapshot`, `NavigationState`, sensor measurement structs |
-| `liteaero::nav` | `liteaero::nav` | Navigation filter, wind/flow-angle estimators |
-| `liteaero::guidance` | `liteaero::guidance` | Path guidance, vertical guidance, park tracking |
-| `liteaero::autopilot` | `liteaero::autopilot` | Autopilot inner loop |
-| `liteaero::perception` | `liteaero::perception` | Vision navigator, lidar terrain estimator |
-| `liteaero::mission_autonomy` | `liteaero::mission_autonomy` | Link budget estimator |
+CMake targets and their migration status:
 
-Migrate infrastructure and shared interface types from LiteAero Sim. Update LiteAero Sim
-`CMakeLists.txt` to take a versioned dependency on `liteaero-flight`. Apply `liteaero::` namespace
-to all migrated code. Verify all LiteAero Sim tests still pass after migration.
+| CMake target | C++ namespace | Contents | Status |
+| --- | --- | --- | --- |
+| `liteaero::log` | `liteaero::log` | `ILogger`, logging sinks | ✅ Complete (Step 2) |
+| `liteaero::control` | `liteaero::control` | `DynamicElement`, `SisoElement` | ✅ Partial (Step 3) — Filter hierarchy, Integrator, Derivative, RateLimit, Limit, SISOPIDFF pending |
+| `liteaero::terrain` | `liteaero::terrain` | Terrain mesh types, `V_Terrain` | Not started (Step 8) |
+| Shared interface target (name TBD) | — | `AircraftCommand`, `KinematicStateSnapshot`, `NavigationState`, sensor measurement structs | Not started (Step 7) |
+| `liteaero::nav` | `liteaero::nav` | Navigation filter, wind/flow-angle estimators | Not started (Step 9) |
+| `liteaero::guidance` | `liteaero::guidance` | Path guidance, vertical guidance, park tracking | Not started |
+| `liteaero::autopilot` | `liteaero::autopilot` | Autopilot inner loop | Not started |
+| `liteaero::perception` | `liteaero::perception` | Vision navigator, lidar terrain estimator | Not started |
+| `liteaero::mission_autonomy` | `liteaero::mission_autonomy` | Link budget estimator | Not started |
 
-**Prerequisite:** Repo split milestone (see project roadmap `README.md`).
+LiteAero Sim already consumes `liteaero-flight` via `add_subdirectory` and all LiteAero Sim tests
+pass against the migrated targets. Remaining steps migrate further subsystems, add shared interface
+types, and eventually verify the full stack end-to-end.
 
 ---
 

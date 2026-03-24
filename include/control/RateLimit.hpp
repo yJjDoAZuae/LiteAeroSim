@@ -1,10 +1,10 @@
 #pragma once
 
-#include "SisoElement.hpp"
+#include <liteaero/control/SisoElement.hpp>
 
 namespace liteaerosim::control {
 
-class RateLimit : public liteaerosim::SisoElement {
+class RateLimit : public liteaero::control::SisoElement {
 public:
     RateLimit() :
         lower_limit_(0.0f),

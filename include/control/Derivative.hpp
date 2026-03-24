@@ -1,14 +1,14 @@
 #pragma once
 
 #include "control/control.hpp"
-#include "SisoElement.hpp"
+#include <liteaero/control/SisoElement.hpp>
 #include "control/Limit.hpp"
 #include "control/Antiwindup.hpp"
 #include <vector>
 
 namespace liteaerosim::control {
 
-class Derivative : public liteaerosim::SisoElement {
+class Derivative : public liteaero::control::SisoElement {
 public:
     Derivative() :
         dt_s_(1.0f),

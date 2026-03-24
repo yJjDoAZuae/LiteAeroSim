@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DynamicElement.hpp"
+#include <liteaero/control/DynamicElement.hpp>
 #include "control/control.hpp"
 #include "control/Gain.hpp"
 #include "control/FilterSS2Clip.hpp"
@@ -18,7 +18,7 @@ namespace liteaerosim::control {
 /// The six FilterSS2Clip members, Integrator, Derivative, and two Unwrap
 /// members each carry their own serializable state. SISOPIDFF coordinates
 /// their lifecycle and exposes a composite snapshot.
-class SISOPIDFF : public liteaerosim::DynamicElement {
+class SISOPIDFF : public liteaero::control::DynamicElement {
 public:
     SISOPIDFF();
     SISOPIDFF(const SISOPIDFF& other);

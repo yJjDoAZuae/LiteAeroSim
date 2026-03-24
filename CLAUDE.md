@@ -112,7 +112,7 @@ Full project documentation lives in [docs/](docs/README.md).
 | Document | Contents |
 | --- | --- |
 | [docs/architecture/overview.md](docs/architecture/overview.md) | Layer model, subsystem map, coordinate frames, data flow |
-| [docs/architecture/dynamic_block.md](docs/architecture/dynamic_block.md) | **Design authority** for all SISO dynamic elements — `DynamicBlock` NVI pattern, serialization contract, logging interface, migration strategy |
+| [docs/architecture/dynamic_element.md](docs/architecture/dynamic_element.md) | **Design authority** for the `DynamicElement` / `SisoElement` lifecycle contract, Filter hierarchy, Propulsion hierarchy, serialization contract, logging interface |
 | [docs/algorithms/filters.md](docs/algorithms/filters.md) | Filter discretization, Tustin bilinear prewarping, control algorithms |
 | [docs/dependencies/README.md](docs/dependencies/README.md) | License policy, dependency registry, Conan + FetchContent patterns |
 | [docs/installation/README.md](docs/installation/README.md) | Build from source, toolchain setup, first run |

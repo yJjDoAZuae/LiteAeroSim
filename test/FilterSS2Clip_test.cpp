@@ -10,6 +10,7 @@
 using namespace std;
 using namespace liteaerosim::control;
 using namespace liteaerosim;
+using liteaero::control::SisoElement;
 
 TEST(FilterSS2ClipTest, Instantiation00) {
 

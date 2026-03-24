@@ -229,4 +229,4 @@ sequenceDiagram
 | Filter discretization | Tustin (bilinear) with prewarping | Preserves frequency-domain behavior at design frequency |
 | Path transitions | Dubins / Trochoid | Time-optimal under curvature constraint and wind |
 | Linear algebra | Eigen3 | De-facto standard; zero-cost abstractions; fixed-size matrices |
-| Build system | CMake FetchContent | Reproducible, no separate package manager required |
+| Build system | Conan 2.x + CMake (`add_subdirectory` for liteaero-flight; FetchContent for packages not in ConanCenter) | Reproducible; no separate package manager required |

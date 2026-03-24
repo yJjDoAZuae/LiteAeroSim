@@ -4,6 +4,7 @@
 
 using namespace liteaerosim::control;
 using namespace liteaerosim;
+using liteaero::control::SisoElement;
 
 TEST(FilterFIRTest, Instantiation00) {
     FilterFIR G;

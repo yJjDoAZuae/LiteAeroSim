@@ -1,5 +1,8 @@
 # Logger — Architecture and Interface Design
 
+The `Logger` subsystem now resides in **`liteaero-flight`** (`liteaero::log` namespace,
+`liteaero::log` CMake target). LiteAero Sim consumes it via the `add_subdirectory` dependency.
+
 This document is the design authority for the `Logger` subsystem. It covers the use case
 decomposition, requirements derived from simulation needs, format selection rationale, class
 architecture, data model, multi-source integration, real-time operation, and resilience to
@@ -467,7 +470,7 @@ re-writes a valid footer, making the file fully compliant again.
 
 ```cpp
 // include/logger/Logger.hpp
-namespace liteaerosim::logger {
+namespace liteaero::log {
 
 enum class LogFormat { Mcap, Csv };
 
@@ -497,14 +500,14 @@ public:
     bool is_open() const;
 };
 
-} // namespace liteaerosim::logger
+} // namespace liteaero::log
 ```
 
 ### `LogSource`
 
 ```cpp
 // include/logger/LogSource.hpp
-namespace liteaerosim::logger {
+namespace liteaero::log {
 
 class LogSource {
 public:
@@ -519,14 +522,14 @@ public:
     const std::string& name()       const;
 };
 
-} // namespace liteaerosim::logger
+} // namespace liteaero::log
 ```
 
 ### `LogReader`
 
 ```cpp
 // include/logger/LogReader.hpp
-namespace liteaerosim::logger {
+namespace liteaero::log {
 
 class LogReader {
 public:
@@ -553,7 +556,7 @@ public:
     void close();
 };
 
-} // namespace liteaerosim::logger
+} // namespace liteaero::log
 ```
 
 ---
@@ -562,27 +565,29 @@ public:
 
 | Library | Version | License | Integration |
 | --------- | --------- | --------- | ------------- |
-| `mcap` (C++) | latest | MIT | FetchContent |
-| `mcap` (Python) | latest | MIT | `uv` / `pyproject.toml` |
+| `mcap` (C++) | v1.4.0 | MIT | FetchContent in liteaero-flight; consumed transitively by liteaero-sim |
+| `mcap` (Python) | latest | MIT | `uv` / `pyproject.toml` in liteaero-sim |
 
 The MCAP C++ library (`foxglove/mcap`) is header-only with no required dependencies beyond
-the C++17 standard library. It is integrated via `FetchContent` following the same pattern
-as the existing `nlohmann_json` dependency.
+the C++17 standard library. It is declared in `liteaero-flight`'s `CMakeLists.txt` via
+`FetchContent`. LiteAero Sim does not declare mcap directly — it receives it transitively
+via the `liteaero::log` target.
 
 ---
 
 ## File Map
 
-| File | Contents |
-| ------ | ---------- |
-| `include/logger/Logger.hpp` | `Logger` class declaration |
-| `include/logger/LogSource.hpp` | `LogSource` handle (returned by `Logger::addSource()`) |
-| `include/logger/LogReader.hpp` | `LogReader` class declaration |
-| `include/logger/ChannelInfo.hpp` | `ChannelInfo`, `SourceDescriptor` value types |
-| `src/logger/Logger.cpp` | `Logger`, `WriterThread`, `RingBuffer` implementation |
-| `src/logger/McapLogWriter.cpp` | MCAP format writer (wraps `mcap` C++ library) |
-| `src/logger/CsvLogWriter.cpp` | CSV text writer |
-| `src/logger/LogReader.cpp` | Reader, recovery, CSV export |
-| `test/Logger_test.cpp` | Unit tests |
-| `python/src/las/log_reader.py` | Python `LogReader` (wraps `mcap` Python library) |
-| `python/tools/plot_flight.py` | CLI plotting tool (uses `log_reader.py`) |
+All C++ files are in **`liteaero-flight`**. Python files remain in LiteAero Sim.
+
+| File | Contents | Repo |
+| ------ | ---------- | ---- |
+| `include/liteaero/log/ILogger.hpp` | `ILogger` abstract interface | liteaero-flight |
+| `include/liteaero/log/Logger.hpp` | `Logger` class declaration | liteaero-flight |
+| `include/liteaero/log/LogSource.hpp` | `LogSource` handle (returned by `Logger::addSource()`) | liteaero-flight |
+| `include/liteaero/log/LogReader.hpp` | `LogReader` class declaration | liteaero-flight |
+| `src/log/Logger.cpp` | `Logger`, `WriterThread`, `RingBuffer` implementation | liteaero-flight |
+| `src/log/mcap_impl.cpp` | MCAP format writer (wraps `mcap` C++ library) | liteaero-flight |
+| `src/log/LogReader.cpp` | Reader, recovery, CSV export | liteaero-flight |
+| `test/log/Logger_test.cpp` | Unit tests | liteaero-flight |
+| `python/src/las/log_reader.py` | Python `LogReader` (wraps `mcap` Python library) | liteaero-sim |
+| `python/tools/plot_flight.py` | CLI plotting tool (uses `log_reader.py`) | liteaero-sim |

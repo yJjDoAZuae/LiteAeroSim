@@ -1,6 +1,6 @@
 #pragma once
 
-#include "SisoElement.hpp"
+#include <liteaero/control/SisoElement.hpp>
 
 namespace liteaerosim::control {
 
@@ -8,7 +8,7 @@ namespace liteaerosim::control {
 ///
 /// Extends SisoElement with limit-specific query and control methods.
 /// All concrete limiters (Limit, RateLimit, …) derive from this.
-class LimitElement : public liteaerosim::SisoElement {
+class LimitElement : public liteaero::control::SisoElement {
 public:
     /// Enable both lower and upper limits.
     void enable() { enableLower(); enableUpper(); }

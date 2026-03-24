@@ -7,7 +7,7 @@
 | 0 | Extract history with `git filter-repo`; push to remote | Complete |
 | 1 | Repository scaffolding and CMake skeleton | Complete |
 | 2 | `liteaero::log`: ILogger and logging infrastructure | Complete |
-| 3 | `liteaero::control`: `DynamicElement` and `SisoElement` | Not started |
+| 3 | `liteaero::control`: `DynamicElement` and `SisoElement` | Complete |
 | 4 | `liteaero::control`: Filter hierarchy | Not started |
 | 5 | `liteaero::control`: SISO elements and scheduling infrastructure | Not started |
 | 6 | `KinematicStateSnapshot` design document | Not started |
@@ -412,44 +412,44 @@ liteaero-flight build.
 
 Migrate the root abstract lifecycle interfaces.
 
-#### Step 3 — liteaero-flight
+#### Step 3 — liteaero-flight (Complete)
 
-**Source files to copy and adapt:**
+**Delivered:**
 
-| LiteAero Sim source | liteaero-flight destination | Namespace change |
-| --- | --- | --- |
-| `include/DynamicElement.hpp` | `include/liteaero/control/DynamicElement.hpp` | `liteaerosim` → `liteaero::control` |
-| `src/DynamicElement.cpp` | `src/control/DynamicElement.cpp` | `liteaerosim` → `liteaero::control` |
-| `include/SisoElement.hpp` | `include/liteaero/control/SisoElement.hpp` | `liteaerosim` → `liteaero::control` |
-| `src/SisoElement.cpp` | `src/control/SisoElement.cpp` | `liteaerosim` → `liteaero::control` |
-
-The `liteaero::control` target links `liteaero::log` (for `ILogger`), `nlohmann_json`, and
-protobuf. No test files added in this step — `DynamicElement` and `SisoElement` are
-abstract; tests arrive with their concrete subclasses.
-
-`src/CMakeLists.txt`: promote `liteaero_control` from INTERFACE to STATIC. Add sources.
-Link `liteaero::log`, `nlohmann_json::nlohmann_json`, `liteaero_flight_proto`,
-`protobuf::libprotobuf`.
+| File | Change |
+| --- | --- |
+| `include/liteaero/control/DynamicElement.hpp` | `#include "ILogger.hpp"` → `<liteaero/log/ILogger.hpp>`; namespace `liteaerosim` → `liteaero::control`; `ILogger*`/`ILogger&` → `liteaero::log::ILogger*`/`&` |
+| `include/liteaero/control/SisoElement.hpp` | `#include "DynamicElement.hpp"` → `<liteaero/control/DynamicElement.hpp>`; namespace → `liteaero::control` |
+| `src/control/DynamicElement.cpp` | Include → `<liteaero/control/DynamicElement.hpp>`; namespace → `liteaero::control`; `attachLogger(ILogger*)` → `attachLogger(liteaero::log::ILogger*)` |
+| `src/control/SisoElement.cpp` | Include → `<liteaero/control/SisoElement.hpp>`; namespace → `liteaero::control` |
+| `src/CMakeLists.txt` | `liteaero_control` promoted from INTERFACE to STATIC; sources: `DynamicElement.cpp`, `SisoElement.cpp`; PUBLIC: `liteaero::log`, `nlohmann_json::nlohmann_json`; PRIVATE: `liteaero_flight_proto`, `protobuf::libprotobuf` |
 
 **Verification:** `mingw32-make -C build liteaero_control` — compiles cleanly, no errors.
 
-#### Step 3 — LiteAero Sim
+#### Step 3 — LiteAero Sim (Complete)
 
-**Code to remove from LiteAero Sim:**
+**Delivered:**
 
-| LiteAero Sim file | Replacement |
+| Change | Detail |
 | --- | --- |
-| `include/DynamicElement.hpp` | `<liteaero/control/DynamicElement.hpp>` |
-| `src/DynamicElement.cpp` | (compiled in liteaero-flight) |
-| `include/SisoElement.hpp` | `<liteaero/control/SisoElement.hpp>` |
-| `src/SisoElement.cpp` | (compiled in liteaero-flight) |
+| `include/control/Filter.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/Derivative.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/Integrator.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/Limit.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/LimitElement.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/RateLimit.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/Unwrap.hpp` | Include → `<liteaero/control/SisoElement.hpp>`; base → `liteaero::control::SisoElement` |
+| `include/control/SISOPIDFF.hpp` | Include → `<liteaero/control/DynamicElement.hpp>`; base → `liteaero::control::DynamicElement` |
+| `include/propulsion/Propulsion.hpp` | Include → `<liteaero/control/DynamicElement.hpp>`; base → `liteaero::control::DynamicElement` |
+| `include/sensor/SensorAirData.hpp` | Include → `<liteaero/control/DynamicElement.hpp>`; base → `liteaero::control::DynamicElement` |
+| `src/CMakeLists.txt` | Added `liteaero::control` (PUBLIC) to `liteaerosim` link libraries |
+| `test/Filter*_test.cpp` (5 files) | Added `using liteaero::control::SisoElement;` — `SisoElement` was previously reachable via `using namespace liteaerosim` |
+| `include/DynamicElement.hpp` | Deleted |
+| `src/DynamicElement.cpp` | Deleted |
+| `include/SisoElement.hpp` | Deleted |
+| `src/SisoElement.cpp` | Deleted |
 
-Update all LiteAero Sim include sites. Update `liteaero-sim/CMakeLists.txt` to link
-`liteaero::control`. Update all `liteaerosim::DynamicElement` and `liteaerosim::SisoElement`
-references at call sites to `liteaero::control::DynamicElement` and
-`liteaero::control::SisoElement`.
-
-**Verification:** All LiteAero Sim tests pass.
+**Verification:** 463/465 LiteAero Sim tests pass (same 2 pre-existing FilterTF failures).
 
 ---
 

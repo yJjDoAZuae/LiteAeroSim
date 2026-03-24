@@ -1,14 +1,14 @@
 #pragma once
 
 #include "control/control.hpp"
-#include "SisoElement.hpp"
+#include <liteaero/control/SisoElement.hpp>
 #include "control/Limit.hpp"
 #include "control/Antiwindup.hpp"
 #include <vector>
 
 namespace liteaerosim::control {
 
-class Integrator : public liteaerosim::SisoElement {
+class Integrator : public liteaero::control::SisoElement {
 public:
     Integrator() :
         dt_s_(1.0f),

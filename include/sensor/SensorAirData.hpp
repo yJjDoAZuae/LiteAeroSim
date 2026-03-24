@@ -1,5 +1,5 @@
 #pragma once
-#include "DynamicElement.hpp"
+#include <liteaero/control/DynamicElement.hpp>
 #include "environment/AtmosphericState.hpp"
 #include <Eigen/Dense>
 #include <cstdint>
@@ -44,7 +44,7 @@ struct AirDataConfig {
 // CAS, EAS, TAS, Mach, barometric altitude, and OAT from the noisy lagged readings.
 // The static pressure channel models the fuselage crossflow pressure error via the
 // two-port symmetric crosslinked model (see docs/algorithms/air_data.md).
-class SensorAirData : public liteaerosim::DynamicElement {
+class SensorAirData : public liteaero::control::DynamicElement {
 public:
     explicit SensorAirData(const nlohmann::json& config);
     ~SensorAirData();  // defined in .cpp — RngState pimpl requires complete type at destruction
