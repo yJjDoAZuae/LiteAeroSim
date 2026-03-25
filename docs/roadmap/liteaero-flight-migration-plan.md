@@ -16,7 +16,7 @@
 | 9 | LiteAero Flight stub headers | Complete |
 | 10 | liteaero-flight build and test verification | Complete |
 | 11 | LiteAero Sim internal namespace migration | Complete |
-| 12 | Final build and regression verification | Not started |
+| 12 | Final build and regression verification | Complete |
 
 ---
 
@@ -855,43 +855,54 @@ remain in `include/` or `src/`.
 
 ### Step 12 — Final Build and Regression Verification
 
-Run both repositories' test suites and confirm:
+#### Step 12 — Delivered
 
-1. **liteaero-flight:**
+**Test results:**
 
-   ```bash
-   PATH="/c/msys64/ucrt64/bin:$PATH" ctest --test-dir build --output-on-failure
-   ```
+| Repository | Total | Passed | Failed | vs. Baseline |
+| --- | --- | --- | --- | --- |
+| liteaero-flight | 173 | 171 | 2 (pre-existing `FilterTF`) | ✅ Matches Step 10 baseline |
+| LiteAero Sim | 345 | 345 | 0 | ✅ Matches Step 11 baseline |
 
-   Same pass/fail count as Step 10 baseline.
+**Namespace audit:**
 
-2. **LiteAero Sim:**
+- liteaero-sim `include/` and `src/`: no `liteaerosim` namespace references. Remaining
+  uses of the string `liteaerosim` are: generated proto header `liteaerosim.pb.h` (filename
+  derives from CMake target, not C++ namespace) and `"liteaerosim_terrain"` GLTF extras key
+  (serialized file format key, not a namespace).
+- liteaero-flight `include/` and `src/`: no `liteaerosim` namespace references.
 
-   ```bash
-   PATH="/c/msys64/ucrt64/bin:$PATH" ctest --test-dir build --output-on-failure
-   ```
+**Dead header audit:**
 
-   Same pass count as before Step 11; zero regressions.
+Three orphaned files from the Step 0 filter-repo extraction were found in liteaero-flight
+and deleted — they predated Step 7 and had been superseded without being removed:
 
-3. **Namespace audit:**
+- `include/KinematicState.hpp`
+- `src/KinematicState.cpp`
+- `test/KinematicState_test.cpp`
 
-   ```bash
-   grep -r "liteaerosim" include/ src/
-   ```
+Filename overlap between the two repos (`KinematicState.hpp`, `WGS84.hpp`, `numerics.hpp`)
+was checked; none are duplicates — they are distinct files with different namespaces and
+content.
 
-   Returns no results in either repository.
+**ICD cross-reference audit:**
 
-4. **Dead header audit:** No files in `liteaero-sim/include/` or `liteaero-sim/src/` are
-   copies of files now in `liteaero-flight/` (verify no stale duplicates).
+`liteaero-flight/docs/interfaces/icds.md` populated with full ICD entries for ICD-F1
+through ICD-F6. In `liteaero-sim/docs/architecture/system/present/icds.md`, entries for
+ICD-1, ICD-4, ICD-5, ICD-6, and ICD-7 replaced with cross-references to liteaero-flight.
+ICD-2 (`AtmosphericState`) and ICD-3 (`EnvironmentState`) remain as full definitions in
+the sim file (sim-owned types).
 
-5. **ICD cross-reference audit:** `liteaero-sim/docs/architecture/system/present/icds.md`
-   contains cross-references (not definitions) for ICD-1, ICD-4, ICD-5, ICD-6, ICD-7.
+**Doc updates:**
 
-Update `docs/roadmap/README.md` cross-cutting milestones table: mark liteaero-flight
-repository creation ✅ and Repo split and namespace migration ✅.
+- `docs/roadmap/README.md` milestones: `liteaero-flight` repository creation ✅ Complete;
+  Repo split and namespace migration ✅ Complete.
+- `docs/roadmap/flight_code.md` Current State table: updated in Step 9.
 
-Update `docs/roadmap/flight_code.md` Current State table: update all stub paths to their
-`liteaero-flight` locations.
+**FC-1 complete.** Both repositories build and test clean. All `liteaero::` namespace
+targets are in liteaero-flight; all remaining LiteAero Sim code is in
+`liteaero::simulation`. The one-way dependency (liteaero-sim → liteaero-flight via
+`add_subdirectory`) is in place and verified.
 
 ---
 

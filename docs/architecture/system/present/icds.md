@@ -4,34 +4,15 @@ At the present stage, ICDs identify each interface, its data content, and the
 architectural constraints that govern it. Field-level schema definitions are in the C++
 headers and `proto/liteaerosim.proto`; they are not reproduced here.
 
+ICD-1, ICD-4, ICD-5, ICD-6, and ICD-7 are owned by liteaero-flight and defined in
+`liteaero-flight/docs/interfaces/icds.md`. The entries below are cross-references only.
+ICD-2 and ICD-3 are owned by LiteAero Sim and defined here.
+
 ---
 
 ## ICD-1 — AircraftCommand
 
-**Producer:** Simulation framework (test harness); future Autopilot component.
-
-**Consumer:** `Aircraft::step()`
-
-**Transport:** Direct function-call argument (in-process, same translation unit).
-
-**Content:**
-
-| Field | Unit | Description |
-| --- | --- | --- |
-| `n_z` | g | Commanded normal load factor |
-| `n_y` | g | Commanded lateral load factor |
-| `rollRate_Wind_rps` | rad/s | Commanded wind-frame roll rate |
-| `throttle_nd` | nd | Normalized throttle [0, 1] |
-
-**Constraints:**
-
-- All values SI. No unit conversion inside `Aircraft`.
-- `n_z = 1` is 1 g (level, unaccelerated flight). `n_z = 0` is zero g (free fall).
-- `throttle_nd` is clamped to [0, 1] inside `Aircraft`; the caller need not pre-clamp.
-- Load factor rate terms (`n_z_dot`, `n_y_dot`) for alpha-dot and beta-dot feed-forward
-  are computed internally by `Aircraft` via an IIR filtered differentiator
-  (`FilterSS2Clip::setDerivIIR`) applied to the clamped commands. They are not part of
-  the external interface. The filter time constant and step size are configuration parameters.
+**Owner:** liteaero-flight (ICD-F1). See `liteaero-flight/docs/interfaces/icds.md`.
 
 ---
 
@@ -85,94 +66,27 @@ headers and `proto/liteaerosim.proto`; they are not reproduced here.
 
 ---
 
-## ICD-4 — KinematicState
+## ICD-4 — KinematicStateSnapshot
 
-**Producer:** `Aircraft::step()` (updates internal state; accessor returns const reference).
+**Owner:** liteaero-flight (ICD-F2). See `liteaero-flight/docs/interfaces/icds.md`.
 
-**Consumers:** All sensors; Logger; future Autopilot and Navigation components.
-
-**Transport:** Const reference or value copy.
-
-**Key content (selected fields):**
-
-| Group | Content | Unit |
-| --- | --- | --- |
-| Position | WGS84 datum (latitude, longitude, altitude above ellipsoid) | deg, deg, m |
-| NED velocity | `velocity_NED_mps` | m/s |
-| Attitude | Quaternion `q_nb` (NED to body); Euler angles (roll, pitch, yaw) | rad |
-| Body rates | `p`, `q`, `r` | rad/s |
-| Body acceleration | `acceleration_body_mps2` | m/s² |
-| Aerodynamic angles | `alpha_rad`, `beta_rad` | rad |
-| Airspeed | `Va_mps` | m/s |
-
-**Constraints:**
-
-- `KinematicState` is owned by `Aircraft`; external components hold const references or
-  copy the struct.
-- Angular rates are body-frame; Euler angles use 3-2-1 (yaw–pitch–roll) sequence.
+Note: the liteaero-sim wrapper `KinematicState` holds a `KinematicStateSnapshot` and
+exposes it via `snapshot()`.
 
 ---
 
 ## ICD-5 — AirDataMeasurement
 
-**Producer:** `SensorAirData::step()`
-
-**Consumers:** Logger; future NavigationFilter; future Autopilot (altitude/airspeed hold).
-
-**Transport:** Return value from `step()`.
-
-**Content:**
-
-| Field | Unit | Description |
-| --- | --- | --- |
-| `ias_mps` | m/s | Indicated airspeed (incompressible Bernoulli, ρ₀ reference) |
-| `cas_mps` | m/s | Calibrated airspeed (isentropic, ρ₀ reference) |
-| `eas_mps` | m/s | Equivalent airspeed (dynamic pressure equivalent at ρ₀) |
-| `tas_mps` | m/s | True airspeed |
-| `mach_nd` | nd | Mach number |
-| `baro_altitude_m` | m | Barometric altitude (Kollsman-referenced) |
-| `oat_k` | K | Outside air temperature |
-
-**Constraints:**
-
-- All values include configured noise, lag, and crossflow pressure error.
-- `ias_mps`, `cas_mps`, `eas_mps`, `tas_mps`, `mach_nd` are clamped to ≥ 0.
+**Owner:** liteaero-flight (ICD-F4). See `liteaero-flight/docs/interfaces/icds.md`.
 
 ---
 
 ## ICD-6 — Terrain Query Interface (`V_Terrain`)
 
-**Producer:** `FlatTerrain` or `TerrainMesh`
-
-**Consumers:** Future `SensorRadAlt`, `SensorLaserAlt`; future landing gear contact model; future guidance.
-
-**Transport:** Virtual function call.
-
-**Interface:**
-
-```cpp
-float heightAboveSeaLevel_m(Eigen::Vector3f position_NED_m) const
-Eigen::Vector3f surfaceNormal_NED(Eigen::Vector3f position_NED_m) const
-```
-
-**Constraints:**
-
-- Height is above the WGS84 ellipsoid (approximately MSL for low-altitude operations).
-- Surface normal is unit vector expressed in NED frame.
-- Both `FlatTerrain` and `TerrainMesh` are conforming implementations.
+**Owner:** liteaero-flight (ICD-F5). See `liteaero-flight/docs/interfaces/icds.md`.
 
 ---
 
 ## ICD-7 — Logger Write Interface
 
-**Producer:** All domain components (via `LogSource`)
-
-**Consumer:** `Logger`
-
-**Transport:** Method call.
-
-**Constraints:**
-
-- All logged quantities must be in SI units.
-- Channel names are strings; units are encoded in the name where not obvious.
-- The `Logger` is write-only during simulation; reading uses `LogReader`.
+**Owner:** liteaero-flight (ICD-F6). See `liteaero-flight/docs/interfaces/icds.md`.

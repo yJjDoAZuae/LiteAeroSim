@@ -10,7 +10,7 @@ detailed items within each component boundary.
 | Workstream | Component | Roadmap | Status |
 | --- | --- | --- | --- |
 | Simulation plant — aircraft physics, environment, terrain, sensors, external interfaces, sim runner | LiteAero Sim | [aircraft.md](aircraft.md) | Active |
-| Flight code — autopilot, guidance, path, navigation, estimation, gain scheduling | LiteAero Flight | [flight_code.md](flight_code.md) | Planned — `liteaero-flight` repo not yet created |
+| Flight code — autopilot, guidance, path, navigation, estimation, gain scheduling | LiteAero Flight | `liteaero-flight/docs/roadmap/flight_code.md` | Active — `liteaero-flight` repo created; FC-1 complete |
 
 ---
 
@@ -20,8 +20,8 @@ detailed items within each component boundary.
 | --- | --- | --- |
 | **System architecture definition** | All subsequent development | ✅ Complete — see `docs/architecture/system/future/` |
 | **Aerodynamic coefficient design study** — define how aero coefficients will be obtained; run design process through several aircraft configurations to determine `BodyAxisCoeffModel` format | `Aircraft6DOF` / `BodyAxisCoeffModel` design (OQ-16c) | Not yet scheduled |
-| **`liteaero-flight` repository creation** — create repo; set up CMake build system with one target per subsystem (`liteaero::log`, `liteaero::control`, `liteaero::terrain`, `liteaero::nav`, `liteaero::guidance`, `liteaero::autopilot`, `liteaero::perception`, `liteaero::mission_autonomy`); migrate shared interface types | LiteAero Flight development | ✅ In Progress — Steps 0–3 complete; see [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) |
-| **Repo split and namespace migration** — migrate `DynamicElement`/`SisoElement`/Filter hierarchy → `liteaero::control`; `ILogger` → `liteaero::log`; terrain mesh types / `V_Terrain` → `liteaero::terrain`; shared interface types → `liteaero-flight`; apply `liteaero::` namespace to all code; update LiteAero Sim to take a versioned dependency on `liteaero-flight` | LiteAero Flight development; SITL verification pipeline | In Progress — Steps 0–3 of [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) complete; `liteaero::log` (`ILogger`, logging infrastructure) and `liteaero::control` (`DynamicElement`, `SisoElement`) migrated; Filter hierarchy, SISO elements, terrain types, and shared interfaces pending |
+| **`liteaero-flight` repository creation** — create repo; set up CMake build system with one target per subsystem (`liteaero::log`, `liteaero::control`, `liteaero::terrain`, `liteaero::nav`, `liteaero::guidance`, `liteaero::autopilot`, `liteaero::perception`, `liteaero::mission_autonomy`); migrate shared interface types | LiteAero Flight development | ✅ Complete — see [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) |
+| **Repo split and namespace migration** — migrate `DynamicElement`/`SisoElement`/Filter hierarchy → `liteaero::control`; `ILogger` → `liteaero::log`; terrain mesh types / `V_Terrain` → `liteaero::terrain`; shared interface types → `liteaero-flight`; apply `liteaero::simulation` namespace to all LiteAero Sim code; update LiteAero Sim to consume `liteaero-flight` via `add_subdirectory` | LiteAero Flight development; SITL verification pipeline | ✅ Complete — all Steps 0–12 of [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) complete |
 
 ---
 
@@ -47,6 +47,6 @@ milestones. Detailed design for each item will be documented before implementati
 | Document | Contents |
 | --- | --- |
 | [aircraft.md](aircraft.md) | LiteAero Sim simulation plant — Aircraft, environment, terrain, sensors, sim runner, external interfaces, visualization |
-| [flight_code.md](flight_code.md) | LiteAero Flight component — autopilot, guidance, path, navigation, estimation, gain scheduling |
+| [flight_code.md](flight_code.md) | LiteAero Flight component roadmap — cross-reference to `liteaero-flight/docs/roadmap/flight_code.md` |
 | [terrain-implementation-plan.md](terrain-implementation-plan.md) | Terrain subsystem implementation record (complete) |
 | [liteaero-flight-migration-plan.md](liteaero-flight-migration-plan.md) | LiteAero Flight repository creation and repo split — implementation plan |
