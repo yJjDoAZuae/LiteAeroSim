@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 /// Abstract base for all propulsion models.
 ///
@@ -35,4 +35,4 @@ public:
     virtual void                               deserializeProto(const std::vector<uint8_t>& b)    = 0;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

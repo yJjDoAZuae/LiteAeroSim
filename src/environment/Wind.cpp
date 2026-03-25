@@ -3,7 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 Wind::Wind(const WindConfig& config)
     : config_(config)
@@ -76,4 +76,4 @@ void Wind::deserializeJson(const nlohmann::json& j) {
     config_ = cfg;
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

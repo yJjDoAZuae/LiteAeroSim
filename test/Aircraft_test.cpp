@@ -14,7 +14,7 @@
 // StubPropulsion — constant-thrust, stateless test double
 // ---------------------------------------------------------------------------
 
-class StubPropulsion : public liteaerosim::propulsion::Propulsion {
+class StubPropulsion : public liteaero::simulation::Propulsion {
 public:
     explicit StubPropulsion(float thrust_n = 0.0f) : _thrust(thrust_n) {}
 
@@ -93,10 +93,10 @@ static nlohmann::json makeConfig() {
     })");
 }
 
-static std::unique_ptr<liteaerosim::Aircraft> makeAircraft(float stub_thrust_n = 989.0f,
+static std::unique_ptr<liteaero::simulation::Aircraft> makeAircraft(float stub_thrust_n = 989.0f,
                                                             float outer_dt_s   = 0.1f) {
     auto prop = std::make_unique<StubPropulsion>(stub_thrust_n);
-    auto ac   = std::make_unique<liteaerosim::Aircraft>(std::move(prop));
+    auto ac   = std::make_unique<liteaero::simulation::Aircraft>(std::move(prop));
     ac->initialize(makeConfig(), outer_dt_s);
     return ac;
 }
@@ -108,7 +108,7 @@ static std::unique_ptr<liteaerosim::Aircraft> makeAircraft(float stub_thrust_n =
 TEST(AircraftTest, ConstructsWithoutThrowing) {
     auto prop = std::make_unique<StubPropulsion>();
     EXPECT_NO_THROW({
-        liteaerosim::Aircraft ac(std::move(prop));
+        liteaero::simulation::Aircraft ac(std::move(prop));
     });
 }
 
@@ -124,7 +124,7 @@ TEST(AircraftTest, InitializePopulatesState) {
 TEST(AircraftTest, ResetRestoresInitialState) {
     auto ac = makeAircraft();
 
-    liteaerosim::AircraftCommand cmd;
+    liteaero::simulation::AircraftCommand cmd;
     cmd.n_z       = 1.0f;
     cmd.throttle_nd = 0.5f;
     Eigen::Vector3f wind = Eigen::Vector3f::Zero();
@@ -149,7 +149,7 @@ TEST(AircraftTest, ResetRestoresInitialState) {
 TEST(AircraftTest, StepDoesNotThrow) {
     auto ac = makeAircraft();
 
-    liteaerosim::AircraftCommand cmd;
+    liteaero::simulation::AircraftCommand cmd;
     cmd.n_z       = 1.0f;
     cmd.throttle_nd = 0.5f;
     Eigen::Vector3f wind = Eigen::Vector3f::Zero();
@@ -161,7 +161,7 @@ TEST(AircraftTest, ZeroThrottle_AircraftDecelerates) {
     // Zero thrust → drag decelerates the aircraft.
     auto ac = makeAircraft(0.0f);   // StubPropulsion always returns 0 N
 
-    liteaerosim::AircraftCommand cmd;
+    liteaero::simulation::AircraftCommand cmd;
     cmd.n_z       = 1.0f;
     cmd.throttle_nd = 0.0f;
     Eigen::Vector3f wind = Eigen::Vector3f::Zero();
@@ -181,7 +181,7 @@ TEST(AircraftTest, StraightAndLevel_SpeedApproximatelyConstant) {
     // Over 5 steps of 0.1 s, speed should change by less than 5%.
     auto ac = makeAircraft(989.0f);
 
-    liteaerosim::AircraftCommand cmd;
+    liteaero::simulation::AircraftCommand cmd;
     cmd.n_z       = 1.0f;
     cmd.throttle_nd = 0.5f;
     Eigen::Vector3f wind = Eigen::Vector3f::Zero();
@@ -202,8 +202,8 @@ TEST(AircraftTest, StraightAndLevel_SpeedApproximatelyConstant) {
 // Item 5 — serialization
 // ---------------------------------------------------------------------------
 
-static liteaerosim::AircraftCommand levelCmd() {
-    liteaerosim::AircraftCommand cmd;
+static liteaero::simulation::AircraftCommand levelCmd() {
+    liteaero::simulation::AircraftCommand cmd;
     cmd.n_z         = 1.0f;
     cmd.throttle_nd = 0.5f;
     return cmd;
@@ -220,7 +220,7 @@ TEST(AircraftTest, JsonRoundTrip_StateMatchesAfterRestore) {
     const nlohmann::json snapshot = ac1->serializeJson();
 
     auto prop2 = std::make_unique<StubPropulsion>(989.0f);
-    liteaerosim::Aircraft ac2(std::move(prop2));
+    liteaero::simulation::Aircraft ac2(std::move(prop2));
     ac2.deserializeJson(snapshot);
 
     // One additional step on both; outputs must agree to float precision.
@@ -245,7 +245,7 @@ TEST(AircraftTest, ProtoRoundTrip_StateMatchesAfterRestore) {
     const std::vector<uint8_t> bytes = ac1->serializeProto();
 
     auto prop2 = std::make_unique<StubPropulsion>(989.0f);
-    liteaerosim::Aircraft ac2(std::move(prop2));
+    liteaero::simulation::Aircraft ac2(std::move(prop2));
     ac2.deserializeProto(bytes);
 
     ac1->step(11 * 0.1, levelCmd(), wind, 1.225f);
@@ -264,7 +264,7 @@ TEST(AircraftTest, JsonSchemaVersionMismatchThrows) {
     snapshot["schema_version"] = 99;
 
     auto prop = std::make_unique<StubPropulsion>();
-    liteaerosim::Aircraft ac2(std::move(prop));
+    liteaero::simulation::Aircraft ac2(std::move(prop));
     EXPECT_THROW({ ac2.deserializeJson(snapshot); }, std::runtime_error);
 }
 
@@ -275,7 +275,7 @@ TEST(AircraftTest, ProtoSchemaVersionMismatchThrows) {
     bytes[1] = static_cast<uint8_t>(99);
 
     auto prop = std::make_unique<StubPropulsion>();
-    liteaerosim::Aircraft ac2(std::move(prop));
+    liteaero::simulation::Aircraft ac2(std::move(prop));
     EXPECT_THROW({ ac2.deserializeProto(bytes); }, std::runtime_error);
 }
 
@@ -290,19 +290,19 @@ static nlohmann::json loadFixture(const std::string& relative_path) {
 }
 
 TEST(AircraftTest, InitializeFromFixture_GeneralAviation) {
-    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_NO_THROW(ac->initialize(loadFixture("aircraft/general_aviation.json"), 0.02f));
     EXPECT_FLOAT_EQ(ac->state().velocity_NED_mps().x(), 55.0f);
 }
 
 TEST(AircraftTest, InitializeFromFixture_JetTrainer) {
-    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_NO_THROW(ac->initialize(loadFixture("aircraft/jet_trainer.json"), 0.02f));
     EXPECT_FLOAT_EQ(ac->state().velocity_NED_mps().x(), 150.0f);
 }
 
 TEST(AircraftTest, InitializeFromFixture_SmallUAS) {
-    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_NO_THROW(ac->initialize(loadFixture("aircraft/small_uas.json"), 0.02f));
     EXPECT_FLOAT_EQ(ac->state().velocity_NED_mps().x(), 20.0f);
 }
@@ -311,6 +311,6 @@ TEST(AircraftTest, InitializeWithMissingField_Throws) {
     nlohmann::json config = loadFixture("aircraft/general_aviation.json");
     config.erase("inertia");
 
-    auto ac = std::make_unique<liteaerosim::Aircraft>(std::make_unique<StubPropulsion>());
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_THROW(ac->initialize(config, 0.02f), std::exception);
 }

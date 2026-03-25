@@ -4,7 +4,7 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim::aerodynamics {
+namespace liteaero::simulation {
 
 // Wind-frame aerodynamic forces (SI units: Newtons).
 // Sign convention (NED-wind frame, X forward, Y right, Z down):
@@ -89,4 +89,4 @@ private:
     float _fin_arm_m;   // vertical tail moment arm (m)
 };
 
-} // namespace liteaerosim::aerodynamics
+} // namespace liteaero::simulation

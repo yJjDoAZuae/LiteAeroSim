@@ -8,7 +8,7 @@
 #include <optional>
 #include <stdexcept>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 using namespace liteaero::terrain;
 
@@ -920,7 +920,7 @@ void TerrainMesh::exportGltf(const std::filesystem::path& output_path,
         scene.nodes.push_back(tile_node_idx);
     }
 
-    // Root node that groups all tile nodes and carries liteaerosim extras.
+    // Root node that groups all tile nodes and carries LiteAero Sim GLTF extras.
     {
         tinygltf::Value::Object extras;
         extras["liteaerosim_terrain"]  = tinygltf::Value(true);
@@ -959,4 +959,4 @@ void TerrainMesh::exportGltf(const std::filesystem::path& output_path,
                                 pretty_print, write_binary);
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

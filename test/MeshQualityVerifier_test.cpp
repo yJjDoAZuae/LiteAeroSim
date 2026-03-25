@@ -5,7 +5,7 @@
 #include <cmath>
 
 using namespace liteaero::terrain;
-using namespace liteaerosim::environment;
+using namespace liteaero::simulation;
 
 // ---------------------------------------------------------------------------
 // Helpers

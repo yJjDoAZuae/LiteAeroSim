@@ -5,7 +5,7 @@
 #include "aerodynamics/LiftCurveModel.hpp"
 #include <utility>
 
-namespace liteaerosim::aerodynamics {
+namespace liteaero::simulation {
 
 // Stateless utility that derives all trim-aero-model coefficients from major
 // aircraft dimensional parameters. Implements the derivation chain defined in
@@ -22,4 +22,4 @@ public:
         estimate(const AircraftGeometry& geom);
 };
 
-} // namespace liteaerosim::aerodynamics
+} // namespace liteaero::simulation

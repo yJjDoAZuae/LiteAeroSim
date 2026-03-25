@@ -5,7 +5,7 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 struct Inertia {
     float mass_kg  = 0.0f;  // total aircraft mass (kg)
@@ -19,4 +19,4 @@ struct Inertia {
     static Inertia  deserializeProto(const std::vector<uint8_t>& bytes);
 };
 
-}  // namespace liteaerosim
+}  // namespace liteaero::simulation

@@ -1,6 +1,6 @@
 #pragma once
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct AtmosphereConfig {
     float delta_temperature_k  = 0.f;   // ISA temperature deviation ΔT (K); positive = warm day
@@ -8,4 +8,4 @@ struct AtmosphereConfig {
     int   schema_version       = 1;
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

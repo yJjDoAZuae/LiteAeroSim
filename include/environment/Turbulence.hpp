@@ -6,7 +6,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 enum class TurbulenceIntensity { None, Light, Moderate, Severe };
 
@@ -77,4 +77,4 @@ private:
     float w20_mps() const;
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

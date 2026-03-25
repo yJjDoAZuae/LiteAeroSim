@@ -2,7 +2,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 // ---------------------------------------------------------------------------
 // Physical constants
@@ -185,4 +185,4 @@ void Atmosphere::deserializeJson(const nlohmann::json& j) {
     cached_  = {cfg.relative_humidity_nd, cfg.delta_temperature_k};
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

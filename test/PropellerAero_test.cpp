@@ -3,7 +3,7 @@
 #include <cmath>
 #include <gtest/gtest.h>
 
-using liteaerosim::propulsion::PropellerAero;
+using liteaero::simulation::PropellerAero;
 
 // ── Test propeller: 0.5 m diameter, 0.5 m pitch, 3 blades, σ = 0.15 ──────────
 //

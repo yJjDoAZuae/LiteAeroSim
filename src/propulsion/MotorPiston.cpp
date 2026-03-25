@@ -2,7 +2,7 @@
 #include "propulsion/MotorPiston.hpp"
 #include <cmath>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 static constexpr float kRhoSL_kgm3 = 1.225f;
 
@@ -29,4 +29,4 @@ float MotorPiston::inertia_kg_m2() const {
     return _inertia_kg_m2;
 }
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

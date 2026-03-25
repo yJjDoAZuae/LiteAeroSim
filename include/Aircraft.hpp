@@ -15,7 +15,7 @@
 #include <optional>
 #include <vector>
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 // Inputs to a single Aircraft::step() call.
 struct AircraftCommand {
@@ -38,7 +38,7 @@ struct AircraftCommand {
 // Aircraft would invalidate that reference.
 class Aircraft {
 public:
-    explicit Aircraft(std::unique_ptr<propulsion::Propulsion> propulsion);
+    explicit Aircraft(std::unique_ptr<Propulsion> propulsion);
 
     // Aircraft is non-copyable, non-movable (LoadFactorAllocator holds &_liftCurve).
     Aircraft(const Aircraft&)            = delete;
@@ -81,10 +81,10 @@ private:
     KinematicState                                    _initial_state;
     std::optional<LiftCurveModel>                     _liftCurve;
     std::optional<LoadFactorAllocator>                _allocator;
-    std::optional<aerodynamics::AeroPerformance>      _aeroPerf;
+    std::optional<AeroPerformance>      _aeroPerf;
     AirframePerformance                               _airframe;
     Inertia                                           _inertia;
-    std::unique_ptr<propulsion::Propulsion>           _propulsion;
+    std::unique_ptr<Propulsion>           _propulsion;
 
     // IIR-filtered command processing (Nz, Ny derivative; roll rate low-pass).
     liteaero::control::FilterSS2Clip _n_z_deriv;
@@ -97,4 +97,4 @@ private:
     float                  _cmd_roll_rate_tau_s  = 0.1f;
 };
 
-} // namespace liteaerosim
+} // namespace liteaero::simulation

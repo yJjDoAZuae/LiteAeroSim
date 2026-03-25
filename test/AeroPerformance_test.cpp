@@ -7,7 +7,7 @@
 #include <vector>
 #include <cstdint>
 
-using namespace liteaerosim::aerodynamics;
+using namespace liteaero::simulation;
 
 // Typical general-aviation parameters:
 //   S = 16 m², AR = 7.2, e = 0.8, CD0 = 0.027, C_Yβ = -3.0 rad⁻¹

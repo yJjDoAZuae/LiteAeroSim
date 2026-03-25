@@ -3,7 +3,7 @@
 #include <cmath>
 #include <gtest/gtest.h>
 
-using liteaerosim::propulsion::PropulsionJet;
+using liteaero::simulation::PropulsionJet;
 
 // ── Shared test fixture ───────────────────────────────────────────────────────
 

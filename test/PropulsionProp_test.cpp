@@ -6,11 +6,11 @@
 #include <memory>
 #include <gtest/gtest.h>
 
-using liteaerosim::propulsion::MotorElectric;
-using liteaerosim::propulsion::MotorElectricEscParams;
-using liteaerosim::propulsion::MotorElectricMotorParams;
-using liteaerosim::propulsion::MotorPiston;
-using liteaerosim::propulsion::PropulsionProp;
+using liteaero::simulation::MotorElectric;
+using liteaero::simulation::MotorElectricEscParams;
+using liteaero::simulation::MotorElectricMotorParams;
+using liteaero::simulation::MotorPiston;
+using liteaero::simulation::PropulsionProp;
 
 static constexpr float kRhoSL = 1.225f;
 

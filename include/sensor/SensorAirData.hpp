@@ -7,7 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <vector>
 
-namespace liteaerosim::sensor {
+namespace liteaero::simulation {
 
 // Output struct returned by SensorAirData::step(). All quantities are derived from
 // the noisy, lagged transducer readings.
@@ -50,7 +50,7 @@ public:
     ~SensorAirData();  // defined in .cpp — RngState pimpl requires complete type at destruction
 
     AirDataMeasurement step(Eigen::Vector3f airspeed_body_mps,
-                            const liteaerosim::environment::AtmosphericState& atm);
+                            const liteaero::simulation::AtmosphericState& atm);
 
     // Runtime Kollsman (QNH) update. Takes effect immediately on the next step().
     void  setKollsman(float pa);
@@ -85,4 +85,4 @@ private:
     float baro_altitude(float ps_meas) const;
 };
 
-}  // namespace liteaerosim::sensor
+}  // namespace liteaero::simulation

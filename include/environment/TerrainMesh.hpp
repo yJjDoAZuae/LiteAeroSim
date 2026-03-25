@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 // Reference returned by spatial query methods.
 // `lod` is the selected LOD level for this cell (respecting the max_lod filter).
@@ -124,4 +124,4 @@ private:
     static double   cellExtentRad(liteaero::terrain::TerrainLod lod);
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

@@ -1,6 +1,6 @@
 #pragma once
 
-namespace liteaerosim::aerodynamics {
+namespace liteaero::simulation {
 
 // Dimensional description of a single lifting surface (wing, horizontal tail, or
 // vertical tail). All quantities are in SI units.
@@ -30,4 +30,4 @@ struct AircraftGeometry {
     float cd_misc_nd       = 0.003f;    // miscellaneous drag increment [—]
 };
 
-} // namespace liteaerosim::aerodynamics
+} // namespace liteaero::simulation

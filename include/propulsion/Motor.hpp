@@ -1,6 +1,6 @@
 #pragma once
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 /// Abstract motor interface. Decouples the power source from propeller aerodynamics.
 /// PropulsionProp uses Motor to determine target shaft speed, speed ceiling, and
@@ -22,4 +22,4 @@ public:
     [[nodiscard]] virtual float inertia_kg_m2() const = 0;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

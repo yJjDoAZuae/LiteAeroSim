@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-using namespace liteaerosim::environment;
+using namespace liteaero::simulation;
 
 // ---------------------------------------------------------------------------
 // T1: TurbulenceIntensity::None always returns zero velocity and angular rate

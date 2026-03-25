@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 #include <cmath>
 
-using namespace liteaerosim::environment;
+using namespace liteaero::simulation;
 
 // ---------------------------------------------------------------------------
 // Helpers

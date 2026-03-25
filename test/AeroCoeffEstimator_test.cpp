@@ -4,7 +4,7 @@
 #include <cmath>
 #include <stdexcept>
 
-using namespace liteaerosim::aerodynamics;
+using namespace liteaero::simulation;
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 //

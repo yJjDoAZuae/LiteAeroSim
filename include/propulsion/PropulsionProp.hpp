@@ -9,7 +9,7 @@
 #include <optional>
 #include <vector>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Propeller propulsion model.  Owns a PropellerAero (value) and a Motor (polymorphic).
 // Rotor speed dynamics are modelled by a first-order IIR FilterSS2Clip.
@@ -58,4 +58,4 @@ private:
     float                               _thrust_n           = 0.f;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

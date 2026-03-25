@@ -1,7 +1,7 @@
 #include "environment/Gust.hpp"
 #include <cmath>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -56,4 +56,4 @@ void Gust::reset() {
     active_ = false;
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

@@ -1,7 +1,7 @@
 #include "environment/LodSelector.hpp"
 #include <cmath>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 using namespace liteaero::terrain;
 
@@ -113,4 +113,4 @@ std::vector<TileRef> LodSelector::select(const TerrainMesh& mesh,
     return refs;
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <gtest/gtest.h>
 
-using liteaerosim::propulsion::PropulsionEDF;
+using liteaero::simulation::PropulsionEDF;
 
 static constexpr float kRhoSL = 1.225f;
 

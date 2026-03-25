@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
-using liteaerosim::Inertia;
+using liteaero::simulation::Inertia;
 
 namespace {
 Inertia gaInertia() {

@@ -12,13 +12,13 @@
 
 using liteaero::control::Mat21;
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
 
-Aircraft::Aircraft(std::unique_ptr<propulsion::Propulsion> propulsion)
+Aircraft::Aircraft(std::unique_ptr<Propulsion> propulsion)
     : _propulsion(std::move(propulsion)) {}
 
 // ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
 
     // 4. Aerodynamic performance and command-derivative filter config
     const auto& ac = config.at("aircraft");
-    aerodynamics::AeroPerformanceConfig aero_cfg;
+    AeroPerformanceConfig aero_cfg;
     aero_cfg.s_ref_m2  = ac.at("S_ref_m2").get<float>();
     aero_cfg.ar        = ac.at("ar").get<float>();
     aero_cfg.e         = ac.at("e").get<float>();
@@ -167,7 +167,7 @@ void Aircraft::step(double time_sec,
     const float cl = _liftCurve->evaluate(lfa_out.alpha_rad);
 
     // 7. Aerodynamic forces in Wind frame
-    const aerodynamics::AeroForces F =
+    const AeroForces F =
         _aeroPerf->compute(lfa_out.alpha_rad, lfa_out.beta_rad, q_inf, cl);
 
     // 8. Advance propulsion
@@ -236,7 +236,7 @@ void Aircraft::deserializeJson(const nlohmann::json& j) {
     _inertia  = Inertia::deserializeJson(j.at("inertia"));
 
     _liftCurve.emplace(LiftCurveModel::deserializeJson(j.at("lift_curve")));
-    _aeroPerf.emplace(aerodynamics::AeroPerformance::deserializeJson(j.at("aero_performance")));
+    _aeroPerf.emplace(AeroPerformance::deserializeJson(j.at("aero_performance")));
 
     // Emplace allocator with placeholder config — deserializeJson overwrites _S and _cl_y_beta.
     // The reference to _liftCurve is set at construction and is the only field not restored.
@@ -296,11 +296,11 @@ std::vector<uint8_t> Aircraft::serializeProto() const {
     *proto.mutable_inertia()  = parseSubMessage<las_proto::InertiaParams>(_inertia.serializeProto());
 
     if (_propulsion) {
-        if (auto* jet = dynamic_cast<propulsion::PropulsionJet*>(_propulsion.get()))
+        if (auto* jet = dynamic_cast<PropulsionJet*>(_propulsion.get()))
             *proto.mutable_jet()  = parseSubMessage<las_proto::PropulsionJetState>(jet->serializeProto());
-        else if (auto* edf = dynamic_cast<propulsion::PropulsionEDF*>(_propulsion.get()))
+        else if (auto* edf = dynamic_cast<PropulsionEDF*>(_propulsion.get()))
             *proto.mutable_edf()  = parseSubMessage<las_proto::PropulsionEdfState>(edf->serializeProto());
-        else if (auto* prop = dynamic_cast<propulsion::PropulsionProp*>(_propulsion.get()))
+        else if (auto* prop = dynamic_cast<PropulsionProp*>(_propulsion.get()))
             *proto.mutable_prop() = parseSubMessage<las_proto::PropulsionPropState>(prop->serializeProto());
     }
 
@@ -319,7 +319,7 @@ void Aircraft::deserializeProto(const std::vector<uint8_t>& bytes) {
     _inertia  = Inertia::deserializeProto(serializeSubMessage(proto.inertia()));
 
     _liftCurve.emplace(LiftCurveModel::deserializeProto(serializeSubMessage(proto.lift_curve())));
-    _aeroPerf.emplace(aerodynamics::AeroPerformance::deserializeProto(serializeSubMessage(proto.aero_performance())));
+    _aeroPerf.emplace(AeroPerformance::deserializeProto(serializeSubMessage(proto.aero_performance())));
 
     _allocator.emplace(*_liftCurve, 1.0f, -0.1f);
     _allocator->deserializeProto(serializeSubMessage(proto.allocator()));
@@ -363,4 +363,4 @@ void Aircraft::deserializeProto(const std::vector<uint8_t>& bytes) {
     }
 }
 
-} // namespace liteaerosim
+} // namespace liteaero::simulation

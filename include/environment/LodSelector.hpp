@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct LodSelectorConfig {
     float hysteresis_fraction_nd = 0.15f;  // δ — dead-band half-width fraction
@@ -33,4 +33,4 @@ private:
     std::unordered_map<uint64_t, liteaero::terrain::TerrainLod> committed_lod_;
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

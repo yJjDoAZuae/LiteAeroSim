@@ -2,7 +2,7 @@
 #include <Eigen/Dense>
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct WindConfig {
     Eigen::Vector3f direction_NED_unit  = {1.f, 0.f, 0.f};  // unit vector in NED
@@ -34,4 +34,4 @@ private:
     float magnitude_at(float altitude_m) const;
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

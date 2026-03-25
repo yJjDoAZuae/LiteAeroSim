@@ -1,6 +1,6 @@
 #pragma once
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct AtmosphericState {
     float temperature_k;          // static (ambient) temperature (K)
@@ -11,4 +11,4 @@ struct AtmosphericState {
     float density_altitude_m;     // altitude in ISA where ρ_ISA = ρ_actual (m)
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

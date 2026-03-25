@@ -5,7 +5,7 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 struct AirframePerformance {
     float g_max_nd    = 0.0f;  // maximum positive load factor (dimensionless)
@@ -19,4 +19,4 @@ struct AirframePerformance {
     static AirframePerformance  deserializeProto(const std::vector<uint8_t>& bytes);
 };
 
-}  // namespace liteaerosim
+}  // namespace liteaero::simulation

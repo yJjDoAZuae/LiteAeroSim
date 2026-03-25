@@ -1,7 +1,7 @@
 #pragma once
 #include <Eigen/Dense>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct GustConfig {
     float           amplitude_mps   = 0.f;                    // peak gust velocity (m/s)
@@ -35,4 +35,4 @@ private:
     bool   active_         = false;
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

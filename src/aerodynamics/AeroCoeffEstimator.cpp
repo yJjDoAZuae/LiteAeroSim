@@ -3,7 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace liteaerosim::aerodynamics {
+namespace liteaero::simulation {
 
 // ── Internal reference condition for C_D0 skin-friction Reynolds number ───────
 // ISA sea-level, representative cruise speed.  Used consistently for all
@@ -221,4 +221,4 @@ AeroCoeffEstimator::estimate(const AircraftGeometry& geom) {
     return {AeroPerformance(aero_cfg), lcp};
 }
 
-} // namespace liteaerosim::aerodynamics
+} // namespace liteaero::simulation

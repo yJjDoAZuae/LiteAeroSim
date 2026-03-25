@@ -1,6 +1,6 @@
 #pragma once
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Plain value type: propeller geometry and non-dimensional aerodynamic coefficients.
 // No virtual methods, no mutable state.  Construct once per aircraft configuration.
@@ -38,4 +38,4 @@ struct PropellerAero {
     [[nodiscard]] float torque_nm(float Omega_rps, float tas_mps, float rho_kgm3) const;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

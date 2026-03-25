@@ -1,7 +1,7 @@
 #include "environment/TerrainCell.hpp"
 #include <stdexcept>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 using namespace liteaero::terrain;
 
@@ -49,4 +49,4 @@ const GeodeticAABB& TerrainCell::bounds() const {
     throw std::logic_error("TerrainCell::bounds: cell is empty");
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

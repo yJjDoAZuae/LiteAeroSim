@@ -2,7 +2,7 @@
 #include "liteaerosim.pb.h"
 #include <stdexcept>
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 nlohmann::json AirframePerformance::serializeJson() const {
     return {
@@ -57,4 +57,4 @@ AirframePerformance AirframePerformance::deserializeProto(const std::vector<uint
     return a;
 }
 
-}  // namespace liteaerosim
+}  // namespace liteaero::simulation

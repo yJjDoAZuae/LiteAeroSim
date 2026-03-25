@@ -4,7 +4,7 @@
 #include <random>
 #include <stdexcept>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 // ---------------------------------------------------------------------------
 // RngState — defined in this TU only
@@ -380,4 +380,4 @@ void Turbulence::deserializeJson(const nlohmann::json& j) {
     load_state("state_r", state_r_);
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

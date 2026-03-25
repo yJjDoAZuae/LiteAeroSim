@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 #include <Eigen/Dense>
 
-using namespace liteaerosim::environment;
+using namespace liteaero::simulation;
 
 // ---------------------------------------------------------------------------
 // T1: default-constructed Wind returns {0,0,0} at any altitude

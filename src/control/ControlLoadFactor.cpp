@@ -1,7 +1,7 @@
 #include "control/ControlLoadFactor.hpp"
 #include <Eigen/Dense>
 
-using namespace liteaerosim::control;
+using namespace liteaero::simulation;
 
 static float constexpr g = 9.81;
 

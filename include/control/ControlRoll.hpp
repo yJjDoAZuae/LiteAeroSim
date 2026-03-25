@@ -2,7 +2,7 @@
 #include "control/ControlLoop.hpp"
 #include "KinematicState.hpp"
 
-namespace liteaerosim::control {
+namespace liteaero::simulation {
 
 // input command is roll angle about velocity vector
 // output command is roll rate about velocity vector

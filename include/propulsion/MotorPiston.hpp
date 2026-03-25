@@ -2,7 +2,7 @@
 
 #include "propulsion/Motor.hpp"
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Normally aspirated piston engine model.  Stateless — no serialization required.
 //
@@ -32,4 +32,4 @@ private:
     float _inertia_kg_m2;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

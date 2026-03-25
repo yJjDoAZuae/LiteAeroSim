@@ -3,7 +3,7 @@
 #include "environment/AtmosphereConfig.hpp"
 #include <nlohmann/json.hpp>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 class Atmosphere {
 public:
@@ -46,4 +46,4 @@ private:
     static float density_altitude_from_density(float density_kgm3);
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

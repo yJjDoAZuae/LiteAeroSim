@@ -3,7 +3,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Blade-element theory constants.
 static constexpr float kCLBlade = 6.28318530718f;  // 2π — thin-airfoil lift slope
@@ -64,4 +64,4 @@ float PropellerAero::torque_nm(float Omega_rps, float tas_mps, float rho_kgm3) c
     return CQ * rho_kgm3 * n * n * D5;
 }
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

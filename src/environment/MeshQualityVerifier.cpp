@@ -4,7 +4,7 @@
 #include <map>
 #include <utility>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 using namespace liteaero::terrain;
 
@@ -130,4 +130,4 @@ bool MeshQualityVerifier::passes(const MeshQualityReport& report,
     return true;
 }
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

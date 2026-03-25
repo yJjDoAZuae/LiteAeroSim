@@ -6,7 +6,7 @@
 
 using liteaero::control::Mat21;
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
@@ -110,4 +110,4 @@ void PropulsionProp::deserializeProto(const std::vector<uint8_t>& b) {
     _thrust_n = proto.thrust_n();
 }
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

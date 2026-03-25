@@ -1,7 +1,7 @@
 #include "propulsion/MotorElectric.hpp"
 #include <algorithm>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 MotorElectric::MotorElectric(const MotorElectricMotorParams& motor,
                               const MotorElectricEscParams&   esc)
@@ -35,4 +35,4 @@ float MotorElectric::batteryCurrent_a(float omega_rps, float throttle_nd) const 
     return V_phase * I_clamped / (_supply_voltage_v * _esc_efficiency_nd);
 }
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

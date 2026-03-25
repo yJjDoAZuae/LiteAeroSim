@@ -1,6 +1,6 @@
 #include "numerics.hpp"
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 FiltVectorXf left_resize(const FiltVectorXf& in, int len) {
     FiltVectorXf out(len);
@@ -34,4 +34,4 @@ void roll_buffer(Vec3& buff, float u) {
     buff(0) = u;
 }
 
-}  // namespace liteaerosim
+}  // namespace liteaero::simulation

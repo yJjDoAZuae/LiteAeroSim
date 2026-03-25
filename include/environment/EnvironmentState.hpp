@@ -3,7 +3,7 @@
 #include "environment/TurbulenceVelocity.hpp"
 #include <Eigen/Dense>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct EnvironmentState {
     AtmosphericState   atmosphere;
@@ -12,4 +12,4 @@ struct EnvironmentState {
     Eigen::Vector3f    gust_body_mps;      // discrete gust velocity, body frame (m/s)
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

@@ -1,0 +1,15 @@
+# Normalize all text files to LF on commit.
+* text=auto eol=lf
+
+# Treat compiled outputs and binary formats as binary (no EOL conversion).
+*.pb.h binary
+*.pb.cc binary
+*.a binary
+*.o binary
+*.exe binary
+*.dll binary
+*.png binary
+*.jpg binary
+*.glb binary
+*.gltf binary
+*.las binary

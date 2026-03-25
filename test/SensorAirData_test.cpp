@@ -7,10 +7,10 @@
 #include <numeric>
 #include <vector>
 
-using liteaerosim::sensor::AirDataMeasurement;
-using liteaerosim::sensor::AirDataConfig;
-using liteaerosim::sensor::SensorAirData;
-using liteaerosim::environment::AtmosphericState;
+using liteaero::simulation::AirDataMeasurement;
+using liteaero::simulation::AirDataConfig;
+using liteaero::simulation::SensorAirData;
+using liteaero::simulation::AtmosphericState;
 
 namespace {
 

@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Physics-based electric ducted fan model.
 //
@@ -64,4 +64,4 @@ private:
     float                               _thrust_n           = 0.f;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

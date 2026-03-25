@@ -3,7 +3,7 @@
 #include <Eigen/Dense>
 #include <cstdint>
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 /// Lightweight Eigen type aliases and bounded-vector utilities used across all
 /// subsystems. Keep this header dependency-free (no project headers, no STL
@@ -52,4 +52,4 @@ void roll_buffer(FiltVectorXf& buff, float u);
 /// Shift all elements right by one and insert u at position 0 (Vec3 overload).
 void roll_buffer(Vec3& buff, float u);
 
-}  // namespace liteaerosim
+}  // namespace liteaero::simulation

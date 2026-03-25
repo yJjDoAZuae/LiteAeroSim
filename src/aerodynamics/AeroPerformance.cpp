@@ -4,7 +4,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace liteaerosim::aerodynamics {
+namespace liteaero::simulation {
 
 AeroPerformance::AeroPerformance(const AeroPerformanceConfig& cfg)
     : _S(cfg.s_ref_m2), _ar(cfg.ar), _e(cfg.e), _cd0(cfg.cd0),
@@ -98,4 +98,4 @@ AeroPerformance AeroPerformance::deserializeProto(const std::vector<uint8_t>& by
     return AeroPerformance(cfg);
 }
 
-} // namespace liteaerosim::aerodynamics
+} // namespace liteaero::simulation

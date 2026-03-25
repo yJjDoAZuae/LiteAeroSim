@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
-using liteaerosim::AirframePerformance;
+using liteaero::simulation::AirframePerformance;
 
 namespace {
 AirframePerformance gaAirframe() {

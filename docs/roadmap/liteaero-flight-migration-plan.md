@@ -15,7 +15,7 @@
 | 8 | `liteaero::terrain`: Terrain element types and `V_Terrain` | Complete |
 | 9 | LiteAero Flight stub headers | Complete |
 | 10 | liteaero-flight build and test verification | Complete |
-| 11 | LiteAero Sim internal namespace migration | Not started |
+| 11 | LiteAero Sim internal namespace migration | Complete |
 | 12 | Final build and regression verification | Not started |
 
 ---
@@ -827,24 +827,29 @@ implementation classes, sensors, propulsion, and aerodynamics. Phase 2 applies t
 
 ### Step 11 — LiteAero Sim Internal Namespace Migration
 
-Apply the `liteaero::simulation` namespace to all LiteAero Sim code that was not migrated
-to liteaero-flight.
+Applied `liteaero::simulation` namespace to all LiteAero Sim code not migrated to liteaero-flight.
 
-**Namespace changes:**
+**Namespaces renamed:**
 
 | Old namespace | New namespace | Scope |
 | --- | --- | --- |
-| `liteaerosim` (root) | `liteaero::simulation` | `Aircraft`, `Aircraft6DOF`, `AeroCoeffEstimator`, all aerodynamics, airframe, propulsion, environment, sensor classes |
+| `liteaerosim` (root) | `liteaero::simulation` | `Aircraft`, `AeroCoeffEstimator`, all aerodynamics, airframe, propulsion, environment, sensor classes |
+| `liteaerosim::aerodynamics` | `liteaero::simulation` | `AeroCoeffEstimator`, `AeroPerformance`, `AircraftGeometry` |
 | `liteaerosim::control` | `liteaero::simulation` | `ControlAltitude`, `ControlHeading`, `ControlHeadingRate`, `ControlLoadFactor`, `ControlRoll`, `ControlVerticalSpeed`, `ControlLoop` |
-| `liteaerosim::environment` | `liteaero::simulation` | All environment implementation classes remaining after terrain type split |
+| `liteaerosim::environment` | `liteaero::simulation` | `Atmosphere`, `AtmosphericState`, `AtmosphereConfig`, `EnvironmentState`, `Gust`, `LodSelector`, `MeshQualityVerifier`, `TerrainCell`, `TerrainMesh`, `Turbulence`, `TurbulenceVelocity`, `Wind` |
+| `liteaerosim::propulsion` | `liteaero::simulation` | `Propulsion`, `Motor`, `MotorElectric`, `MotorPiston`, `PropellerAero`, `PropulsionEDF`, `PropulsionJet`, `PropulsionProp` |
+| `liteaerosim::sensor` | `liteaero::simulation` | `SensorAirData`, `AirDataMeasurement`, `AirDataConfig` |
 
-At this point `liteaerosim::logger` no longer exists in LiteAero Sim (removed in Step 2).
-All migrated infrastructure namespaces (`liteaero::log`, `liteaero::control`,
-`liteaero::terrain`) are already correct in all files.
+All sub-namespaces collapse to `liteaero::simulation` — no inner namespaces remain.
+Relative sub-namespace references (`propulsion::Propulsion`, `aerodynamics::AeroPerformance`,
+`environment::AtmosphericState`) in `Aircraft.hpp`, `Aircraft.cpp`, and `SensorAirData.cpp`
+were updated to use unqualified names after the collapse.
 
-Work in a feature branch. Keep at least one intermediate commit per subsystem renamed.
+The `liteaerosim_terrain` GLTF extras key in `TerrainMesh.cpp` is a serialized file format
+key and was intentionally left unchanged.
 
-**Verification:** All LiteAero Sim tests pass. No `liteaerosim` references remain.
+**Verification:** 345/345 LiteAero Sim tests pass. No `liteaerosim` namespace references
+remain in `include/` or `src/`.
 
 ---
 

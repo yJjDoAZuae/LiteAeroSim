@@ -1,7 +1,7 @@
 #include "control/ControlVerticalSpeed.hpp"
 #include <cmath>
 
-using namespace liteaerosim::control;
+using namespace liteaero::simulation;
 
 float velWind_horiz(const KinematicState & state)
 {

@@ -4,10 +4,10 @@
 #include <cmath>
 #include <gtest/gtest.h>
 
-using liteaerosim::propulsion::MotorElectric;
-using liteaerosim::propulsion::MotorElectricEscParams;
-using liteaerosim::propulsion::MotorElectricMotorParams;
-using liteaerosim::propulsion::MotorPiston;
+using liteaero::simulation::MotorElectric;
+using liteaero::simulation::MotorElectricEscParams;
+using liteaero::simulation::MotorElectricMotorParams;
+using liteaero::simulation::MotorPiston;
 
 static constexpr float kRhoSL = 1.225f;
 

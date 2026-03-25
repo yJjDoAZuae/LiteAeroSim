@@ -1,6 +1,6 @@
 #pragma once
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 // Value object representing one timestep of live simulation state.
 // Populated by the Application Layer and passed to an ISimulationBroadcaster
@@ -19,4 +19,4 @@ struct SimulationFrame {
     float  velocity_down_mps;
 };
 
-} // namespace liteaerosim
+} // namespace liteaero::simulation

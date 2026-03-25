@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Physics-based jet engine model.
 //
@@ -64,4 +64,4 @@ private:
     bool                                _ab_active          = false;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

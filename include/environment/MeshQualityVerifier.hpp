@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <limits>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 struct MeshQualityReport {
     float    min_interior_angle_deg   = 180.f;
@@ -32,4 +32,4 @@ public:
                                                   const MeshQualityThresholds& thresholds = {});
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

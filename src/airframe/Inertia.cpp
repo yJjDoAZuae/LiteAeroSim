@@ -2,7 +2,7 @@
 #include "liteaerosim.pb.h"
 #include <stdexcept>
 
-namespace liteaerosim {
+namespace liteaero::simulation {
 
 nlohmann::json Inertia::serializeJson() const {
     return {
@@ -54,4 +54,4 @@ Inertia Inertia::deserializeProto(const std::vector<uint8_t>& bytes) {
     return i;
 }
 
-}  // namespace liteaerosim
+}  // namespace liteaero::simulation

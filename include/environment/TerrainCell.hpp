@@ -5,7 +5,7 @@
 #include <optional>
 #include <stdexcept>
 
-namespace liteaerosim::environment {
+namespace liteaero::simulation {
 
 class TerrainCell {
 public:
@@ -23,4 +23,4 @@ private:
     std::array<std::optional<liteaero::terrain::TerrainTile>, kLodCount> tiles_;  // indexed by TerrainLod
 };
 
-} // namespace liteaerosim::environment
+} // namespace liteaero::simulation

@@ -2,7 +2,7 @@
 
 #include "propulsion/Motor.hpp"
 
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 // Motor electromechanics parameters.
 struct MotorElectricMotorParams {
@@ -48,4 +48,4 @@ private:
     float _esc_efficiency_nd;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation

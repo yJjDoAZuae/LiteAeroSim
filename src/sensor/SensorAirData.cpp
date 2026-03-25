@@ -4,7 +4,7 @@
 #include <random>
 #include <stdexcept>
 
-namespace liteaerosim::sensor {
+namespace liteaero::simulation {
 
 // ─── ISA constants ────────────────────────────────────────────────────────────
 static constexpr float kP0     = 101325.0f;   // sea-level ISA pressure (Pa)
@@ -90,7 +90,7 @@ void SensorAirData::onReset() {
 
 // ─── Step ────────────────────────────────────────────────────────────────────
 AirDataMeasurement SensorAirData::step(Eigen::Vector3f v_body,
-                                        const environment::AtmosphericState& atm) {
+                                        const AtmosphericState& atm) {
     const float u    = v_body.x();
     const float v    = v_body.y();
     const float w    = v_body.z();
@@ -268,4 +268,4 @@ void SensorAirData::deserializeProto(const std::vector<uint8_t>& bytes) {
     for (uint64_t i = 0; i < proto.rng_advance(); ++i) rng_->draw();
 }
 
-}  // namespace liteaerosim::sensor
+}  // namespace liteaero::simulation

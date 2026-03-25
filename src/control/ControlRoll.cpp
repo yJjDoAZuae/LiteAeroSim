@@ -1,6 +1,6 @@
 #include "control/ControlRoll.hpp"
 
-using namespace liteaerosim::control;
+using namespace liteaero::simulation;
 
 float ControlRoll::step(float command, const KinematicState& state)
 {
