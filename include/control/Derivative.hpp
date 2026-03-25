@@ -1,10 +1,13 @@
 #pragma once
 
-#include "control/control.hpp"
+#include <liteaero/control/control.hpp>
 #include <liteaero/control/SisoElement.hpp>
-#include "control/Limit.hpp"
+#include <liteaero/control/Limit.hpp>
 #include "control/Antiwindup.hpp"
 #include <vector>
+
+using liteaero::control::DiscretizationMethod;
+using liteaero::control::Limit;
 
 namespace liteaerosim::control {
 

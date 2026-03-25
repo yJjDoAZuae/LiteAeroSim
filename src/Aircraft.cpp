@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <vector>
 
+using liteaero::control::Mat21;
+
 namespace liteaerosim {
 
 // ---------------------------------------------------------------------------

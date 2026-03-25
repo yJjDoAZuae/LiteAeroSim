@@ -8,7 +8,7 @@
 | 1 | Repository scaffolding and CMake skeleton | Complete |
 | 2 | `liteaero::log`: ILogger and logging infrastructure | Complete |
 | 3 | `liteaero::control`: `DynamicElement` and `SisoElement` | Complete |
-| 4 | `liteaero::control`: Filter hierarchy | Not started |
+| 4 | `liteaero::control`: Filter hierarchy | Complete |
 | 5 | `liteaero::control`: SISO elements and scheduling infrastructure | Not started |
 | 6 | `KinematicStateSnapshot` design document | Not started |
 | 7 | Shared interface target: `KinematicStateSnapshot`, `AircraftCommand`, `NavigationState` | Not started |
@@ -509,6 +509,22 @@ includes. Update all `liteaerosim::control::Filter*` references at call sites to
 **Verification:** All LiteAero Sim tests pass. No filter source files remain in
 `liteaero-sim/src/control/` or headers in `liteaero-sim/include/control/` for the migrated
 types.
+
+#### Step 4 — Delivered
+
+Both halves verified:
+
+- liteaero-flight: 72/74 tests pass (2 pre-existing `FilterTF` failures unchanged, documented in `docs/testing/strategy.md`)
+- liteaero-sim: 397/397 tests pass
+
+**Execution notes:**
+
+- `Limit` and `LimitBase` were migrated in Step 4 (not Step 5) because `FilterSS2Clip` contains `Limit` by value and requires it to compile. Step 5's scope for `Limit` is accordingly removed.
+- `numerics.hpp` / `numerics.cpp` were created in liteaero-flight (`namespace liteaero::control`); liteaero-sim retains its own `numerics.hpp` (`namespace liteaerosim`) for sim-internal code.
+- Four sim source files (`Aircraft.cpp`, `PropulsionEDF.cpp`, `PropulsionJet.cpp`, `PropulsionProp.cpp`) required `using liteaero::control::Mat21;` because they referenced `Mat21` unqualified and the old sim `control/control.hpp` is no longer in the inclusion chain.
+- liteaero-flight `test/control/CMakeLists.txt` was changed from glob to an explicit list of Step 4 tests; Step 5 test stubs remain in the directory but are not yet included in the build.
+- liteaero-flight `test/terrain/CMakeLists.txt` and `test/nav/CMakeLists.txt` were changed from glob to empty lists (terrain/nav not yet migrated).
+- **Cleanup (addressed post-Step 4):** `control.hpp` was incorrectly including `numerics.hpp` (pulling in Eigen) when it only defines two enums. `Filter.hpp` and `filter_realizations.hpp` were relying on that transitive include rather than declaring their own dependency on `numerics.hpp`. Filter subclass headers also carried redundant direct `control.hpp` and `<Eigen/Dense>` includes. Addressed: `control.hpp` now includes only `<cstdint>`; `Filter.hpp` and `filter_realizations.hpp` include `<liteaero/control/numerics.hpp>` directly; redundant includes removed from `FilterSS2.hpp`, `FilterFIR.hpp`, `FilterSS.hpp`, `FilterTF.hpp`, `FilterTF2.hpp`.
 
 ---
 

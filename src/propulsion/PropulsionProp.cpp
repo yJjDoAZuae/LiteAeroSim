@@ -4,6 +4,8 @@
 #include <cmath>
 #include <stdexcept>
 
+using liteaero::control::Mat21;
+
 namespace liteaerosim::propulsion {
 
 // ── Construction ──────────────────────────────────────────────────────────────

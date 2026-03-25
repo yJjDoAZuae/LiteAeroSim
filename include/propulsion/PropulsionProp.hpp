@@ -3,7 +3,7 @@
 #include "propulsion/Propulsion.hpp"
 #include "propulsion/Motor.hpp"
 #include "propulsion/PropellerAero.hpp"
-#include "control/FilterSS2Clip.hpp"
+#include <liteaero/control/FilterSS2Clip.hpp>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -54,7 +54,7 @@ protected:
 private:
     std::unique_ptr<Motor>              _motor;
     std::optional<PropellerAero>        _propeller;
-    liteaerosim::control::FilterSS2Clip _rotor_filter;
+    liteaero::control::FilterSS2Clip _rotor_filter;
     float                               _thrust_n           = 0.f;
 };
 

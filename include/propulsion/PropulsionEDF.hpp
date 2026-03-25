@@ -1,7 +1,7 @@
 #pragma once
 
 #include "propulsion/Propulsion.hpp"
-#include "control/FilterSS2Clip.hpp"
+#include <liteaero/control/FilterSS2Clip.hpp>
 #include <cstdint>
 #include <vector>
 
@@ -60,7 +60,7 @@ private:
     float                               _fan_efficiency_nd  = 1.f;
     float                               _esc_efficiency_nd  = 1.f;
     float                               _disk_area_m2       = 0.f;  // precomputed: π·(fan_diameter_m/2)²
-    liteaerosim::control::FilterSS2Clip _spool_filter;
+    liteaero::control::FilterSS2Clip _spool_filter;
     float                               _thrust_n           = 0.f;
 };
 

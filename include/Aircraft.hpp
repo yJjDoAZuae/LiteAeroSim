@@ -6,7 +6,7 @@
 #include "aerodynamics/LoadFactorAllocator.hpp"
 #include "airframe/AirframePerformance.hpp"
 #include "airframe/Inertia.hpp"
-#include "control/FilterSS2Clip.hpp"
+#include <liteaero/control/FilterSS2Clip.hpp>
 #include "propulsion/Propulsion.hpp"
 #include <Eigen/Dense>
 #include <cstdint>
@@ -87,9 +87,9 @@ private:
     std::unique_ptr<propulsion::Propulsion>           _propulsion;
 
     // IIR-filtered command processing (Nz, Ny derivative; roll rate low-pass).
-    control::FilterSS2Clip _n_z_deriv;
-    control::FilterSS2Clip _n_y_deriv;
-    control::FilterSS2Clip _roll_rate_filter;
+    liteaero::control::FilterSS2Clip _n_z_deriv;
+    liteaero::control::FilterSS2Clip _n_y_deriv;
+    liteaero::control::FilterSS2Clip _roll_rate_filter;
     float                  _outer_dt_s          = 0.02f;  // integration timestep from Simulation
     int                    _cmd_filter_substeps  = 1;      // filter steps per Aircraft::step()
     float                  _cmd_filter_dt_s      = 0.02f;  // outer_dt_s / cmd_filter_substeps

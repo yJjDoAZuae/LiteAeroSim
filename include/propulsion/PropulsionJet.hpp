@@ -1,7 +1,7 @@
 #pragma once
 
 #include "propulsion/Propulsion.hpp"
-#include "control/FilterSS2Clip.hpp"
+#include <liteaero/control/FilterSS2Clip.hpp>
 #include <cstdint>
 #include <vector>
 
@@ -58,8 +58,8 @@ private:
     float                               _ab_thrust_sl_n     = 0.f;
     float                               _ab_spool_tau_s     = 1.f;
     float                               _density_exponent   = 1.f;  // precomputed: 1/√(1+BPR)
-    liteaerosim::control::FilterSS2Clip _spool_filter;
-    liteaerosim::control::FilterSS2Clip _ab_filter;
+    liteaero::control::FilterSS2Clip _spool_filter;
+    liteaero::control::FilterSS2Clip _ab_filter;
     float                               _thrust_n           = 0.f;
     bool                                _ab_active          = false;
 };

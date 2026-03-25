@@ -1,12 +1,14 @@
 #pragma once
 
 #include <liteaero/control/DynamicElement.hpp>
-#include "control/control.hpp"
+#include <liteaero/control/control.hpp>
 #include "control/Gain.hpp"
-#include "control/FilterSS2Clip.hpp"
+#include <liteaero/control/FilterSS2Clip.hpp>
 #include "control/Integrator.hpp"
 #include "control/Derivative.hpp"
 #include "control/Unwrap.hpp"
+
+using liteaero::control::FilterSS2Clip;
 
 namespace liteaerosim::control {
 
