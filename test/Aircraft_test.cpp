@@ -45,6 +45,8 @@ private:
 // ---------------------------------------------------------------------------
 
 // General-aviation config (Cessna 172 analog) — values from general_aviation.json.
+// cmd_filter_substeps=1, outer_dt_s=0.1 → cmd_filter_dt_s=0.1.
+// All wn satisfy Nyquist: wn * 0.1 < π.
 static nlohmann::json makeConfig() {
     return nlohmann::json::parse(R"({
         "schema_version": 1,
@@ -55,8 +57,12 @@ static nlohmann::json makeConfig() {
             "e": 0.80,
             "cd0": 0.027,
             "cmd_filter_substeps": 1,
-            "cmd_deriv_tau_s": 0.5,
-            "cmd_roll_rate_tau_s": 0.2
+            "nz_wn_rad_s": 10.0,
+            "nz_zeta_nd": 0.7,
+            "ny_wn_rad_s": 10.0,
+            "ny_zeta_nd": 0.7,
+            "roll_rate_wn_rad_s": 20.0,
+            "roll_rate_zeta_nd": 0.7
         },
         "airframe": {
             "g_max_nd":    3.8,
@@ -313,4 +319,43 @@ TEST(AircraftTest, InitializeWithMissingField_Throws) {
 
     auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_THROW(ac->initialize(config, 0.02f), std::exception);
+}
+
+// ---------------------------------------------------------------------------
+// Item 0 — command processing: Nyquist protection
+// outer_dt_s = 0.1, substeps = 1  →  cmd_filter_dt_s = 0.1
+// Nyquist limit: wn * 0.1 < π ≈ 3.14159.  Violation: wn = 40.0 (40*0.1=4.0 > π).
+// ---------------------------------------------------------------------------
+
+static nlohmann::json makeConfigWithNz(float nz_wn_rad_s) {
+    auto c = makeConfig();
+    c["aircraft"]["nz_wn_rad_s"] = nz_wn_rad_s;
+    return c;
+}
+
+static nlohmann::json makeConfigWithNy(float ny_wn_rad_s) {
+    auto c = makeConfig();
+    c["aircraft"]["ny_wn_rad_s"] = ny_wn_rad_s;
+    return c;
+}
+
+static nlohmann::json makeConfigWithRollRate(float roll_rate_wn_rad_s) {
+    auto c = makeConfig();
+    c["aircraft"]["roll_rate_wn_rad_s"] = roll_rate_wn_rad_s;
+    return c;
+}
+
+TEST(AircraftTest, NyquistViolation_Nz_Throws) {
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_THROW(ac->initialize(makeConfigWithNz(40.0f), 0.1f), std::invalid_argument);
+}
+
+TEST(AircraftTest, NyquistViolation_Ny_Throws) {
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_THROW(ac->initialize(makeConfigWithNy(40.0f), 0.1f), std::invalid_argument);
+}
+
+TEST(AircraftTest, NyquistViolation_RollRate_Throws) {
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
+    EXPECT_THROW(ac->initialize(makeConfigWithRollRate(40.0f), 0.1f), std::invalid_argument);
 }

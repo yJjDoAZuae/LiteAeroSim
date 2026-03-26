@@ -205,12 +205,16 @@ message AircraftState {
     AirframePerformanceParams airframe         = 7;
     InertiaParams             inertia          = 8;
     float          cmd_filter_dt_s      = 12;
-    float          cmd_deriv_tau_s      = 13;
-    repeated float n_z_deriv_x          = 14;
-    repeated float n_y_deriv_x          = 15;
+    float          nz_wn_rad_s          = 13;
+    repeated float nz_filter_x          = 14;
+    repeated float ny_filter_x          = 15;
     int32          cmd_filter_substeps  = 16;
-    float          cmd_roll_rate_tau_s  = 17;
+    float          nz_zeta_nd           = 17;
     repeated float roll_rate_filter_x   = 18;
+    float          ny_wn_rad_s          = 19;
+    float          ny_zeta_nd           = 20;
+    float          roll_rate_wn_rad_s   = 21;
+    float          roll_rate_zeta_nd    = 22;
     oneof propulsion {
         PropulsionJetState  jet  = 9;
         PropulsionEdfState  edf  = 10;

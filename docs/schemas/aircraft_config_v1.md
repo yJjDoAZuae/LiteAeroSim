@@ -32,7 +32,10 @@ to initialize the simulation model.  The schema is validated by
 
 ## `aircraft` Section
 
-Maps to `LoadFactorAllocator` and `AeroPerformance` constructor parameters.
+Maps to `LoadFactorAllocator`, `AeroPerformance`, and the command response filters in
+`Aircraft::initialize()`.
+
+### Aerodynamic geometry and drag polar
 
 | Field | Type | Unit | Constraint | Description |
 | ------- | ------ | ------ | ------------ | ------------- |
@@ -45,6 +48,28 @@ Maps to `LoadFactorAllocator` and `AeroPerformance` constructor parameters.
 `S_ref_m2` and `cl_y_beta` are shared inputs to both `LoadFactorAllocator` and
 `AeroPerformance`. `ar`, `e`, and `cd0` are used exclusively by `AeroPerformance` to
 compute the drag polar: CD = cd0 + CL² / (π · e · ar).
+
+### Command response filters
+
+Three second-order low-pass filters (one per command axis) model the finite closed-loop
+bandwidth of the aircraft's FBW inner loops. Each filter is parameterized by a natural
+frequency and damping ratio. The inner timestep is `outer_dt_s / cmd_filter_substeps`; all
+natural frequencies must satisfy `wn * inner_dt < π` (Nyquist); `initialize()` throws
+`std::invalid_argument` on any violation.
+
+| Field | Type | Unit | Constraint | Description |
+| ------- | ------ | ------ | ------------ | ------------- |
+| `cmd_filter_substeps` | int | — | ≥ 1 | Inner filter substep count per outer step. |
+| `nz_wn_rad_s` | float | rad/s | > 0; `wn·inner_dt < π` | Nz command response natural frequency. |
+| `nz_zeta_nd` | float | — | > 0 | Nz command response damping ratio. |
+| `ny_wn_rad_s` | float | rad/s | > 0; `wn·inner_dt < π` | Ny command response natural frequency. |
+| `ny_zeta_nd` | float | — | > 0 | Ny command response damping ratio. |
+| `roll_rate_wn_rad_s` | float | rad/s | > 0; `wn·inner_dt < π` | Roll rate command response natural frequency. |
+| `roll_rate_zeta_nd` | float | — | > 0 | Roll rate command response damping ratio. |
+
+See [docs/architecture/aircraft.md §Command Processing Architecture](../architecture/aircraft.md#command-processing-architecture)
+for the filter design, substep mechanics, analytical derivative sourcing, and Nyquist
+constraints.
 
 ---
 

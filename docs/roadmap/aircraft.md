@@ -177,15 +177,15 @@ are retained:
    command processing architecture: filter topology (all three axes `setLowPassSecondIIR`),
    parameter definitions, Nyquist constraints, inner substep mechanics, derivative sourcing
    from filter state vector.
-2. `aircraft_config_v1` schema document (`docs/schemas/aircraft_config_v1.md`) updated —
-   the `aircraft` section currently documents only the five aero-geometry fields; the six
-   command-filter parameters (`cmd_filter_substeps`, `nz_wn_rad_s`, `nz_zeta_nd`,
-   `ny_wn_rad_s`, `ny_zeta_nd`, `roll_rate_wn_rad_s`, `roll_rate_zeta_nd`) are absent.
-3. Implementation following TDD: failing tests before production code. The implementation
-   still uses `setDerivIIR` for the Nz and Ny filters and `setLowPassFirstIIR` for the
-   roll-rate filter, and reads `cmd_deriv_tau_s` / `cmd_roll_rate_tau_s` from config
-   rather than the natural-frequency and damping-ratio parameters the design prescribes.
-4. Fixture JSON files (`test/data/aircraft/`) updated to match new config schema.
+2. ✅ `aircraft_config_v1` schema document (`docs/schemas/aircraft_config_v1.md`) updated —
+   `aircraft` section now documents `cmd_filter_substeps` and the six command-filter
+   parameters (`nz_wn_rad_s`, `nz_zeta_nd`, `ny_wn_rad_s`, `ny_zeta_nd`,
+   `roll_rate_wn_rad_s`, `roll_rate_zeta_nd`).
+3. ✅ Implementation — all three axes use `setLowPassSecondIIR`; config reads natural
+   frequency and damping ratio parameters; `n_z_dot`/`n_y_dot` computed analytically from
+   filter state; allocator receives shaped commands. Three Nyquist violation tests added
+   (`NyquistViolation_Nz_Throws`, `_Ny_Throws`, `_RollRate_Throws`).
+4. ✅ Fixture JSON files (`test/data/aircraft/`) updated to new config schema.
 
 ---
 

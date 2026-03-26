@@ -86,15 +86,19 @@ private:
     Inertia                                           _inertia;
     std::unique_ptr<Propulsion>           _propulsion;
 
-    // IIR-filtered command processing (Nz, Ny derivative; roll rate low-pass).
-    liteaero::control::FilterSS2Clip _n_z_deriv;
-    liteaero::control::FilterSS2Clip _n_y_deriv;
+    // 2nd-order LP command response filters (Nz, Ny, roll rate).
+    liteaero::control::FilterSS2Clip _nz_filter;
+    liteaero::control::FilterSS2Clip _ny_filter;
     liteaero::control::FilterSS2Clip _roll_rate_filter;
-    float                  _outer_dt_s          = 0.02f;  // integration timestep from Simulation
-    int                    _cmd_filter_substeps  = 1;      // filter steps per Aircraft::step()
-    float                  _cmd_filter_dt_s      = 0.02f;  // outer_dt_s / cmd_filter_substeps
-    float                  _cmd_deriv_tau_s      = 0.5f;
-    float                  _cmd_roll_rate_tau_s  = 0.1f;
+    float                  _outer_dt_s           = 0.02f;  // integration timestep from Simulation
+    int                    _cmd_filter_substeps   = 1;      // filter steps per Aircraft::step()
+    float                  _cmd_filter_dt_s       = 0.02f;  // outer_dt_s / cmd_filter_substeps
+    float                  _nz_wn_rad_s           = 10.f;
+    float                  _nz_zeta_nd            = 0.7f;
+    float                  _ny_wn_rad_s           = 10.f;
+    float                  _ny_zeta_nd            = 0.7f;
+    float                  _roll_rate_wn_rad_s    = 20.f;
+    float                  _roll_rate_zeta_nd     = 0.7f;
 };
 
 } // namespace liteaero::simulation
