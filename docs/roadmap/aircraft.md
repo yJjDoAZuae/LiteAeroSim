@@ -65,16 +65,12 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
 | `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
 | `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
-| `NavigationFilter` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
-| `WindEstimator` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
-| `FlowAnglesEstimator` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
-| `V_PathSegment` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-6 |
-| `PathSegmentHelix` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-6 |
-| `Path` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-6 |
-| `PathGuidance` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-7 |
-| `VerticalGuidance` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-7 |
-| `ParkTracking` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-7 |
-| `Autopilot` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-5 |
+| `WheelUnit` | `include/landing_gear/WheelUnit.hpp` | 🔲 Planned — see [landing_gear.md](../architecture/landing_gear.md) |
+| `StrutState` | `include/landing_gear/StrutState.hpp` | 🔲 Planned |
+| `ContactForces` | `include/landing_gear/ContactForces.hpp` | 🔲 Planned |
+| `V_SurfaceFriction` | `include/landing_gear/V_SurfaceFriction.hpp` | 🔲 Planned |
+| `SurfaceFrictionUniform` | `include/landing_gear/SurfaceFrictionUniform.hpp` | 🔲 Planned |
+| `LandingGear` | `include/landing_gear/LandingGear.hpp` | 🔲 Planned |
 
 ---
 
@@ -108,69 +104,11 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 22 | `LoadFactorAllocator` branch-continuation predictor — first-order warm-start $\alpha_0 = \alpha_\text{prev} + \delta n_z \cdot mg / f'(\alpha_\text{prev})$ and symmetric $\beta_0$ formula added to `solve()`; predictor is skipped at the stall ceiling ($f' \approx 0$) or when the raw prediction would fall outside $[\alpha_\text{sep\_neg}, \alpha_\text{sep}]$ (domain guard prevents cross-branch jumps on cold-start excess-demand calls); `_n_z_prev` and `_n_y_prev` added as serialized state fields in both JSON (`n_z_prev_nd`, `n_y_prev_nd`) and proto (`LoadFactorAllocatorState` fields 6–7); `iterations` (alpha solver iteration count) added to `LoadFactorOutputs`; `reset()` clears all four warm-start fields; [`docs/implementation/equations_of_motion.md`](../implementation/equations_of_motion.md) §Warm-Starting updated | 3 new tests in `LoadFactorAllocator_test.cpp`: `PredictorReducesIterationsOnLinearStep` (iterations == 1 for an exact linear-region prediction), `PredictorJsonRoundTrip_IncludesNzPrevAndNyPrev`, `PredictorProtoRoundTrip_IncludesNzPrev`; 22 tests total |
 | 23 | `LoadFactorAllocator` test coverage extension — 8 new tests close continuity and domain-coverage gaps identified by code review. **White-box tests** (4): full positive and negative Nz sweeps through stall verifying the clamp value against `alphaPeak()`/`alphaTrough()`; fine-step sweep across the C¹ Linear→IncipientStall boundary confirming both segments are traversed; stall warm-start limitation test documenting that `reset()` is required after a discontinuous Nz jump. **Black-box tests** (4): uniform 500-step monotonicity sweeps from 0 to ±10 g for T = 0 (positive and negative) and T = `kLargeThrust` (positive); point-wise perturbation test at 37 grid points (T = 0, −9 g to +9 g) and 19 grid points (T > 0, 0 to +9 g) using fresh allocators. Stall warm-start limitation documented in [`docs/implementation/equations_of_motion.md`](../implementation/equations_of_motion.md) §Stall Warm-Start Limitation | 30 tests total in `LoadFactorAllocator_test.cpp` |
 | 24 | **Aircraft command processing redesign** — all three command axes (`_nz_filter`, `_ny_filter`, `_roll_rate_filter`) converted to `setLowPassSecondIIR` (2nd-order LP); config params replaced: `cmd_deriv_tau_s`/`cmd_roll_rate_tau_s` → `nz_wn_rad_s`/`nz_zeta_nd`/`ny_wn_rad_s`/`ny_zeta_nd`/`roll_rate_wn_rad_s`/`roll_rate_zeta_nd`; `n_z_dot`/`n_y_dot` computed analytically from filter state after substep loop (no derivative filter lag); allocator receives shaped commands instead of raw clamped commands; Nyquist constraint enforced per axis (`wn * cmd_filter_dt_s < π`) at `initialize()`; proto `AircraftState` updated; `aircraft_config_v1` schema doc updated; fixture JSON files updated; design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md) §Command Processing Architecture | 3 new Nyquist violation tests in `Aircraft_test.cpp` (`NyquistViolation_Nz_Throws`, `_Ny_Throws`, `_RollRate_Throws`); 345 pre-existing tests pass |
+| 25 | **Landing gear model design** — full design authority document covering: use case decomposition; class hierarchy (`LandingGear`, `WheelUnit`, `StrutState`, `ContactForces`, `V_SurfaceFriction`, `SurfaceFrictionUniform`); physical models (suspension spring-damper, Pacejka magic formula, wheel friction, surface friction parameterization, ground plane interface); force assembly; step interface; JSON + proto serialization contract; computational resource estimate; test strategy (unit, integration, scenario, serialization); visualization notebook designs (`landing_gear_contact_forces.ipynb`, `crab_landing_dynamics.ipynb`, `takeoff_roll.ipynb`, `terrain_contact_animation.ipynb`); touchdown animation design (`touchdown_animation.py` — pybind11 driver, layout, visual encoding, coordinate mapping, data flow) | [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) |
 
 ---
 
-## 1. Landing Gear — Ground Contact Model Design
-
-`LandingGear` is a Domain Layer physics component that models the contact forces and
-moments exerted on the airframe by the landing gear during ground operations (taxi,
-takeoff roll, and landing roll). It produces `ContactForces` (body-frame force vector,
-body-frame moment vector, and `weight_on_wheels` flag) and is internal to both `Aircraft`
-and `Aircraft6DOF`.
-The integration architecture and fidelity target are decided — see
-[`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md) §LandingGear integration model and fidelity target.
-
-This item produces the design authority document at [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md).
-Implementation is item 8. Do not implement in this item.
-
-### Scope — LandingGear Design
-
-The design must address at minimum:
-
-- **Wheel contact model** — Pacejka "magic formula" for tyre longitudinal and lateral
-  force generation as a function of slip ratio and slip angle. The formula captures the
-  nonlinear saturation of tyre force with slip and reproduces the qualitative shape of
-  measured tyre data without requiring high-fidelity tyre datasets.
-- **Suspension dynamics** — second-order spring-damper model per strut. Configuration
-  parameters are spring stiffness (N/m), damper coefficient (N·s/m), and strut
-  preload force (N). Suspension travel is constrained between fully extended and
-  fully compressed limits.
-- **Wheel geometry** — each wheel unit is defined by its attachment point in the body
-  frame and a unit vector defining the suspension travel axis, both expressed in body
-  coordinates. This supports tricycle, taildragger, and multi-bogey layouts without
-  special-casing.
-- **Wheel rotational friction** — model tire rolling resistance and axle friction such that the aircraft decelerates to a stop in finite time during landing rollout on a level surface with no thrust or wind.
-- **Computational efficiency** — the landing gear contact model must not force the
-  aircraft simulation to run at a higher timestep rate than the rigid-body integrator.
-  High-frequency strut and tyre dynamics that do not materially influence the aircraft
-  trajectory response should be suppressed or filtered. An inner-step sub-loop — similar
-  to the approach used for high-bandwidth FBW axis dynamics — should be evaluated as a
-  mechanism to decouple stiff strut dynamics from the outer rigid-body loop if it allows
-  the outer step rate to remain at the standard simulation rate.
-- **Ground plane interface** — the model queries terrain height and surface normal at
-  the projected wheel contact point; the interface must be compatible with both
-  `FlatTerrain` and `TerrainMesh`. Define any required terrain model extensions for
-  runway geometry: options include an inset planar patch, a fine heightmap grid, or an
-  analytical runway definition with longitudinal slope and crowned lateral profile.
-  Define surface friction parameterization for pavement, grass, dirt, gravel, and wet
-  surfaces. The AGL sensor must respond to the same surface height used by the contact
-  model.
-- **Serialization** — full JSON and proto round-trip serialization of suspension state
-  (strut deflection and deflection rate per wheel unit); RNG state if stochastic runway
-  roughness is added.
-- **Notebook visualization** — demonstrate the model through a Jupyter notebook covering landing contact, takeoff rotation, and liftoff scenarios, with plots of contact forces, friction moments, strut displacement, and wheel speed.
-
-### Deliverables — Landing Gear
-
-Design authority document at [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) to be written
-before implementation begins.
-
-Implementation follows TDD: failing tests before production code.
-
----
-
-## 2. Plot Visualization — Python Post-Processing Tools
+## 1. Plot Visualization — Python Post-Processing Tools
 
 Python scripts to load logger output and produce time-series plots for simulation
 post-flight analysis. These are Application Layer tools and live under `python/tools/`.
@@ -204,7 +142,7 @@ dev = [
 
 ---
 
-## 3. Manual Input — Joystick and Keyboard
+## 2. Manual Input — Joystick and Keyboard
 
 Manual input adapters translate human control inputs (joystick axes, keyboard state) into
 an `AircraftCommand`. These live in the Interface Layer and have no physics logic.
@@ -245,7 +183,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 4. Execution Modes — Real-Time, Scaled, and Batch Runners
+## 3. Execution Modes — Real-Time, Scaled, and Batch Runners
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
 are required:
@@ -297,7 +235,7 @@ Add `test/SimRunner_test.cpp` to the test executable.
 
 ---
 
-## 5. Remaining Sensor Models
+## 4. Remaining Sensor Models
 
 Not blocking any higher-priority item. Stub headers in `include/sensor/` exist for
 `SensorINS`, `SensorAA`, `SensorAAR`, `SensorRadAlt`, `SensorForwardTerrainProfile`, and
@@ -318,7 +256,7 @@ not yet been created. Implement when needed; order within this group follows dep
 
 ---
 
-## 6. Aerodynamic Coefficient Design Study
+## 5. Aerodynamic Coefficient Design Study
 
 Prerequisite for item 7 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Cannot be designed
 without first defining how aerodynamic coefficients will be obtained and running the model
@@ -334,9 +272,9 @@ complete before item 7 begins.
 
 ---
 
-## 7. Aircraft6DOF — Design and Implementation
+## 6. Aircraft6DOF — Design and Implementation
 
-Full 6DOF aircraft dynamics model. Depends on item 6 (aero coefficient design study).
+Full 6DOF aircraft dynamics model. Depends on item 5 (aero coefficient design study).
 Architecture placeholders are defined in [`docs/architecture/system/future/element_registry.md`](../architecture/system/future/element_registry.md).
 
 ### Scope
@@ -345,7 +283,7 @@ Architecture placeholders are defined in [`docs/architecture/system/future/eleme
   body frame; decouples the 6DOF integrator from the coefficient axis convention.
 - **`BodyAxisCoeffModel`** — implements `V_AeroModel` using body-axis stability derivatives
   (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular
-  rates. Coefficient model format defined by item 6.
+  rates. Coefficient model format defined by item 5.
 - **`Aircraft6DOF`** — full 6DOF dynamics; depends on `V_AeroModel` for forces and moments;
   accepts `SurfaceDeflectionCommand` (control surface deflection angles + per-motor
   throttle); produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4
@@ -365,32 +303,208 @@ proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must bot
 
 ---
 
-## 8. LandingGear — Implementation
+## 7. LandingGear — Implementation
 
-Implement the design produced in item 1. Architecture decisions are recorded in
-[`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md) (LandingGear integration model and fidelity
-target). Design authority document at [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) must exist before
-implementation begins (item 1 deliverable).
+Implement the design produced in delivered item 25. Architecture decisions are recorded in
+[`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md) (LandingGear integration model and
+fidelity target). Design authority: [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md).
 
-Produces `ContactForces` (6-component body-frame force + moment + `weight_on_wheels` flag).
-Accepts nose wheel steering angle and differential brake demands. Implements 2nd-order
-suspension per strut and tyre contact force model. Queries ground elevation via `V_Terrain`.
+Implementation follows TDD — write a failing test before every production code change.
 
-Interfaces to both `Aircraft` (load-factor disturbance path) and `Aircraft6DOF` (full
-6-component EOM input). Follow TDD: write failing tests before production code.
+### Implementation Sequence
+
+Each step must produce a green test suite before the next begins.
+
+#### Step A — Data Types
+
+Implement and serialize the value structs that all downstream code depends on. No physics
+in this step.
+
+| Class / Struct | File | Serialization |
+| --- | --- | --- |
+| `WheelUnit` | `include/landing_gear/WheelUnit.hpp` | JSON + proto |
+| `StrutState` | `include/landing_gear/StrutState.hpp` | JSON + proto |
+| `ContactForces` | `include/landing_gear/ContactForces.hpp` | JSON + proto |
+
+Add `WheelUnit`, `StrutState`, and `ContactForces` messages to the proto schema.
+
+**Tests — `test/landing_gear/LandingGearTypes_test.cpp`:**
+
+- JSON and proto round-trips for all three structs pass with default-constructed values.
+- `ContactForces` default-constructed has all force and moment components zero and
+  `weight_on_wheels` false.
+
+#### Step B — Surface Friction Interface and Uniform Model
+
+| Class | File |
+| --- | --- |
+| `V_SurfaceFriction` | `include/landing_gear/V_SurfaceFriction.hpp` |
+| `SurfaceFrictionUniform` | `include/landing_gear/SurfaceFrictionUniform.hpp` |
+
+`V_SurfaceFriction::frictionCoefficients(position_m)` returns a `FrictionCoefficients`
+struct (longitudinal peak, longitudinal sliding, lateral peak, lateral sliding). Surface
+types: pavement, grass, dirt, gravel, wet pavement.
+
+**Tests — `test/landing_gear/SurfaceFriction_test.cpp`:**
+
+- `SurfaceFrictionUniform` returns configured coefficients at arbitrary world positions.
+- JSON round-trip of `SurfaceFrictionUniform` config.
+- Wet-pavement coefficients are strictly less than dry-pavement coefficients.
+
+#### Step C — Core `LandingGear` Class (Normal Force, Flat Terrain)
+
+Implement `LandingGear` as a `DynamicElement`. Tyre lateral and longitudinal forces are
+deferred to Step D; this step establishes the full lifecycle and serialization contract.
+
+- `initialize(config)` — parse `WheelUnit` list, suspension parameters, and tyre
+  parameters; validate strut count.
+- `reset()` — zero all `StrutState` fields.
+- `step(state, terrain)` — for each wheel unit: compute penetration depth $h_i$ from
+  `KinematicStateSnapshot` and `V_Terrain::heightAt()`; apply spring-damper normal force;
+  set `weight_on_wheels`; sum forces and moments into `ContactForces`.
+- `serializeJson()` / `deserializeJson()` — serialize `StrutState` array.
+- `serializeProto()` / `deserializeProto()`.
+
+Aerodynamic coefficients for the animation scenario are read from the JSON output of
+`AeroCoeffEstimator` — see §[Aerodynamics Parameterization](#aerodynamics-parameterization).
+
+**Tests — `test/landing_gear/LandingGear_test.cpp`:**
+
+| Test | Pass criterion |
+| --- | --- |
+| `NoContact_ZeroForces` | All `ContactForces` components zero when aircraft is airborne |
+| `Compressed_PositiveNormalForce` | $F_z > 0$ when wheel penetrates flat ground |
+| `SymmetricGear_NoLateralMoment` | Symmetric main gear produces zero roll moment |
+| `NoseGear_PitchMoment` | Nose gear contact produces nose-down pitch moment |
+| `WeightOnWheels_SetWhenContact` | `weight_on_wheels` true iff $\exists\, i : h_i > 0$ |
+| `StrutLimit_Compressed_Clamped` | Strut force does not exceed fully-compressed bound |
+| `JsonRoundTrip_StrutState` | `serializeJson` / `deserializeJson` recovers `StrutState` |
+| `ProtoRoundTrip_LandingGearState` | proto round-trip of `LandingGearState` |
+
+#### Step D — Tyre Forces (Pacejka Magic Formula)
+
+Add slip ratio and slip angle computation to `step()`. Implement the Pacejka magic formula
+
+$$F(s) = D\sin\!\bigl(C\arctan(Bs - E(Bs - \arctan(Bs)))\bigr)$$
+
+for both longitudinal ($F_x$, function of slip ratio $\kappa$) and lateral ($F_y$,
+function of slip angle $\alpha_t$). Add nose wheel steering angle and differential brake
+demand inputs to the step interface.
+
+**Tests — additions to `LandingGear_test.cpp`:**
+
+| Test | Pass criterion |
+| --- | --- |
+| `TyreForce_ZeroSlip_ZeroLateral` | $F_y = 0$ at zero slip angle |
+| `TyreForce_PeakSlip_NearPeak` | $F_x$ peaks near $\kappa \approx 0.10$ |
+| `TyreForce_Saturates_BeyondPeak` | $F_x$ does not increase monotonically with $\kappa$ |
+| `NoseWheelSteering_ProducesYawMoment` | Non-zero steering angle produces body-axis yaw moment |
+| `DifferentialBrake_ProducesRollMoment` | Asymmetric brake demand produces roll moment |
+
+#### Step E — Terrain Normal Query
+
+Replace the flat-ground assumption with a query to `V_Terrain::surfaceNormalAt()`. The
+contact force assembly rotates from the local terrain frame to the body frame using the
+terrain surface normal.
+
+**Tests — `test/landing_gear/LandingGearTerrain_test.cpp`:**
+
+- Contact force on a tilted flat surface matches the analytical projection.
+- Wheel-ground normal tracks a known terrain slope angle.
+
+#### Step F — `Aircraft` Integration
+
+Wire `LandingGear` into `Aircraft::step()` on the disturbance force path. `ContactForces`
+enters the 9-step physics loop between propulsion and aerodynamics. `weight_on_wheels` is
+exposed on `AircraftState`.
+
+**Tests — additions to `Aircraft_test.cpp`:**
+
+- `LandingGear_GroundContact_PositiveNz` — aircraft on ground at zero velocity produces
+  $n_z > 0$ from gear contact.
+- `LandingGear_Airborne_ZeroContact` — aircraft at altitude produces `ContactForces` with
+  all components zero.
+
+#### Step G — Python Bindings (pybind11)
+
+Expose `LandingGear`, `WheelUnit`, `StrutState`, and `ContactForces` to Python via
+pybind11. Required by `python/scripts/touchdown_animation.py`.
+
+Build target: `liteaero_sim_py` — a pybind11 extension module. Add to CMake as an
+optional target gated on `LITEAERO_SIM_BUILD_PYTHON_BINDINGS=ON`.
+
+Rewrite `python/scripts/touchdown_animation.py` to call `LandingGear::step()` via the
+pybind11 module. The Python-side contact physics are removed; the Python-side
+aerodynamics model (parameterized from `AeroCoeffEstimator` JSON output — see
+§[Aerodynamics Parameterization](#aerodynamics-parameterization)) remains until a C++
+aerodynamics class with bindings exists.
+
+#### Step H — Scenario Tests and Visualization
+
+Implement the four scenario tests from the design authority document as pytest fixtures
+that drive `LandingGear` via the pybind11 module:
+
+| Scenario | File | Pass criterion |
+| --- | --- | --- |
+| Landing rollout | `python/test/test_landing_rollout.py` | Aircraft decelerates to rest; max $F_z$ within 10% of analytical impulse estimate |
+| Crab landing | `python/test/test_crab_landing.py` | Lateral drift eliminated within 3 s; no diverging yaw oscillation |
+| Takeoff roll | `python/test/test_takeoff_roll.py` | All wheels leave ground at rotation speed; `weight_on_wheels` → false |
+| Bounce (light contact) | `python/test/test_bounce.py` | Contact duration < 0.3 s; $F_z$ peak < 1.5× static weight |
 
 ---
 
-## 9. External Interface Elements
+### Aerodynamics Parameterization
+
+The touchdown animation and Python scenario tests use a simplified aerodynamics model
+(linear lift curve, parabolic drag polar, quasi-static pitch moment) that must be
+consistent with the aircraft geometry under test. Coefficients are derived using the
+existing `AeroCoeffEstimator` pipeline:
+
+1. Define aircraft geometry in a JSON config (`AircraftGeometry` + `SurfaceGeometry`
+   structs — already serializable).
+2. Run `AeroCoeffEstimator` to derive `AeroPerformance` coefficients from geometry.
+3. Write `AeroPerformance` to JSON (already implemented).
+4. The Python animation and test scripts read the `AeroPerformance` JSON and extract
+   $C_{L_\alpha}$, $C_{D_0}$, Oswald $e$, $AR$, $C_{m_0}$, $C_{m_\alpha}$, $\hat{C}_{m_q}$,
+   $\bar{c}$, and $S_\text{ref}$.
+
+This ensures the aerodynamics model in the animation matches the geometry of the aircraft
+being simulated, with no hardcoded coefficients in the script.
+
+---
+
+### Deliverables
+
+| Deliverable | Location |
+| --- | --- |
+| `V_SurfaceFriction`, `SurfaceFrictionUniform` | `include/landing_gear/`, `src/landing_gear/` |
+| `WheelUnit`, `StrutState`, `ContactForces` | `include/landing_gear/` |
+| `LandingGear` | `include/landing_gear/LandingGear.hpp`, `src/landing_gear/LandingGear.cpp` |
+| Proto messages | `proto/` (new `LandingGearState` message) |
+| Unit and integration tests | `test/landing_gear/` |
+| pybind11 module | `python/liteaero_sim_py/` |
+| `touchdown_animation.py` (rewritten) | `python/scripts/touchdown_animation.py` |
+| Scenario test fixtures | `python/test/test_landing_*.py` |
+
+### CMake
+
+Add `liteaero::landing_gear` static library target. Dependencies: `liteaero::terrain`,
+`liteaero-flight` (for `DynamicElement`). Add unit tests to `test/CMakeLists.txt`. Add
+optional `liteaero_sim_py` pybind11 extension target controlled by
+`LITEAERO_SIM_BUILD_PYTHON_BINDINGS`.
+
+---
+
+## 8. External Interface Elements
 
 Adapters that connect LiteAero Sim to external systems. All live in the Interface Layer.
 
 | # | Element | Protocol | Depends on |
 | --- | --- | --- | --- |
-| LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (item 4); `Aircraft` or `Aircraft6DOF` |
-| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (item 4); `Aircraft6DOF` |
-| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (item 4); `NavigationState` (LiteAero Flight) |
-| LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (item 4); `SimulationFrame` (done) |
+| LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (item 3); `Aircraft` or `Aircraft6DOF` |
+| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (item 3); `Aircraft6DOF` |
+| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (item 3); `NavigationState` (LiteAero Flight) |
+| LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (item 3); `SimulationFrame` (done) |
 
 Each element requires a design document before implementation. `VisualizationLink` transport
 and axis convention are decided (see [`docs/architecture/terrain.md`](../architecture/terrain.md) §Game Engine Integration
@@ -398,7 +512,7 @@ and [`docs/architecture/system/future/decisions.md`](../architecture/system/futu
 
 ---
 
-## 10. Synthetic Perception Sensors — Proposed
+## 9. Synthetic Perception Sensors — Proposed
 
 The following sensor elements are proposed and not yet designed. They depend on `V_Terrain`
 for geometry queries. Design items will be scheduled when prerequisite sensor and terrain

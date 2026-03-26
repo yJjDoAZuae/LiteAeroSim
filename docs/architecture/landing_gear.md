@@ -805,37 +805,144 @@ excursion, friction circle loading.
 
 **Location:** [`python/scripts/touchdown_animation.py`](../../python/scripts/touchdown_animation.py)
 
-**Purpose:** Self-contained 2-D landing gear contact simulation and animation. Requires only
-`numpy` and `matplotlib`; no C++ build needed.
+**Dependencies.** The script calls the C++ `LandingGear` class through Python bindings
+(pybind11). Gear contact forces are computed by `LandingGear::step()` — the physics are
+not reimplemented in Python. A lightweight Python-side aerodynamics model provides lift,
+drag, and pitch moment until a C++ aerodynamics class with bindings exists.
 
-**Model:** 3-DOF planar (surge, heave, pitch). Quasi-static spring-damper contact at each
-wheel unit. Linear lift curve, parabolic drag polar, quasi-static pitch moment with damping.
-No tyre lateral forces.
+---
 
-**Run:**
+#### Simulation Model
 
-```bash
-python/.venv/Scripts/python.exe python/scripts/touchdown_animation.py
+The script drives a 3-DOF planar scenario (surge $x$, heave $z$, pitch $\theta$) using
+explicit Euler at $\Delta t = 0.002$ s. The full trajectory is pre-computed before the
+animation loop starts; the animation only reads pre-computed arrays.
+
+**Equations of motion** (integrated by the script):
+
+$$m\ddot{x} = F_{x,\text{aero}} + F_{x,\text{gear}}$$
+
+$$m\ddot{z} = F_{z,\text{aero}} + F_{z,\text{gear}} - mg$$
+
+$$I_{yy}\ddot{\theta} = M_{\text{aero}} + M_{\text{gear}}$$
+
+**Gear forces.** At each step the script constructs a `KinematicStateSnapshot` from the
+current $(x, z, \theta, \dot{x}, \dot{z}, q)$ and passes it to `LandingGear::step()`.
+The C++ class returns per-unit contact forces and moments; the script sums them into
+$F_{x,\text{gear}}$, $F_{z,\text{gear}}$, and $M_{\text{gear}}$. See
+§[Physical Models](#physical-models) for the contact model equations that the C++ class
+implements.
+
+**Aerodynamics** (Python-side, to be replaced when a C++ aerodynamics class with bindings
+exists). Linear lift curve, parabolic drag polar, quasi-static pitch moment with pitch-rate
+damping:
+
+$$C_L = C_{L_\alpha}\alpha, \quad C_D = C_{D_0} + \frac{C_L^2}{\pi e AR}, \quad
+C_m = C_{m_0} + C_{m_\alpha}\alpha + \hat{C}_{m_q}\frac{q\bar{c}}{2V}$$
+
+Coefficients are not hardcoded. The script reads an `AeroPerformance` JSON file produced
+by `AeroCoeffEstimator` for the aircraft geometry under test, extracting $C_{L_\alpha}$,
+$C_{D_0}$, Oswald $e$, $AR$, $C_{m_0}$, $C_{m_\alpha}$, $\hat{C}_{m_q}$, $\bar{c}$, and
+$S_\text{ref}$.
+
+**Scenario parameters:**
+
+| Parameter | Value |
+| --- | --- |
+| Mass | 2 000 kg |
+| $I_{yy}$ | 6 000 kg·m² |
+| $S_{\text{ref}}$ | 20 m² |
+| Approach speed | 55 m/s |
+| Glide slope | 3° |
+| Trim pitch $\theta_0$ | 9.1° nose-up |
+| Initial CG height | 10 m |
+| Main gear touchdown | $t \approx 2.8$ s, peak $F_z \approx 30$ kN |
+| Animation duration | 14 s |
+
+---
+
+#### Layout
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Main side-view panel  (70 % of figure height)      │
+│  Fixed camera window: x ∈ [−10, 120] m              │
+│                        z ∈ [−1.5, 12] m             │
+└─────────────────────────────────────────────────────┘
+┌──────────────────────┐  ┌──────────────────────────┐
+│  Contact forces (N)  │  │  Strut compression (m)   │
+│  vs. time  (22 %)    │  │  vs. time  (22 %)        │
+└──────────────────────┘  └──────────────────────────┘
 ```
 
-**What is shown:**
+The camera is fixed; the aircraft enters from the left and moves right. Runway centre-line
+markings and the 3° glide-slope indicator line are static scene elements.
 
-- Side-view aircraft silhouette (fuselage, wing, horizontal and vertical tail) that rotates
-  with pitch angle throughout the approach, contact, and rollout phases.
-- Landing gear struts drawn as lines from the body attachment point to the wheel center;
-  strut length shortens visually as the tyre compresses into the ground.
-- Upward contact-force arrows at each wheel contact point, proportional to the normal force:
-  orange for main gear, blue for nose gear. Arrow length = F / 55 000 N/m.
-- Green lift arrow and yellow weight arrow at the CG, proportional to force magnitude.
-- Live time-series subplots below the main view: contact forces (N) and strut compression (m)
-  for both wheels, with a moving cursor tracking the current animation frame.
-- Status bar: simulation time, airspeed, pitch angle, angle of attack, per-wheel contact
-  force, and L/W ratio.
+---
 
-**Scenario:** 2 000 kg aircraft, 55 m/s approach, 3° glide slope, 9.1° nose-up trim pitch.
-Main gear contacts at approximately t = 2.8 s with a peak normal force of ~30 kN (dominated
-by the damping term at 2.88 m/s sink rate). Nose gear contacts as pitch relaxes toward level.
-Total animation duration: 14 s.
+#### Visual Encoding
+
+| Physical quantity | Visual element | Encoding |
+| --- | --- | --- |
+| Aircraft position + pitch | Four `Polygon` patches (fuselage, wing, HT, VT) | Rotated and translated from body frame each frame |
+| CG location | Yellow dot `Line2D` | World-frame position |
+| Strut extension $L_0 - h_i$ | `Line2D` from attachment to wheel centre | Length encodes remaining extension |
+| Wheel position | `Circle` patch | Centre tracks compressed wheel centre |
+| Contact point (active) | Coloured dot at $z = 0$ | Appears only when $h > 0$ |
+| Normal contact force $F_{z,i}$ | `FancyArrowPatch` at contact point, pointing up | Arrow length $= F_{z,i} / 55\,000$ m/N; hidden when $F_{z,i} < 200$ N |
+| Lift $L$ | `FancyArrowPatch` at CG, perpendicular to velocity | Arrow length $= L / 60\,000$ m/N |
+| Weight $W = mg$ | `FancyArrowPatch` at CG, pointing down | Arrow length $= W / 60\,000$ m/N |
+| Contact force vs. time | `Line2D` traces on lower-left subplot | Main gear orange, nose gear blue; ghost trace shows full future trajectory |
+| Strut compression vs. time | `Line2D` traces on lower-right subplot | Same color convention |
+| Current time | Vertical cursor `axvline` on both subplots | Moves with animation frame |
+
+Arrow scale factors (55 000 N/m for contact, 60 000 N/m for lift/weight) are chosen so
+that the peak contact force at touchdown ($\approx 30$ kN) produces an arrow $\approx 0.55$ m
+tall — readable at the scene scale without obscuring the aircraft body.
+
+---
+
+#### Coordinate Mapping
+
+Aircraft body-frame points are transformed to world frame each animation step:
+
+$$\mathbf{p}^W = \mathbf{p}^W_{\text{CG}} + R(\theta)\,\mathbf{p}^B$$
+
+where $R(\theta) = \begin{bmatrix}\cos\theta & -\sin\theta \\ \sin\theta & \cos\theta\end{bmatrix}$
+and $\mathbf{p}^B$ is the point in body frame (x forward, z up). Matplotlib data coordinates
+equal world frame coordinates (1 data unit = 1 m); no further projection is applied.
+
+---
+
+#### Data Flow
+
+```
+Pre-computation (runs once at import time)
+  ↓
+  for i in 0..N:
+      state[i] → build KinematicStateSnapshot
+                              ↓
+                         LandingGear::step()  (C++ via pybind11)
+                              ↓
+                         gear_states[i]   (per-wheel: attach_w, wheel_c, h, Fz)
+                         scalar arrays    (_Fz_m, _Fz_n, _h_m, _h_n)
+                         aero_info[i]     (L, D, alpha, lift_dir — Python-side)
+                              ↓
+                         _integrate() → state[i+1]
+
+Animation loop (FuncAnimation, 30 fps)
+  ↓
+  _update(frame):
+      i = _FRAMES[frame]           ← stride index into pre-computed arrays
+      read state scalars[i]
+      read gear_states[i]          → update Polygon, Line2D, Circle, FancyArrowPatch
+      read aero_info[i]            → update lift / weight arrows
+      read scalar arrays[:i+1]    → update live time-series traces
+```
+
+The animation update function is a pure reader of pre-computed data — no physics is
+evaluated per frame. `blit=False` is used because the time-series cursor (`axvline`)
+requires a full axes redraw when its x-position changes.
 
 ---
 
