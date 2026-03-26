@@ -8,8 +8,9 @@ conversions.
 
 **Note on system scope.** LiteAero Sim is the simulation plant only. Autopilot, guidance,
 path representation, navigation, and gain scheduling are LiteAero Flight components that are
-architecturally separate. Their design and implementation items are in
-[flight_code.md](flight_code.md). Items in this document are LiteAero Sim items only.
+architecturally separate. Their design and implementation items are in the LiteAero Flight
+roadmap (`liteaero-flight/docs/roadmap/flight_code.md`; cross-reference at
+[flight_code.md](flight_code.md)). Items in this document are LiteAero Sim items only.
 The system architecture is complete — see `docs/architecture/system/future/` and the
 project roadmap [README.md](README.md) for cross-cutting milestones.
 
@@ -52,8 +53,8 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `EnvironmentState` | `include/environment/EnvironmentState.hpp` | ✅ Implemented |
 | `SurfaceGeometry` / `AircraftGeometry` | `include/aerodynamics/AircraftGeometry.hpp` | ✅ Implemented |
 | `AeroCoeffEstimator` | `include/aerodynamics/AeroCoeffEstimator.hpp` | ✅ Implemented |
-| `DynamicElement` | `include/DynamicElement.hpp` | ✅ Implemented — see [dynamic_element.md](../architecture/dynamic_element.md) |
-| `SisoElement` | `include/SisoElement.hpp` | ✅ Implemented — NVI SISO wrapper over `DynamicElement` |
+| `DynamicElement` | `liteaero-flight/include/liteaero/control/DynamicElement.hpp` | → LiteAero Flight — see [dynamic_element.md](../architecture/dynamic_element.md) |
+| `SisoElement` | `liteaero-flight/include/liteaero/control/SisoElement.hpp` | → LiteAero Flight — NVI SISO wrapper over `DynamicElement` |
 | `SensorAirData` | `include/sensor/SensorAirData.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `SensorGnss` | `include/sensor/SensorGnss.hpp` | 🔲 Planned — stub not yet created |
 | `SensorLaserAlt` | `include/sensor/SensorLaserAlt.hpp` | 🔲 Planned — stub not yet created |
@@ -67,13 +68,13 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `NavigationFilter` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
 | `WindEstimator` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
 | `FlowAnglesEstimator` | — | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-8 |
-| `V_PathSegment` | `include/path/V_PathSegment.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
-| `PathSegmentHelix` | `include/path/PathSegmentHelix.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
-| `Path` | `include/path/Path.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-6 |
-| `PathGuidance` | `include/guidance/PathGuidance.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-7 |
-| `VerticalGuidance` | `include/guidance/VerticalGuidance.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-7 |
-| `ParkTracking` | `include/guidance/ParkTracking.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-7 |
-| `Autopilot` | `include/control/Autopilot.hpp` | → LiteAero Flight — see [flight_code.md](flight_code.md) FC-5 |
+| `V_PathSegment` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-6 |
+| `PathSegmentHelix` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-6 |
+| `Path` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-6 |
+| `PathGuidance` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-7 |
+| `VerticalGuidance` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-7 |
+| `ParkTracking` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-7 |
+| `Autopilot` | — | → LiteAero Flight stub — see [flight_code.md](flight_code.md) FC-5 |
 
 ---
 
@@ -228,7 +229,7 @@ The navigation system is a separable flight code component that derives kinemati
 ## 2. Gain Scheduling *(→ LiteAero Flight)*
 
 Gain scheduling is a LiteAero Flight infrastructure item. Design and implementation are in
-[flight_code.md](flight_code.md) as FC-2 and FC-3.
+the LiteAero Flight roadmap ([flight_code.md](flight_code.md)) as FC-2 and FC-3.
 
 ---
 
@@ -294,29 +295,29 @@ Implementation follows TDD: failing tests before production code.
 ## 5. Autopilot Gain Design — Python Tooling *(→ LiteAero Flight)*
 
 Python workflow for deriving autopilot gains from the `Aircraft` model. This item is in
-[flight_code.md](flight_code.md) as FC-4 since it produces inputs for the LiteAero Flight
-`Autopilot` component.
+the LiteAero Flight roadmap ([flight_code.md](flight_code.md)) as FC-4 since it produces
+inputs for the LiteAero Flight `Autopilot` component.
 
 ---
 
 ## 6. Autopilot *(→ LiteAero Flight)*
 
-LiteAero Flight item — see [flight_code.md](flight_code.md) FC-5. Stub header at
-`include/control/Autopilot.hpp` will be relocated at the repo split.
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-5. Stub header is in
+`liteaero-flight/include/liteaero/autopilot/Autopilot.hpp`.
 
 ---
 
 ## 7. Path Representation *(→ LiteAero Flight)*
 
-LiteAero Flight item — see [flight_code.md](flight_code.md) FC-6. Stub headers at
-`include/path/` will be relocated at the repo split.
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-6. Stub headers are in
+`liteaero-flight/include/liteaero/guidance/`.
 
 ---
 
 ## 8. Guidance *(→ LiteAero Flight)*
 
-LiteAero Flight item — see [flight_code.md](flight_code.md) FC-7. Stub headers at
-`include/guidance/` will be relocated at the repo split.
+LiteAero Flight item — see [flight_code.md](flight_code.md) FC-7. Stub headers are in
+`liteaero-flight/include/liteaero/guidance/`.
 
 ---
 
@@ -384,7 +385,7 @@ an `AircraftCommand`. These live in the Interface Layer and have no physics logi
 
 ```cpp
 // include/input/ManualInput.hpp
-namespace liteaerosim::input {
+namespace liteaero::simulation {
 
 class V_ManualInput {
 public:
@@ -392,7 +393,7 @@ public:
     virtual ~V_ManualInput() = default;
 };
 
-} // namespace liteaerosim::input
+} // namespace liteaero::simulation
 ```
 
 ### Tests — Manual Input
