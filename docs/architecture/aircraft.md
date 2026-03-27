@@ -40,7 +40,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | UC-1 | Advance physics by one timestep | Simulation loop | `Aircraft::step()` |
 | UC-2 | Query current kinematic state | Simulation loop, guidance | `Aircraft::state()` |
-| UC-3 | Initialize from JSON config | Config parser / scenario | `Aircraft::initialize(config, outer_dt_s)` |
+| UC-3 | Initialize from JSON config | Config parser / scenario | `Aircraft::initialize(config, runner_dt_s)` |
 | UC-4 | Reset to initial conditions | Scenario, test harness | `Aircraft::reset()` |
 | UC-5 | Serialize mid-flight snapshot | Logger, pause/resume | `serializeJson()` / `serializeProto()` |
 | UC-6 | Restore from snapshot | Pause/resume, replay | `deserializeJson()` / `deserializeProto()` |
@@ -52,7 +52,8 @@ flowchart TD
 
 ### UC-1 — Advance Physics by One Timestep
 
-**Trigger:** The simulation loop calls `Aircraft::step()` once per outer timestep.
+**Trigger:** The simulation loop calls `Aircraft::step()` once per runner output step
+(`runner_dt_s`).
 
 **Preconditions:** `initialize()` has been called. All inputs are in SI units. Air density
 and wind vector have been computed from `Atmosphere` and `Wind` for the current position
@@ -60,26 +61,30 @@ before this call.
 
 **Main flow:**
 
+For `i` in `[0, integration_substeps)`, executing at the finer timestep `integration_dt_s`:
+
 1. Compute true airspeed from `KinematicState::velocity_NED_mps()` and the supplied
    `wind_NED_mps`. Dynamic pressure follows from `rho_kgm3` and airspeed.
 2. Record previous-step thrust `T_prev = _propulsion->thrust_n()`.
 3. Clamp raw commanded load factors to airframe structural limits.
-4. Run the inner filter loop `cmd_filter_substeps` times, advancing `_nz_filter`,
-   `_ny_filter`, and `_roll_rate_filter` at the inner timestep `cmd_filter_dt_s`. After the
-   loop, read shaped commands and compute derivatives analytically from filter state.
+4. Run the command filter loop `cmd_filter_substeps` times, advancing `_nz_filter`,
+   `_ny_filter`, and `_roll_rate_filter` at `cmd_filter_dt_s`. After the loop, read shaped
+   commands and compute derivatives analytically from filter state.
 5. Solve for angle of attack (`α`) and sideslip (`β`) using `LoadFactorAllocator::solve()`
    with the shaped load factors and their analytically derived time derivatives.
 6. Evaluate `CL = LiftCurveModel::evaluate(α)`.
 7. Compute aerodynamic forces in the Wind frame via `AeroPerformance::compute()`.
-8. Advance propulsion at the outer rate: `thrust_n = Propulsion::step(throttle, V_air, rho)`.
+8. Advance propulsion: `thrust_n = Propulsion::step(throttle, V_air, rho)`.
 9. Decompose thrust into Wind-frame acceleration components; combine with aerodynamic
    forces. Gravity is **not** added separately — it is already embedded in the load factor
    constraint solved in step 5.
 10. Advance `KinematicState::step()` with the computed Wind-frame acceleration, shaped roll
-    rate, and aerodynamic angle inputs.
+    rate, and aerodynamic angle inputs, using `integration_dt_s`.
 
 **Postconditions:** `state()` reflects the aircraft position, velocity, and attitude at
-`time_sec + outer_dt_s`. `Propulsion::thrust_n()` reflects the engine thrust at this step.
+`time_sec + runner_dt_s`. `Propulsion::thrust_n()` reflects the engine thrust at the last
+substep. All quantities are sampled at the runner output rate; the intermediate substep
+states are not accessible externally.
 
 **Alternate flow — stall:** The allocator finds `α` such that
 $q S C_L(\alpha) + T\sin\alpha = n_z\,m\,g$. The achievable load factor
@@ -96,7 +101,7 @@ thrown.
 
 ### UC-3 — Initialize from JSON Config
 
-**Trigger:** Application or test code calls `Aircraft::initialize(config, outer_dt_s)` after
+**Trigger:** Application or test code calls `Aircraft::initialize(config, runner_dt_s)` after
 constructing the `Aircraft` with a propulsion model.
 
 **Preconditions:** The JSON has been validated against `aircraft_config_v1`. The
@@ -104,23 +109,29 @@ constructing the `Aircraft` with a propulsion model.
 
 **Main flow:**
 
-1. Store `outer_dt_s` (the Simulation's outer integration timestep; Aircraft does not own
-   its value, only stores a copy for filter initialization).
-2. Read `inertia.*` and construct `Inertia`; read `airframe.*` and construct
+1. Store `runner_dt_s` (the SimRunner output step; Aircraft does not own the runner, only
+   stores a copy to compute its own integration timestep).
+2. Read `aircraft.max_integration_dt_s` (double, seconds). Compute the physics integration
+   substep count: `integration_substeps = ceil(runner_dt_s / max_integration_dt_s)`.
+   Compute `integration_dt_s = runner_dt_s / integration_substeps`. This value satisfies
+   `integration_dt_s ≤ max_integration_dt_s` and `integration_substeps * integration_dt_s = runner_dt_s`
+   exactly.
+3. Read `inertia.*` and construct `Inertia`; read `airframe.*` and construct
    `AirframePerformance`.
-3. Read `aircraft.S_ref_m2`, `aircraft.cl_y_beta`.
-4. Construct `LiftCurveModel` from `lift_curve.*` parameters.
-5. Construct `LoadFactorAllocator` from the lift curve, `S_ref_m2`, and `cl_y_beta`.
-6. Construct `AeroPerformance` from `aircraft.S_ref_m2`, `aircraft.cl_y_beta`,
+4. Read `aircraft.S_ref_m2`, `aircraft.cl_y_beta`.
+5. Construct `LiftCurveModel` from `lift_curve.*` parameters.
+6. Construct `LoadFactorAllocator` from the lift curve, `S_ref_m2`, and `cl_y_beta`.
+7. Construct `AeroPerformance` from `aircraft.S_ref_m2`, `aircraft.cl_y_beta`,
    `aircraft.ar`, `aircraft.e`, `aircraft.cd0`.
-7. Construct the initial `KinematicState` from `initial_state.*`; save a copy as
+8. Construct the initial `KinematicState` from `initial_state.*`; save a copy as
    `_initial_state` for `reset()`.
-8. Read `aircraft.cmd_filter_substeps` (integer ≥ 1). Compute
-   `cmd_filter_dt_s = outer_dt_s / cmd_filter_substeps`.
-9. Validate filter parameters against Nyquist limits (see §Command Processing
-   Architecture). Throw `std::invalid_argument` on any violation.
-10. Configure and warm-start `_nz_filter` (`setLowPassSecondIIR`), `_ny_filter`
-    (`setLowPassSecondIIR`), and `_roll_rate_filter` (`setLowPassFirstIIR`).
+9. Read `aircraft.max_cmd_filter_dt_s` (double, seconds). Compute
+   `cmd_filter_substeps = ceil(integration_dt_s / max_cmd_filter_dt_s)`.
+   Compute `cmd_filter_dt_s = integration_dt_s / cmd_filter_substeps`.
+10. Validate filter natural frequencies against `cmd_filter_dt_s` (see §Command Processing
+    Architecture). Throw `std::invalid_argument` on any violation.
+11. Configure and warm-start `_nz_filter` (`setLowPassSecondIIR`), `_ny_filter`
+    (`setLowPassSecondIIR`), and `_roll_rate_filter` (`setLowPassSecondIIR`).
 
 **Postconditions:** `state()` returns the initial kinematic state. All filters are warm-started
 at their steady-state values. The allocator and lift curve are ready for `step()`.
@@ -179,17 +190,48 @@ $$
 
 and identically for Ny and roll rate with their own $\omega_n$ and $\zeta$ parameters.
 
-### Inner Substep Loop
+### Timestep Hierarchy
 
-The command response filters run at an integer multiple of the outer simulation rate. The
-substep count is a configuration parameter; the inner timestep is derived from it:
+There are three nested timestep levels, each derived by the same rule: choose the largest
+sub-multiple of the enclosing step that does not exceed the configured maximum.
 
 ```text
-cmd_filter_substeps  — integer ≥ 1, from config
-cmd_filter_dt_s      = outer_dt_s / cmd_filter_substeps
+runner_dt_s              — SimRunner output step (e.g. 0.02 s, 50 Hz)
+                           Supplied by the caller to initialize(). Not in Aircraft JSON.
+
+max_integration_dt_s     — aircraft config: maximum allowed physics integration timestep
+integration_substeps     = ceil(runner_dt_s / max_integration_dt_s)   [integer ≥ 1]
+integration_dt_s         = runner_dt_s / integration_substeps
+                           Governs KinematicState trajectory integration accuracy.
+                           Exact sub-fraction of runner_dt_s — no accumulation error.
+
+max_cmd_filter_dt_s      — aircraft config: maximum allowed command filter timestep
+cmd_filter_substeps      = ceil(integration_dt_s / max_cmd_filter_dt_s)   [integer ≥ 1]
+cmd_filter_dt_s          = integration_dt_s / cmd_filter_substeps
+                           Governs FBW command response filter Nyquist margin.
+                           Exact sub-fraction of integration_dt_s.
 ```
 
-Per `Aircraft::step()` call, the inner loop executes `cmd_filter_substeps` iterations:
+Both `max_integration_dt_s` and `max_cmd_filter_dt_s` are configuration fields in the
+`"aircraft"` JSON section. Using a maximum-timestep config parameter (rather than a fixed
+integer substep count) ensures that:
+
+- A long `integration_dt_s` automatically requests more command filter substeps to maintain
+  Nyquist separation from filter dynamics.
+- A short `integration_dt_s` does not wastefully over-step the command filters beyond what
+  the dynamics require.
+- The substep count is always a computed integer, so the update loop remains exact.
+
+### Integration Substep Loop
+
+Per `Aircraft::step()` call, the outer physics loop executes `integration_substeps`
+iterations at `integration_dt_s`.
+
+### Command Filter Substep Loop
+
+The command response filters run at an integer multiple of the physics integration rate.
+Per physics integration substep, the command filter loop executes `cmd_filter_substeps`
+iterations:
 
 ```text
 for i in [0, cmd_filter_substeps):
@@ -237,13 +279,19 @@ violation:
 
 | Constraint | Meaning |
 | --- | --- |
-| `cmd_filter_substeps >= 1` | At least one inner step per outer step |
-| `nz_wn_rad_s * cmd_filter_dt_s < π` | Nz natural frequency below inner Nyquist |
-| `ny_wn_rad_s * cmd_filter_dt_s < π` | Ny natural frequency below inner Nyquist |
-| `roll_rate_wn_rad_s * cmd_filter_dt_s < π` | Roll rate natural frequency below inner Nyquist |
+| `max_integration_dt_s > 0` | Physics integration maximum timestep is positive |
+| `max_cmd_filter_dt_s > 0` | Command filter maximum timestep is positive |
+| `nz_wn_rad_s * cmd_filter_dt_s < π` | Nz natural frequency below command filter Nyquist |
+| `ny_wn_rad_s * cmd_filter_dt_s < π` | Ny natural frequency below command filter Nyquist |
+| `roll_rate_wn_rad_s * cmd_filter_dt_s < π` | Roll rate natural frequency below command filter Nyquist |
 
-These constraints bind on the **inner** timestep. If `cmd_filter_substeps = 1`, the inner
-and outer timesteps are equal and the constraints bind on the outer rate.
+All Nyquist constraints bind on `cmd_filter_dt_s`, the finest timestep, which is derived
+from `max_cmd_filter_dt_s`. Configuring `max_cmd_filter_dt_s` to be the reciprocal of a
+target minimum sample frequency (e.g., `1 / (10 * wn_max)` for 10× Nyquist margin)
+ensures the constraint is satisfied for any valid `integration_dt_s`.
+
+The first two constraints (positive maximums) ensure `integration_substeps ≥ 1` and
+`cmd_filter_substeps ≥ 1` by construction.
 
 ### Warm-Start and Reset
 
@@ -271,11 +319,13 @@ classDiagram
         -_nz_filter : FilterSS2Clip
         -_ny_filter : FilterSS2Clip
         -_roll_rate_filter : FilterSS2Clip
-        -_outer_dt_s : float
+        -_runner_dt_s : double
+        -_integration_substeps : int
+        -_integration_dt_s : double
         -_cmd_filter_substeps : int
-        -_cmd_filter_dt_s : float
+        -_cmd_filter_dt_s : double
         +Aircraft(propulsion)
-        +initialize(config, outer_dt_s) void
+        +initialize(config, runner_dt_s) void
         +reset() void
         +step(time_sec, cmd, wind_NED_mps, rho_kgm3) void
         +state() const KinematicState&
@@ -405,12 +455,14 @@ Propulsion is injected at construction time so that the concrete engine type
 ### Lifecycle Methods
 
 ```cpp
-void initialize(const nlohmann::json& config, float outer_dt_s);
+void initialize(const nlohmann::json& config, double runner_dt_s);
 ```
 
-`outer_dt_s` is the Simulation's outer integration timestep in seconds. The Simulation owns
-this value; `Aircraft` receives it here so it can compute `cmd_filter_dt_s` and configure the
-command response filters. It is not stored in the aircraft config JSON.
+`runner_dt_s` is the SimRunner output step in seconds — the interval at which the runner
+calls `Aircraft::step()`. `Aircraft` uses it to compute the physics integration substep count
+N = ⌈runner_dt_s / max_integration_dt_s⌉ and the resulting `integration_dt_s = runner_dt_s / N`,
+from which `cmd_filter_dt_s` is derived. `runner_dt_s` is not stored in the aircraft config
+JSON; it is supplied by the runner at initialization time.
 
 Reads `aircraft_config_v1` JSON and constructs all owned subsystems in dependency order:
 inertia and airframe first, then lift curve, then aero performance and load factor allocator
@@ -717,9 +769,11 @@ flowchart LR
 | `_nz_filter` | `control::FilterSS2Clip` | Value member | Nz command response (2nd order LP) |
 | `_ny_filter` | `control::FilterSS2Clip` | Value member | Ny command response (2nd order LP) |
 | `_roll_rate_filter` | `control::FilterSS2Clip` | Value member | Roll rate command response (2nd order LP) |
-| `_outer_dt_s` | `float` | Value member | Copy of Simulation's outer timestep; used at initialize() time only |
-| `_cmd_filter_substeps` | `int` | Value member | Integer inner step multiplier |
-| `_cmd_filter_dt_s` | `float` | Value member | `outer_dt_s / cmd_filter_substeps` |
+| `_runner_dt_s` | `double` | Value member | Copy of SimRunner output step; used at initialize() time only |
+| `_integration_substeps` | `int` | Value member | Physics integration substeps per runner step; = ⌈runner_dt_s / max_integration_dt_s⌉ |
+| `_integration_dt_s` | `double` | Value member | `runner_dt_s / _integration_substeps` — actual physics integration timestep |
+| `_cmd_filter_substeps` | `int` | Value member | Computed: ⌈integration_dt_s / max_cmd_filter_dt_s⌉ |
+| `_cmd_filter_dt_s` | `double` | Value member | `_integration_dt_s / _cmd_filter_substeps` |
 
 **Invariant:** `_propulsion` must never be null after construction. If the caller passes
 `nullptr`, the constructor throws `std::invalid_argument`.
@@ -733,8 +787,8 @@ and leave the reference dangling.
 
 ## Initialization — JSON Config Mapping
 
-The `aircraft_config_v1` schema maps to `Aircraft` members as follows. The outer integration
-timestep (`outer_dt_s`) is **not** in the JSON — it is passed as a separate parameter to
+The `aircraft_config_v1` schema maps to `Aircraft` members as follows. The runner output
+step (`runner_dt_s`) is **not** in the JSON — it is passed as a separate parameter to
 `initialize()`.
 
 | JSON path | C++ type | Aircraft member / usage |
@@ -752,7 +806,8 @@ timestep (`outer_dt_s`) is **not** in the JSON — it is passed as a separate pa
 | `aircraft.ar` | `float` | `AeroPerformance` — wing aspect ratio |
 | `aircraft.e` | `float` | `AeroPerformance` — Oswald efficiency |
 | `aircraft.cd0` | `float` | `AeroPerformance` — zero-lift drag coefficient |
-| `aircraft.cmd_filter_substeps` | `int` | `_cmd_filter_substeps`; must be ≥ 1 |
+| `aircraft.max_integration_dt_s` | `double` | Maximum allowed physics integration timestep (s); must be > 0 |
+| `aircraft.max_cmd_filter_dt_s` | `double` | Maximum allowed command filter timestep (s); must be > 0; set to `1 / (k * wn_max)` for k× Nyquist margin |
 | `aircraft.nz_wn_rad_s` | `float` | Nz command response natural frequency (rad/s) |
 | `aircraft.nz_zeta_nd` | `float` | Nz command response damping ratio |
 | `aircraft.ny_wn_rad_s` | `float` | Ny command response natural frequency (rad/s) |
@@ -849,7 +904,7 @@ steady-state backsolve.
 | `propulsion != nullptr` | constructor | Object constructed; `_propulsion` is non-null |
 | `propulsion == nullptr` | constructor | throws `std::invalid_argument` |
 | `initialize()` not yet called | `step()` | undefined behavior (asserts in debug) |
-| Valid `aircraft_config_v1` JSON | `initialize(config, outer_dt_s)` | All subsystems constructed; `state()` = initial state |
+| Valid `aircraft_config_v1` JSON | `initialize(config, runner_dt_s)` | All subsystems constructed; `state()` = initial state |
 | `cmd_filter_substeps < 1` | `initialize()` | throws `std::invalid_argument` |
 | `nz_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
 | `ny_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
@@ -892,7 +947,7 @@ sequenceDiagram
     participant AP   as Autopilot
 
     App ->> AC   : Aircraft(std::move(propulsion))
-    App ->> AC   : initialize(config_json, outer_dt_s)
+    App ->> AC   : initialize(config_json, runner_dt_s)
 
     loop Each timestep
         App  ->> ATM  : AtmosphericState s = Atmosphere::state(altitude_m)

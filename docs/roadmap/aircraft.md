@@ -44,6 +44,7 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `MotorPiston` | `include/propulsion/MotorPiston.hpp` | ✅ Implemented — see [propulsion.md](../architecture/propulsion.md) |
 | `PropulsionProp` | `include/propulsion/PropulsionProp.hpp` | ✅ Implemented + serialization (JSON + proto) — see [propulsion.md](../architecture/propulsion.md) |
 | `Aircraft` | `include/Aircraft.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `SimRunner` | `include/runner/SimRunner.hpp` | ✅ Implemented — Batch / RealTime / ScaledRealTime; see [sim_runner.md](../architecture/sim_runner.md) |
 | `Atmosphere` | `include/environment/Atmosphere.hpp` | ✅ Implemented + serialization (JSON + proto) |
 | `AtmosphericState` | `include/environment/AtmosphericState.hpp` | ✅ Implemented |
 | `Wind` | `include/environment/Wind.hpp` | ✅ Implemented + serialization (JSON + proto) |
@@ -113,73 +114,18 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 24 | **Aircraft command processing redesign** — all three command axes (`_nz_filter`, `_ny_filter`, `_roll_rate_filter`) converted to `setLowPassSecondIIR` (2nd-order LP); config params replaced: `cmd_deriv_tau_s`/`cmd_roll_rate_tau_s` → `nz_wn_rad_s`/`nz_zeta_nd`/`ny_wn_rad_s`/`ny_zeta_nd`/`roll_rate_wn_rad_s`/`roll_rate_zeta_nd`; `n_z_dot`/`n_y_dot` computed analytically from filter state after substep loop (no derivative filter lag); allocator receives shaped commands instead of raw clamped commands; Nyquist constraint enforced per axis (`wn * cmd_filter_dt_s < π`) at `initialize()`; proto `AircraftState` updated; `aircraft_config_v1` schema doc updated; fixture JSON files updated; design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md) §Command Processing Architecture | 3 new Nyquist violation tests in `Aircraft_test.cpp` (`NyquistViolation_Nz_Throws`, `_Ny_Throws`, `_RollRate_Throws`); 345 pre-existing tests pass |
 | 26 | **Post-processing tools design** — full design authority document covering: use case decomposition (UC-PP1 through UC-PP10); actors (Sim Developer, Integration Tester, Flight Analyst, Guidance/Autopilot Developer); module architecture (`FlightLogReader`, `AnomalyDetector`, `BehaviorVerifier`, `DataOverlay`, `ModeEventSeries`, `TimeHistoryFigure`, `RibbonTrail`, `HudOverlay`, `TrajectoryView`); ribbon trail geometry (body-to-world rotation, wing half-span vector, `Poly3DCollection`); HUD overlay layout; command/response time history encoding; `BehaviorVerifier` criterion library and multi-source DataFrame interface; library choices (pandas, matplotlib, Plotly, mcap, numpy); test strategy (8 test files, rendering non-invocation requirement) | [`docs/architecture/post_processing.md`](../architecture/post_processing.md) |
 | 25 | **Landing gear model design** — full design authority document covering: use case decomposition; class hierarchy (`LandingGear`, `WheelUnit`, `StrutState`, `ContactForces`, `V_SurfaceFriction`, `SurfaceFrictionUniform`); physical models (suspension spring-damper, Pacejka magic formula, wheel friction, surface friction parameterization, ground plane interface); force assembly; step interface; JSON + proto serialization contract; computational resource estimate; test strategy (unit, integration, scenario, serialization); visualization notebook designs (`landing_gear_contact_forces.ipynb`, `crab_landing_dynamics.ipynb`, `takeoff_roll.ipynb`, `terrain_contact_animation.ipynb`); touchdown animation design (`touchdown_animation.py` — pybind11 driver, layout, visual encoding, coordinate mapping, data flow) | [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) |
+| Sim-1 | **SimRunner — Execution Modes** — `ExecutionMode` enum (`Batch`, `RealTime`, `ScaledRealTime`); `RunnerConfig` struct (`dt_s` float — output step, adequate precision for timestep values; `duration_s` double — needed for long runs compared to accumulated sim time; `time_scale` float; `mode`); `SimRunner` class with `initialize()`, `start()`, `stop()`, `is_running()`, `elapsed_sim_time_s()`; Batch mode blocks caller; RealTime/ScaledRealTime spawn `std::thread`; `std::atomic<uint64_t> step_count_` for elapsed time; termination condition `sim_time_s > duration_s + time_initial_s` (direct time comparison — no precomputed step count); `dt_s` widened to `double` once at loop entry for all arithmetic; late-step policy: no compensation; design authority: [`docs/architecture/sim_runner.md`](../architecture/sim_runner.md) | `SimRunner_test.cpp` — 10 tests |
 
 ---
 
-## 1. Execution Modes — Real-Time, Scaled, and Batch Runners
-
-**Design authority:** [docs/architecture/sim_runner.md](../architecture/sim_runner.md)
-
-**Blocking dependencies:** None. `Aircraft` is implemented.
-
-The simulation runner controls the wall-clock relationship to simulation time. Three modes
-are required:
-
-| Mode | Description |
-| --- | --- |
-| **Real-time** | Each `step()` is paced to its real elapsed wall time (`dt_s` per step). |
-| **Scaled real-time** | Same as real-time but with a configurable speed multiplier (0.5×, 2×, etc.). |
-| **Full-rate batch** | Steps run as fast as possible; no sleep; used for CI, Monte Carlo, and data generation. |
-
-### Interface Sketch — SimRunner
-
-```cpp
-// include/runner/SimRunner.hpp
-namespace liteaerosim::runner {
-
-enum class ExecutionMode { RealTime, ScaledRealTime, Batch };
-
-struct RunnerConfig {
-    ExecutionMode mode         = ExecutionMode::Batch;
-    float         time_scale   = 1.0f;   // used only in ScaledRealTime mode
-    double        duration_s   = 0.0;    // 0 = run until stop() is called
-};
-
-class SimRunner {
-public:
-    void initialize(const RunnerConfig& config, Aircraft& aircraft);
-    void start();    // begins the run loop (blocks in Batch mode; spawns thread otherwise)
-    void stop();
-    bool is_running() const;
-    double elapsed_sim_time_s() const;
-};
-
-} // namespace liteaerosim::runner
-```
-
-### Tests — SimRunner
-
-- `Batch` mode with `duration_s = 1.0` and `dt_s = 0.01` calls `Aircraft::step()` exactly
-  100 times and then stops.
-- `RealTime` mode: elapsed wall time after 10 steps is within 10% of `10 * dt_s`.
-- `stop()` called from outside (threaded test) terminates the run loop within one timestep.
-- `elapsed_sim_time_s()` returns `n_steps * dt_s` after `n_steps` have been executed.
-
-### CMake — SimRunner
-
-Add `src/runner/SimRunner.cpp` to `liteaero-sim`.
-Add `test/SimRunner_test.cpp` to the test executable.
-
----
-
-## 2. LandingGear — C++ Implementation
+## 1. LandingGear — C++ Implementation
 
 **Blocking dependencies:** None. Design (delivered item 25), `DynamicElement`, and
 `V_Terrain` are all available.
 
 Implement Steps A–F of the design produced in delivered item 25. Design authority:
 [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md). Steps G–H (Python
-bindings and scenario tests) are deferred to item 11, which depends on item 4.
+bindings and scenario tests) are deferred to item 10, which depends on item 3.
 
 Implementation follows TDD — write a failing test before every production code change.
 Each step must produce a green test suite before the next begins.
@@ -318,11 +264,11 @@ parameterized from `AeroCoeffEstimator` JSON output:
 
 ---
 
-## 3. Aerodynamic Coefficient Design Study
+## 2. Aerodynamic Coefficient Design Study
 
 **Blocking dependencies:** None. `AeroCoeffEstimator` is implemented.
 
-Prerequisite for item 9 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Produces the design
+Prerequisite for item 8 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Produces the design
 study that resolves OQ-16(c).
 
 ### Deliverables — Aerodynamic Coefficient Design Study
@@ -330,11 +276,11 @@ study that resolves OQ-16(c).
 Design study document defining: aerodynamic coefficient data sources (wind tunnel, CFD,
 DATCOM, flight test); data formats and axes conventions; coefficient model format for
 `BodyAxisCoeffModel` across the range of anticipated fixed-wing configurations. Must be
-complete before item 9 begins.
+complete before item 8 begins.
 
 ---
 
-## 4. Post-Processing — Visualization Tools
+## 3. Post-Processing — Visualization Tools
 
 **Blocking dependencies:** None. Depends only on external Python libraries (all
 available). Does not depend on any logged channel schema or sensor implementation.
@@ -357,7 +303,7 @@ All tools live under `python/tools/`. Implementation follows TDD.
 | `TrajectoryView` | `python/tools/trajectory_view.py` | `matplotlib` |
 
 The analysis modules (`AnomalyDetector`, `BehaviorVerifier`, `DataOverlay`) are deferred
-to item 10. Do not implement them in this item.
+to item 9. Do not implement them in this item.
 
 ### Tests — Visualization Tools
 
@@ -381,7 +327,7 @@ dev = [
 
 ---
 
-## 5. Manual Input — Joystick and Keyboard
+## 4. Manual Input — Joystick and Keyboard
 
 **Blocking dependencies:** None. `AircraftCommand` is implemented.
 
@@ -424,13 +370,13 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 6. Sensor Models — Implementable Subset
+## 5. Sensor Models — Implementable Subset
 
 **Blocking dependencies:** None. `KinematicState` and `V_Terrain` are implemented.
 
 Implement the four sensor models whose only dependencies are already available. The
 remaining sensors (`SensorINS`, `SensorAA`, `SensorAAR`, `SensorForwardTerrainProfile`,
-`SensorTrackEstimator`) are deferred to item 13; they depend on LiteAero Flight
+`SensorTrackEstimator`) are deferred to item 12; they depend on LiteAero Flight
 components that are not yet designed.
 
 | Class | Depends on | Hardware modeled |
@@ -442,11 +388,11 @@ components that are not yet designed.
 
 Each sensor requires a design document before implementation. Implement in the order
 listed; `SensorLaserAlt` and `SensorRadAlt` outputs are required by the `AnomalyDetector`
-`AltitudeBelowTerrain` rule (item 10).
+`AltitudeBelowTerrain` rule (item 9).
 
 ---
 
-## 7. Logged Channel Registry — Design
+## 6. Logged Channel Registry — Design
 
 **Blocking dependencies:** Items 1 (SimRunner), 2 (LandingGear C++), 6 (sensor models
 subset). The registry must reflect the complete channel set produced by the simulation
@@ -470,7 +416,7 @@ Design document (`docs/architecture/channel_registry.md`) specifying:
 
 ---
 
-## 8. Real Flight Log Format — Design
+## 7. Real Flight Log Format — Design
 
 **Blocking dependencies:** None. This is a standalone design decision.
 
@@ -484,7 +430,7 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 - What log format(s) real aircraft produce (e.g., ArduPilot DataFlash, MAVLink ULOG,
   custom CSV, or a configurable adapter).
 - Channel name mapping from the real-log format to the simulation channel naming
-  convention defined in item 7.
+  convention defined in item 6.
 - Policy for handling channels present in the real log but absent from the sim schema,
   and vice versa.
 - Whether a translation/adapter layer is implemented in `FlightLogReader` or as a
@@ -492,9 +438,9 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 
 ---
 
-## 9. Aircraft6DOF — Design and Implementation
+## 8. Aircraft6DOF — Design and Implementation
 
-**Blocking dependencies:** Item 3 (aerodynamic coefficient design study).
+**Blocking dependencies:** Item 2 (aerodynamic coefficient design study).
 
 Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
 [`docs/architecture/system/future/element_registry.md`](../architecture/system/future/element_registry.md).
@@ -505,7 +451,7 @@ Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
   body frame; decouples the 6DOF integrator from the coefficient axis convention.
 - **`BodyAxisCoeffModel`** — implements `V_AeroModel` using body-axis stability derivatives
   (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular
-  rates. Coefficient model format defined by item 3.
+  rates. Coefficient model format defined by item 2.
 - **`Aircraft6DOF`** — full 6DOF dynamics; depends on `V_AeroModel` for forces and moments;
   accepts `SurfaceDeflectionCommand` (control surface deflection angles + per-motor
   throttle); produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4
@@ -525,9 +471,9 @@ proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must bot
 
 ---
 
-## 10. Post-Processing — Analysis Tools Design Harmonization and Implementation
+## 9. Post-Processing — Analysis Tools Design Harmonization and Implementation
 
-**Blocking dependencies:** Item 7 (Logged Channel Registry), item 8 (Real Flight Log
+**Blocking dependencies:** Item 6 (Logged Channel Registry), item 7 (Real Flight Log
 Format), and LiteAero Flight command channel schema (cross-repo dependency — track in
 LiteAero Flight roadmap).
 
@@ -542,8 +488,8 @@ channel schema into `BehaviorVerifier` criteria. It then implements those module
 Update `docs/architecture/post_processing.md` §Analysis Modules:
 
 - Replace all channel name references in `AnomalyDetector` rules with names from the
-  Logged Channel Registry (item 7).
-- Specify the `DataOverlay` format adapter for the real flight log format (item 8).
+  Logged Channel Registry (item 6).
+- Specify the `DataOverlay` format adapter for the real flight log format (item 7).
 - Define `BehaviorVerifier` command channel names from the LiteAero Flight command schema.
 - Define the Scenario Reference Data Format for `WaypointReached` and similar criteria.
 
@@ -553,9 +499,9 @@ Implement in dependency order:
 
 | Module | File | Blocked by |
 | --- | --- | --- |
-| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 7, sensor item 6 |
-| `DataOverlay` | `python/tools/data_overlay.py` | Item 8 |
-| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 7, LiteAero Flight schema |
+| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 6, sensor item 5 |
+| `DataOverlay` | `python/tools/data_overlay.py` | Item 7 |
+| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 6, LiteAero Flight schema |
 
 ### Tests — Analysis Tools
 
@@ -563,9 +509,9 @@ Implement in dependency order:
 
 ---
 
-## 11. LandingGear — Python Bindings and Scenario Tests
+## 10. LandingGear — Python Bindings and Scenario Tests
 
-**Blocking dependencies:** Item 2 (LandingGear C++ Steps A–F complete), item 4
+**Blocking dependencies:** Item 1 (LandingGear C++ Steps A–F complete), item 3
 (visualization tools exist for animation).
 
 Implement Steps G–H from the design authority document
@@ -602,19 +548,19 @@ Add optional `liteaero_sim_py` pybind11 extension target controlled by
 
 ---
 
-## 12. External Interface Elements
+## 11. External Interface Elements
 
-**Blocking dependencies:** Item 1 (SimRunner) for all elements. Item 9 (Aircraft6DOF)
+**Blocking dependencies:** SimRunner (delivered) for all elements. Item 8 (Aircraft6DOF)
 for `PX4Interface`. `NavigationState` from LiteAero Flight for `QGroundControlLink`.
 
 Adapters that connect LiteAero Sim to external systems. All live in the Interface Layer.
 
 | # | Element | Protocol | Depends on |
 | --- | --- | --- | --- |
-| LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (item 1); `Aircraft` or `Aircraft6DOF` |
-| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (item 1); `Aircraft6DOF` (item 9) |
-| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (item 1); `NavigationState` (LiteAero Flight) |
-| LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (item 1); `SimulationFrame` (done) |
+| LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (delivered); `Aircraft` or `Aircraft6DOF` |
+| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (delivered); `Aircraft6DOF` (item 8) |
+| LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (delivered); `NavigationState` (LiteAero Flight) |
+| LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (delivered); `SimulationFrame` (done) |
 
 Each element requires a design document before implementation. `VisualizationLink`
 transport and axis convention are decided (see
@@ -624,7 +570,7 @@ transport and axis convention are decided (see
 
 ---
 
-## 13. Sensor Models — Deferred Subset
+## 12. Sensor Models — Deferred Subset
 
 **Blocking dependencies:** LiteAero Flight components not yet designed (`NavigationFilter`
 for `SensorINS`; Guidance for `SensorForwardTerrainProfile`). `SensorAA`, `SensorAAR`,
@@ -643,7 +589,7 @@ Schedule when respective LiteAero Flight dependencies are available.
 
 ---
 
-## 14. Synthetic Perception Sensors — Proposed
+## 13. Synthetic Perception Sensors — Proposed
 
 **Blocking dependencies:** Design items needed for each sensor before implementation
 can begin. Schedule when prerequisite sensor and terrain models are stable.
