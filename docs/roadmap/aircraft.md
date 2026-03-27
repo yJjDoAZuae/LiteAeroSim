@@ -118,6 +118,8 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ## 1. Execution Modes — Real-Time, Scaled, and Batch Runners
 
+**Design authority:** [docs/architecture/sim_runner.md](../architecture/sim_runner.md)
+
 **Blocking dependencies:** None. `Aircraft` is implemented.
 
 The simulation runner controls the wall-clock relationship to simulation time. Three modes
