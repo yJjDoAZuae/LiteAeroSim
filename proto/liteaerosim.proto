@@ -308,3 +308,25 @@ message AirDataStateProto {
     float  kollsman_pa       = 7;  // current altimeter QNH setting at checkpoint time
     uint32 rng_seed          = 8;  // seed used to initialize the RNG engine
 }
+
+// ---------------------------------------------------------------------------
+// Landing Gear — per-wheel state, contact forces, and full gear state
+// ---------------------------------------------------------------------------
+
+message WheelUnitState {
+    float strut_deflection_m        = 1;
+    float strut_deflection_rate_mps = 2;
+    float wheel_speed_rps           = 3;
+}
+
+message ContactForcesState {
+    int32    schema_version    = 1;
+    Vector3f force_body_n      = 2;
+    Vector3f moment_body_nm    = 3;
+    bool     weight_on_wheels  = 4;
+}
+
+message LandingGearState {
+    int32                    schema_version = 1;
+    repeated WheelUnitState  wheel_units    = 2;
+}

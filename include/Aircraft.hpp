@@ -6,7 +6,9 @@
 #include "aerodynamics/LoadFactorAllocator.hpp"
 #include "airframe/AirframePerformance.hpp"
 #include "airframe/Inertia.hpp"
+#include "landing_gear/LandingGear.hpp"
 #include <liteaero/control/FilterSS2Clip.hpp>
+#include <liteaero/terrain/V_Terrain.hpp>
 #include "propulsion/Propulsion.hpp"
 #include <Eigen/Dense>
 #include <cstdint>
@@ -51,6 +53,10 @@ public:
     // Throws std::invalid_argument if any required field is missing or out of range.
     void initialize(const nlohmann::json& config, float outer_dt_s);
 
+    // Set the terrain model used by LandingGear each step.
+    // Call before the first step(). Pass nullptr to disable landing gear contact forces.
+    void setTerrain(const liteaero::terrain::V_Terrain* terrain) { _terrain = terrain; }
+
     // Reset all warm-start state to the initial conditions from the last initialize() call.
     void reset();
 
@@ -67,6 +73,13 @@ public:
     // Current kinematic state (position, velocity, attitude, aerodynamic angles).
     const KinematicState& state() const { return _state; }
 
+    // Landing gear contact forces from the most recent step().
+    // Returns zero forces when landing gear is not configured or terrain is not set.
+    const ContactForces& contactForces() const { return _landing_gear.contactForces(); }
+
+    // True when any wheel unit was in contact with terrain on the most recent step().
+    bool weightOnWheels() const { return _landing_gear.contactForces().weight_on_wheels; }
+
     // Serialize / deserialize warm-start state.
     // Note: deserializeJson() restores _propulsion state via _propulsion->deserializeJson()
     // but does not reconstruct the propulsion model itself — the correct Propulsion
@@ -81,10 +94,13 @@ private:
     KinematicState                                    _initial_state;
     std::optional<LiftCurveModel>                     _liftCurve;
     std::optional<LoadFactorAllocator>                _allocator;
-    std::optional<AeroPerformance>      _aeroPerf;
+    std::optional<AeroPerformance>                    _aeroPerf;
     AirframePerformance                               _airframe;
     Inertia                                           _inertia;
-    std::unique_ptr<Propulsion>           _propulsion;
+    std::unique_ptr<Propulsion>                       _propulsion;
+    LandingGear                                       _landing_gear;
+    const liteaero::terrain::V_Terrain*               _terrain          = nullptr;
+    bool                                              _has_landing_gear = false;
 
     // 2nd-order LP command response filters (Nz, Ny, roll rate).
     liteaero::control::FilterSS2Clip _nz_filter;

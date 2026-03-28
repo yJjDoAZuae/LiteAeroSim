@@ -359,3 +359,106 @@ TEST(AircraftTest, NyquistViolation_RollRate_Throws) {
     auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_THROW(ac->initialize(makeConfigWithRollRate(40.0f), 0.1f), std::invalid_argument);
 }
+
+// ---------------------------------------------------------------------------
+// Step F — LandingGear integration tests
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Tricycle gear config appended to makeConfig() for Step F tests.
+static nlohmann::json addLandingGear(nlohmann::json config) {
+    config["landing_gear"] = nlohmann::json::parse(R"({
+        "substeps": 1,
+        "wheel_units": [
+            {
+                "attach_point_body_m": [2.0, 0.0, 0.5],
+                "travel_axis_body":    [0.0, 0.0, 1.0],
+                "spring_stiffness_npm": 20000.0,
+                "damper_coeff_nspm":    500.0,
+                "preload_n":            0.0,
+                "travel_max_m":         0.3,
+                "tyre_radius_m":        0.2,
+                "rolling_resistance_nd":0.02,
+                "max_brake_torque_nm":  0.0,
+                "is_steerable":         false,
+                "has_brake":            false
+            },
+            {
+                "attach_point_body_m": [0.0, -1.0, 0.5],
+                "travel_axis_body":    [0.0,  0.0, 1.0],
+                "spring_stiffness_npm": 20000.0,
+                "damper_coeff_nspm":    500.0,
+                "preload_n":            0.0,
+                "travel_max_m":         0.3,
+                "tyre_radius_m":        0.2,
+                "rolling_resistance_nd":0.02,
+                "max_brake_torque_nm":  0.0,
+                "is_steerable":         false,
+                "has_brake":            false
+            },
+            {
+                "attach_point_body_m": [0.0,  1.0, 0.5],
+                "travel_axis_body":    [0.0,  0.0, 1.0],
+                "spring_stiffness_npm": 20000.0,
+                "damper_coeff_nspm":    500.0,
+                "preload_n":            0.0,
+                "travel_max_m":         0.3,
+                "tyre_radius_m":        0.2,
+                "rolling_resistance_nd":0.02,
+                "max_brake_torque_nm":  0.0,
+                "is_steerable":         false,
+                "has_brake":            false
+            }
+        ]
+    })");
+    return config;
+}
+
+// Initial state at low altitude so wheels can contact terrain at 0 m elevation.
+// contact_alt = altitude - 0.7 m (0.5 attach + 0.2 tyre radius).
+// With alt = 0.5 m → penetration = 0.2 m.
+static nlohmann::json makeGroundConfig() {
+    auto cfg = addLandingGear(makeConfig());
+    cfg["initial_state"]["altitude_m"]        = 0.5;
+    cfg["initial_state"]["velocity_north_mps"]= 0.0;
+    cfg["initial_state"]["velocity_east_mps"] = 0.0;
+    cfg["initial_state"]["velocity_down_mps"] = 0.0;
+    return cfg;
+}
+
+}  // namespace
+
+TEST(AircraftTest, LandingGear_Airborne_ZeroContact) {
+    using namespace liteaero::terrain;
+    FlatTerrain terrain{0.0f};
+
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
+    ac->initialize(addLandingGear(makeConfig()), 0.1f);  // makeConfig() starts at 300 m
+    ac->setTerrain(&terrain);
+    ac->reset();
+
+    const liteaero::simulation::AircraftCommand cmd;
+    ac->step(0.0, cmd, Eigen::Vector3f::Zero(), 1.225f);
+
+    EXPECT_FALSE(ac->weightOnWheels());
+    EXPECT_FLOAT_EQ(ac->contactForces().force_body_n.norm(), 0.0f);
+}
+
+TEST(AircraftTest, LandingGear_GroundContact_PositiveNz) {
+    using namespace liteaero::terrain;
+    FlatTerrain terrain{0.0f};
+
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
+    ac->initialize(makeGroundConfig(), 0.1f);
+    ac->setTerrain(&terrain);
+    ac->reset();
+
+    const liteaero::simulation::AircraftCommand cmd;
+    ac->step(0.0, cmd, Eigen::Vector3f::Zero(), 1.225f);
+
+    EXPECT_TRUE(ac->weightOnWheels());
+    // Gear pushes aircraft upward — body-Z force is negative (upward in body frame)
+    EXPECT_LT(ac->contactForces().force_body_n.z(), 0.0f)
+        << "Ground contact must produce upward (negative body-Z) force";
+}

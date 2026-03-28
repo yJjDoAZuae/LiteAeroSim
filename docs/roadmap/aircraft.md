@@ -66,12 +66,12 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `SensorRadAlt` | `include/sensor/SensorRadAlt.hpp` | 🔲 Stub only |
 | `SensorForwardTerrainProfile` | `include/sensor/SensorForwardTerrainProfile.hpp` | 🔲 Stub only |
 | `SensorTrackEstimator` | `include/sensor/SensorTrackEstimator.hpp` | 🔲 Stub only |
-| `WheelUnit` | `include/landing_gear/WheelUnit.hpp` | 🔲 Planned — see [landing_gear.md](../architecture/landing_gear.md) |
-| `StrutState` | `include/landing_gear/StrutState.hpp` | 🔲 Planned |
-| `ContactForces` | `include/landing_gear/ContactForces.hpp` | 🔲 Planned |
-| `V_SurfaceFriction` | `include/landing_gear/V_SurfaceFriction.hpp` | 🔲 Planned |
-| `SurfaceFrictionUniform` | `include/landing_gear/SurfaceFrictionUniform.hpp` | 🔲 Planned |
-| `LandingGear` | `include/landing_gear/LandingGear.hpp` | 🔲 Planned |
+| `WheelUnit` | `include/landing_gear/WheelUnit.hpp` | ✅ Implemented + serialization (JSON + proto) — see [landing_gear.md](../architecture/landing_gear.md) |
+| `StrutState` | `include/landing_gear/StrutState.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `ContactForces` | `include/landing_gear/ContactForces.hpp` | ✅ Implemented + serialization (JSON + proto) |
+| `V_SurfaceFriction` | `include/landing_gear/V_SurfaceFriction.hpp` | ✅ Implemented |
+| `SurfaceFrictionUniform` | `include/landing_gear/SurfaceFrictionUniform.hpp` | ✅ Implemented (named constructors: pavement/grass/dirt/gravel, wet/dry) |
+| `LandingGear` | `include/landing_gear/LandingGear.hpp` | ✅ Implemented + serialization (JSON + proto); wired into `Aircraft::step()` |
 | `FlightLogReader` | `python/tools/log_reader.py` | 🔲 Planned — see [post_processing.md](../architecture/post_processing.md) |
 | `AnomalyDetector` | `python/tools/anomaly.py` | 🔲 Planned |
 | `BehaviorVerifier` | `python/tools/behavior_verifier.py` | 🔲 Planned |
@@ -114,161 +114,16 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | 24 | **Aircraft command processing redesign** — all three command axes (`_nz_filter`, `_ny_filter`, `_roll_rate_filter`) converted to `setLowPassSecondIIR` (2nd-order LP); config params replaced: `cmd_deriv_tau_s`/`cmd_roll_rate_tau_s` → `nz_wn_rad_s`/`nz_zeta_nd`/`ny_wn_rad_s`/`ny_zeta_nd`/`roll_rate_wn_rad_s`/`roll_rate_zeta_nd`; `n_z_dot`/`n_y_dot` computed analytically from filter state after substep loop (no derivative filter lag); allocator receives shaped commands instead of raw clamped commands; Nyquist constraint enforced per axis (`wn * cmd_filter_dt_s < π`) at `initialize()`; proto `AircraftState` updated; `aircraft_config_v1` schema doc updated; fixture JSON files updated; design authority: [`docs/architecture/aircraft.md`](../architecture/aircraft.md) §Command Processing Architecture | 3 new Nyquist violation tests in `Aircraft_test.cpp` (`NyquistViolation_Nz_Throws`, `_Ny_Throws`, `_RollRate_Throws`); 345 pre-existing tests pass |
 | 26 | **Post-processing tools design** — full design authority document covering: use case decomposition (UC-PP1 through UC-PP10); actors (Sim Developer, Integration Tester, Flight Analyst, Guidance/Autopilot Developer); module architecture (`FlightLogReader`, `AnomalyDetector`, `BehaviorVerifier`, `DataOverlay`, `ModeEventSeries`, `TimeHistoryFigure`, `RibbonTrail`, `HudOverlay`, `TrajectoryView`); ribbon trail geometry (body-to-world rotation, wing half-span vector, `Poly3DCollection`); HUD overlay layout; command/response time history encoding; `BehaviorVerifier` criterion library and multi-source DataFrame interface; library choices (pandas, matplotlib, Plotly, mcap, numpy); test strategy (8 test files, rendering non-invocation requirement) | [`docs/architecture/post_processing.md`](../architecture/post_processing.md) |
 | 25 | **Landing gear model design** — full design authority document covering: use case decomposition; class hierarchy (`LandingGear`, `WheelUnit`, `StrutState`, `ContactForces`, `V_SurfaceFriction`, `SurfaceFrictionUniform`); physical models (suspension spring-damper, Pacejka magic formula, wheel friction, surface friction parameterization, ground plane interface); force assembly; step interface; JSON + proto serialization contract; computational resource estimate; test strategy (unit, integration, scenario, serialization); visualization notebook designs (`landing_gear_contact_forces.ipynb`, `crab_landing_dynamics.ipynb`, `takeoff_roll.ipynb`, `terrain_contact_animation.ipynb`); touchdown animation design (`touchdown_animation.py` — pybind11 driver, layout, visual encoding, coordinate mapping, data flow) | [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) |
+| LG-1 | **LandingGear — C++ implementation** (Steps A–F) — `WheelUnit`, `StrutState`, `ContactForces`, `V_SurfaceFriction`, `SurfaceFrictionUniform`, `LandingGear`; quasi-static spring-damper strut; Pacejka magic formula tyre forces (longitudinal + lateral); friction-circle saturation; viscous wheel speed integration; nose wheel steering; differential braking; terrain elevation query via `V_Terrain`; wired into `Aircraft::step()` on the disturbance force path; `Aircraft::setTerrain()`, `contactForces()`, `weightOnWheels()` added; JSON + proto serialization throughout; `WheelUnitState`, `ContactForcesState`, `LandingGearState` proto messages added | `LandingGearTypes_test.cpp`, `SurfaceFriction_test.cpp`, `LandingGear_test.cpp`, `LandingGearTerrain_test.cpp` — 27 tests; `Aircraft_test.cpp` — 2 new tests; 388 total pass |
 | Sim-1 | **SimRunner — Execution Modes** — `ExecutionMode` enum (`Batch`, `RealTime`, `ScaledRealTime`); `RunnerConfig` struct (`dt_s` float — output step, adequate precision for timestep values; `duration_s` double — needed for long runs compared to accumulated sim time; `time_scale` float; `mode`); `SimRunner` class with `initialize()`, `start()`, `stop()`, `is_running()`, `elapsed_sim_time_s()`; Batch mode blocks caller; RealTime/ScaledRealTime spawn `std::thread`; `std::atomic<uint64_t> step_count_` for elapsed time; termination condition `sim_time_s > duration_s + time_initial_s` (direct time comparison — no precomputed step count); `dt_s` widened to `double` once at loop entry for all arithmetic; late-step policy: no compensation; design authority: [`docs/architecture/sim_runner.md`](../architecture/sim_runner.md) | `SimRunner_test.cpp` — 10 tests |
 
 ---
 
-## 1. LandingGear — C++ Implementation
-
-**Blocking dependencies:** None. Design (delivered item 25), `DynamicElement`, and
-`V_Terrain` are all available.
-
-Implement Steps A–F of the design produced in delivered item 25. Design authority:
-[`docs/architecture/landing_gear.md`](../architecture/landing_gear.md). Steps G–H (Python
-bindings and scenario tests) are deferred to item 10, which depends on item 3.
-
-Implementation follows TDD — write a failing test before every production code change.
-Each step must produce a green test suite before the next begins.
-
-### Implementation Steps
-
-#### Step A — Data Types
-
-| Class / Struct | File | Serialization |
-| --- | --- | --- |
-| `WheelUnit` | `include/landing_gear/WheelUnit.hpp` | JSON + proto |
-| `StrutState` | `include/landing_gear/StrutState.hpp` | JSON + proto |
-| `ContactForces` | `include/landing_gear/ContactForces.hpp` | JSON + proto |
-
-Add `WheelUnit`, `StrutState`, and `ContactForces` messages to the proto schema.
-
-**Tests — `test/landing_gear/LandingGearTypes_test.cpp`:**
-
-- JSON and proto round-trips for all three structs pass with default-constructed values.
-- `ContactForces` default-constructed has all force and moment components zero and
-  `weight_on_wheels` false.
-
-#### Step B — Surface Friction Interface and Uniform Model
-
-| Class | File |
-| --- | --- |
-| `V_SurfaceFriction` | `include/landing_gear/V_SurfaceFriction.hpp` |
-| `SurfaceFrictionUniform` | `include/landing_gear/SurfaceFrictionUniform.hpp` |
-
-`V_SurfaceFriction::frictionCoefficients(position_m)` returns a `FrictionCoefficients`
-struct (longitudinal peak, longitudinal sliding, lateral peak, lateral sliding). Surface
-types: pavement, grass, dirt, gravel, wet pavement.
-
-**Tests — `test/landing_gear/SurfaceFriction_test.cpp`:**
-
-- `SurfaceFrictionUniform` returns configured coefficients at arbitrary world positions.
-- JSON round-trip of `SurfaceFrictionUniform` config.
-- Wet-pavement coefficients are strictly less than dry-pavement coefficients.
-
-#### Step C — Core `LandingGear` Class (Normal Force, Flat Terrain)
-
-Implement `LandingGear` as a `DynamicElement`. Tyre lateral and longitudinal forces are
-deferred to Step D; this step establishes the full lifecycle and serialization contract.
-
-- `initialize(config)` — parse `WheelUnit` list, suspension parameters, and tyre
-  parameters; validate strut count.
-- `reset()` — zero all `StrutState` fields.
-- `step(state, terrain)` — for each wheel unit: compute penetration depth $h_i$ from
-  `KinematicStateSnapshot` and `V_Terrain::heightAt()`; apply spring-damper normal force;
-  set `weight_on_wheels`; sum forces and moments into `ContactForces`.
-- `serializeJson()` / `deserializeJson()` — serialize `StrutState` array.
-- `serializeProto()` / `deserializeProto()`.
-
-**Tests — `test/landing_gear/LandingGear_test.cpp`:**
-
-| Test | Pass criterion |
-| --- | --- |
-| `NoContact_ZeroForces` | All `ContactForces` components zero when aircraft is airborne |
-| `Compressed_PositiveNormalForce` | $F_z > 0$ when wheel penetrates flat ground |
-| `SymmetricGear_NoLateralMoment` | Symmetric main gear produces zero roll moment |
-| `NoseGear_PitchMoment` | Nose gear contact produces nose-down pitch moment |
-| `WeightOnWheels_SetWhenContact` | `weight_on_wheels` true iff $\exists\, i : h_i > 0$ |
-| `StrutLimit_Compressed_Clamped` | Strut force does not exceed fully-compressed bound |
-| `JsonRoundTrip_StrutState` | `serializeJson` / `deserializeJson` recovers `StrutState` |
-| `ProtoRoundTrip_LandingGearState` | proto round-trip of `LandingGearState` |
-
-#### Step D — Tyre Forces (Pacejka Magic Formula)
-
-Add slip ratio and slip angle computation to `step()`. Implement the Pacejka magic formula
-
-$$F(s) = D\sin\!\bigl(C\arctan(Bs - E(Bs - \arctan(Bs)))\bigr)$$
-
-for both longitudinal ($F_x$, function of slip ratio $\kappa$) and lateral ($F_y$,
-function of slip angle $\alpha_t$). Add nose wheel steering angle and differential brake
-demand inputs to the step interface.
-
-**Tests — additions to `LandingGear_test.cpp`:**
-
-| Test | Pass criterion |
-| --- | --- |
-| `TyreForce_ZeroSlip_ZeroLateral` | $F_y = 0$ at zero slip angle |
-| `TyreForce_PeakSlip_NearPeak` | $F_x$ peaks near $\kappa \approx 0.10$ |
-| `TyreForce_Saturates_BeyondPeak` | $F_x$ does not increase monotonically with $\kappa$ |
-| `NoseWheelSteering_ProducesYawMoment` | Non-zero steering angle produces body-axis yaw moment |
-| `DifferentialBrake_ProducesRollMoment` | Asymmetric brake demand produces roll moment |
-
-#### Step E — Terrain Normal Query
-
-Replace the flat-ground assumption with a query to `V_Terrain::surfaceNormalAt()`. The
-contact force assembly rotates from the local terrain frame to the body frame using the
-terrain surface normal.
-
-**Tests — `test/landing_gear/LandingGearTerrain_test.cpp`:**
-
-- Contact force on a tilted flat surface matches the analytical projection.
-- Wheel-ground normal tracks a known terrain slope angle.
-
-#### Step F — `Aircraft` Integration
-
-Wire `LandingGear` into `Aircraft::step()` on the disturbance force path. `ContactForces`
-enters the 9-step physics loop between propulsion and aerodynamics. `weight_on_wheels` is
-exposed on `AircraftState`.
-
-**Tests — additions to `Aircraft_test.cpp`:**
-
-- `LandingGear_GroundContact_PositiveNz` — aircraft on ground at zero velocity produces
-  $n_z > 0$ from gear contact.
-- `LandingGear_Airborne_ZeroContact` — aircraft at altitude produces `ContactForces` with
-  all components zero.
-
-### Deliverables
-
-| Deliverable | Location |
-| --- | --- |
-| `V_SurfaceFriction`, `SurfaceFrictionUniform` | `include/landing_gear/`, `src/landing_gear/` |
-| `WheelUnit`, `StrutState`, `ContactForces` | `include/landing_gear/` |
-| `LandingGear` | `include/landing_gear/LandingGear.hpp`, `src/landing_gear/LandingGear.cpp` |
-| Proto messages | `proto/` (new `LandingGearState` message) |
-| Unit and integration tests | `test/landing_gear/` |
-
-### CMake
-
-Add `liteaero::landing_gear` static library target. Dependencies: `liteaero::terrain`,
-`liteaero-flight` (for `DynamicElement`). Add unit tests to `test/CMakeLists.txt`.
-
-### Aerodynamics Parameterization
-
-The touchdown animation script uses a simplified Python-side aerodynamics model
-parameterized from `AeroCoeffEstimator` JSON output:
-
-1. Define aircraft geometry as `AircraftGeometry` + `SurfaceGeometry` JSON.
-2. Run `AeroCoeffEstimator` to derive `AeroPerformance` from geometry.
-3. Write `AeroPerformance` to JSON.
-4. The animation script reads the JSON and extracts $C_{L_\alpha}$, $C_{D_0}$, Oswald $e$,
-   $AR$, $C_{m_0}$, $C_{m_\alpha}$, $\hat{C}_{m_q}$, $\bar{c}$, and $S_\text{ref}$.
-
----
-
-## 2. Aerodynamic Coefficient Design Study
+## 1. Aerodynamic Coefficient Design Study
 
 **Blocking dependencies:** None. `AeroCoeffEstimator` is implemented.
 
-Prerequisite for item 8 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Produces the design
+Prerequisite for item 7 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Produces the design
 study that resolves OQ-16(c).
 
 ### Deliverables — Aerodynamic Coefficient Design Study
@@ -276,11 +131,11 @@ study that resolves OQ-16(c).
 Design study document defining: aerodynamic coefficient data sources (wind tunnel, CFD,
 DATCOM, flight test); data formats and axes conventions; coefficient model format for
 `BodyAxisCoeffModel` across the range of anticipated fixed-wing configurations. Must be
-complete before item 8 begins.
+complete before item 7 begins.
 
 ---
 
-## 3. Post-Processing — Visualization Tools
+## 2. Post-Processing — Visualization Tools
 
 **Blocking dependencies:** None. Depends only on external Python libraries (all
 available). Does not depend on any logged channel schema or sensor implementation.
@@ -303,7 +158,7 @@ All tools live under `python/tools/`. Implementation follows TDD.
 | `TrajectoryView` | `python/tools/trajectory_view.py` | `matplotlib` |
 
 The analysis modules (`AnomalyDetector`, `BehaviorVerifier`, `DataOverlay`) are deferred
-to item 9. Do not implement them in this item.
+to item 8. Do not implement them in this item.
 
 ### Tests — Visualization Tools
 
@@ -327,7 +182,7 @@ dev = [
 
 ---
 
-## 4. Manual Input — Joystick and Keyboard
+## 3. Manual Input — Joystick and Keyboard
 
 **Blocking dependencies:** None. `AircraftCommand` is implemented.
 
@@ -370,7 +225,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 5. Sensor Models — Implementable Subset
+## 4. Sensor Models — Implementable Subset
 
 **Blocking dependencies:** None. `KinematicState` and `V_Terrain` are implemented.
 
@@ -388,15 +243,15 @@ components that are not yet designed.
 
 Each sensor requires a design document before implementation. Implement in the order
 listed; `SensorLaserAlt` and `SensorRadAlt` outputs are required by the `AnomalyDetector`
-`AltitudeBelowTerrain` rule (item 9).
+`AltitudeBelowTerrain` rule (item 8).
 
 ---
 
-## 6. Logged Channel Registry — Design
+## 5. Logged Channel Registry — Design
 
-**Blocking dependencies:** Items 1 (SimRunner), 2 (LandingGear C++), 6 (sensor models
-subset). The registry must reflect the complete channel set produced by the simulation
-loop, including gear contact channels and sensor channels.
+**Blocking dependencies:** SimRunner (delivered), LandingGear C++ (delivered), item 4
+(sensor models subset). The registry must reflect the complete channel set produced by the
+simulation loop, including gear contact channels and sensor channels.
 
 Produces a formal specification of all `LogSource` registrations in the simulation loop:
 source names, channel names, units, and sampling rates. This document is required before
@@ -416,7 +271,7 @@ Design document (`docs/architecture/channel_registry.md`) specifying:
 
 ---
 
-## 7. Real Flight Log Format — Design
+## 6. Real Flight Log Format — Design
 
 **Blocking dependencies:** None. This is a standalone design decision.
 
@@ -430,7 +285,7 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 - What log format(s) real aircraft produce (e.g., ArduPilot DataFlash, MAVLink ULOG,
   custom CSV, or a configurable adapter).
 - Channel name mapping from the real-log format to the simulation channel naming
-  convention defined in item 6.
+  convention defined in item 5.
 - Policy for handling channels present in the real log but absent from the sim schema,
   and vice versa.
 - Whether a translation/adapter layer is implemented in `FlightLogReader` or as a
@@ -438,9 +293,9 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 
 ---
 
-## 8. Aircraft6DOF — Design and Implementation
+## 7. Aircraft6DOF — Design and Implementation
 
-**Blocking dependencies:** Item 2 (aerodynamic coefficient design study).
+**Blocking dependencies:** Item 1 (aerodynamic coefficient design study).
 
 Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
 [`docs/architecture/system/future/element_registry.md`](../architecture/system/future/element_registry.md).
@@ -451,7 +306,7 @@ Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
   body frame; decouples the 6DOF integrator from the coefficient axis convention.
 - **`BodyAxisCoeffModel`** — implements `V_AeroModel` using body-axis stability derivatives
   (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular
-  rates. Coefficient model format defined by item 2.
+  rates. Coefficient model format defined by item 1.
 - **`Aircraft6DOF`** — full 6DOF dynamics; depends on `V_AeroModel` for forces and moments;
   accepts `SurfaceDeflectionCommand` (control surface deflection angles + per-motor
   throttle); produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4
@@ -471,9 +326,9 @@ proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must bot
 
 ---
 
-## 9. Post-Processing — Analysis Tools Design Harmonization and Implementation
+## 8. Post-Processing — Analysis Tools Design Harmonization and Implementation
 
-**Blocking dependencies:** Item 6 (Logged Channel Registry), item 7 (Real Flight Log
+**Blocking dependencies:** Item 5 (Logged Channel Registry), item 6 (Real Flight Log
 Format), and LiteAero Flight command channel schema (cross-repo dependency — track in
 LiteAero Flight roadmap).
 
@@ -488,8 +343,8 @@ channel schema into `BehaviorVerifier` criteria. It then implements those module
 Update `docs/architecture/post_processing.md` §Analysis Modules:
 
 - Replace all channel name references in `AnomalyDetector` rules with names from the
-  Logged Channel Registry (item 6).
-- Specify the `DataOverlay` format adapter for the real flight log format (item 7).
+  Logged Channel Registry (item 5).
+- Specify the `DataOverlay` format adapter for the real flight log format (item 6).
 - Define `BehaviorVerifier` command channel names from the LiteAero Flight command schema.
 - Define the Scenario Reference Data Format for `WaypointReached` and similar criteria.
 
@@ -499,9 +354,9 @@ Implement in dependency order:
 
 | Module | File | Blocked by |
 | --- | --- | --- |
-| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 6, sensor item 5 |
-| `DataOverlay` | `python/tools/data_overlay.py` | Item 7 |
-| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 6, LiteAero Flight schema |
+| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 5, sensor item 4 |
+| `DataOverlay` | `python/tools/data_overlay.py` | Item 6 |
+| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 5, LiteAero Flight schema |
 
 ### Tests — Analysis Tools
 
@@ -509,9 +364,9 @@ Implement in dependency order:
 
 ---
 
-## 10. LandingGear — Python Bindings and Scenario Tests
+## 9. LandingGear — Python Bindings and Scenario Tests
 
-**Blocking dependencies:** Item 1 (LandingGear C++ Steps A–F complete), item 3
+**Blocking dependencies:** LandingGear C++ (delivered, LG-1), item 2
 (visualization tools exist for animation).
 
 Implement Steps G–H from the design authority document
@@ -548,9 +403,9 @@ Add optional `liteaero_sim_py` pybind11 extension target controlled by
 
 ---
 
-## 11. External Interface Elements
+## 10. External Interface Elements
 
-**Blocking dependencies:** SimRunner (delivered) for all elements. Item 8 (Aircraft6DOF)
+**Blocking dependencies:** SimRunner (delivered) for all elements. Item 7 (Aircraft6DOF)
 for `PX4Interface`. `NavigationState` from LiteAero Flight for `QGroundControlLink`.
 
 Adapters that connect LiteAero Sim to external systems. All live in the Interface Layer.
@@ -558,7 +413,7 @@ Adapters that connect LiteAero Sim to external systems. All live in the Interfac
 | # | Element | Protocol | Depends on |
 | --- | --- | --- | --- |
 | LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (delivered); `Aircraft` or `Aircraft6DOF` |
-| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (delivered); `Aircraft6DOF` (item 8) |
+| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (delivered); `Aircraft6DOF` (item 7) |
 | LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (delivered); `NavigationState` (LiteAero Flight) |
 | LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (delivered); `SimulationFrame` (done) |
 
@@ -570,7 +425,7 @@ transport and axis convention are decided (see
 
 ---
 
-## 12. Sensor Models — Deferred Subset
+## 11. Sensor Models — Deferred Subset
 
 **Blocking dependencies:** LiteAero Flight components not yet designed (`NavigationFilter`
 for `SensorINS`; Guidance for `SensorForwardTerrainProfile`). `SensorAA`, `SensorAAR`,
@@ -589,7 +444,7 @@ Schedule when respective LiteAero Flight dependencies are available.
 
 ---
 
-## 13. Synthetic Perception Sensors — Proposed
+## 12. Synthetic Perception Sensors — Proposed
 
 **Blocking dependencies:** Design items needed for each sensor before implementation
 can begin. Schedule when prerequisite sensor and terrain models are stable.

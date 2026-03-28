@@ -115,6 +115,14 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
         Eigen::Vector3f::Zero()           // rates_Body_rps
     );
     _initial_state = _state;
+
+    // 7. Landing gear (optional — only initialized when "landing_gear" section is present)
+    if (config.contains("landing_gear")) {
+        _landing_gear.initialize(config.at("landing_gear"));
+        _has_landing_gear = true;
+    } else {
+        _has_landing_gear = false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +136,7 @@ void Aircraft::reset() {
     _roll_rate_filter.resetToInput(0.f);
     _allocator->reset();
     _propulsion->reset();
+    if (_has_landing_gear) _landing_gear.reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -185,10 +194,23 @@ void Aircraft::step(double time_sec,
     const AeroForces F =
         _aeroPerf->compute(lfa_out.alpha_rad, lfa_out.beta_rad, q_inf, cl);
 
-    // 8. Advance propulsion
+    // 8. Landing gear contact forces (computed before propulsion so terrain query
+    //    uses the pre-step kinematic state, consistent with quasi-static strut model).
+    ContactForces contact_forces;
+    if (_has_landing_gear && _terrain != nullptr) {
+        contact_forces = _landing_gear.step(
+            _state.snapshot(),
+            *_terrain,
+            0.0f,    // nose wheel steering angle (not yet wired to AircraftCommand)
+            0.0f,    // brake left demand
+            0.0f,    // brake right demand
+            _outer_dt_s);
+    }
+
+    // 9. Advance propulsion
     const float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3);
 
-    // 9. Wind-frame acceleration.
+    // 10. Wind-frame acceleration.
     //    Thrust decomposition (Wind frame, X forward, Y right, Z down):
     //      Tx =  T·cos(α)·cos(β)
     //      Ty = -T·cos(α)·sin(β)
@@ -200,11 +222,17 @@ void Aircraft::step(double time_sec,
     const float cb = std::cos(lfa_out.beta_rad);
     const float sb = std::sin(lfa_out.beta_rad);
 
-    const float ax = (T * ca * cb + F.x_n) / m;
-    const float ay = (-T * ca * sb + F.y_n) / m;
-    const float az = (-T * sa      + F.z_n) / m;
+    // Transform landing gear body-frame force to wind frame.
+    // R_body_to_wind = R_nw^T * R_nb  (body→NED→wind)
+    const Eigen::Matrix3f R_nb_mat = _state.q_nb().toRotationMatrix();
+    const Eigen::Matrix3f R_nw_mat = _state.q_nw().toRotationMatrix();
+    const Eigen::Vector3f F_gear_wind = R_nw_mat.transpose() * (R_nb_mat * contact_forces.force_body_n);
 
-    // 10. Advance kinematic state
+    const float ax = (T * ca * cb + F.x_n + F_gear_wind.x()) / m;
+    const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m;
+    const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m;
+
+    // 11. Advance kinematic state
     _state.step(time_sec,
                 Eigen::Vector3f{ax, ay, az},
                 rollRate_filt_rps,
@@ -238,10 +266,11 @@ nlohmann::json Aircraft::serializeJson() const {
     j["roll_rate_filter"]     = _roll_rate_filter.serializeJson();
     j["airframe"]        = _airframe.serializeJson();
     j["inertia"]         = _inertia.serializeJson();
-    if (_liftCurve)  j["lift_curve"]      = _liftCurve->serializeJson();
-    if (_aeroPerf)   j["aero_performance"] = _aeroPerf->serializeJson();
-    if (_allocator)  j["allocator"]        = _allocator->serializeJson();
-    if (_propulsion) j["propulsion"]       = _propulsion->serializeJson();
+    if (_liftCurve)       j["lift_curve"]       = _liftCurve->serializeJson();
+    if (_aeroPerf)        j["aero_performance"] = _aeroPerf->serializeJson();
+    if (_allocator)       j["allocator"]         = _allocator->serializeJson();
+    if (_propulsion)      j["propulsion"]         = _propulsion->serializeJson();
+    if (_has_landing_gear) j["landing_gear_state"] = _landing_gear.serializeJson();
     return j;
 }
 
@@ -278,6 +307,9 @@ void Aircraft::deserializeJson(const nlohmann::json& j) {
 
     if (_propulsion) {
         _propulsion->deserializeJson(j.at("propulsion"));
+    }
+    if (_has_landing_gear && j.contains("landing_gear_state")) {
+        _landing_gear.deserializeJson(j.at("landing_gear_state"));
     }
 }
 
