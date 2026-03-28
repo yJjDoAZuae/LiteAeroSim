@@ -1,13 +1,13 @@
 #pragma once
 
-#include <landing_gear/V_SurfaceFriction.hpp>
+#include <landing_gear/SurfaceFriction.hpp>
 #include <nlohmann/json.hpp>
 
 namespace liteaero::simulation {
 
 // Uniform surface friction model — returns the same FrictionCoefficients
 // regardless of position.  Represents a homogeneous runway surface.
-class SurfaceFrictionUniform : public V_SurfaceFriction {
+class SurfaceFrictionUniform : public SurfaceFriction {
 public:
     // Named surface-type constructors.
     static SurfaceFrictionUniform pavement(bool wet = false);

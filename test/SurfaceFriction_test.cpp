@@ -1,4 +1,4 @@
-// Tests for V_SurfaceFriction and SurfaceFrictionUniform — Step B.
+// Tests for SurfaceFriction and SurfaceFrictionUniform — Step B.
 // Design authority: docs/architecture/landing_gear.md
 
 #include "landing_gear/SurfaceFrictionUniform.hpp"

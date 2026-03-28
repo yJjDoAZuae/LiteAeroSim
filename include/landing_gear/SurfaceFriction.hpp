@@ -11,13 +11,13 @@ struct FrictionCoefficients {
     float lateral_sliding_nd      = 0.7f;
 };
 
-class V_SurfaceFriction {
+class SurfaceFriction {
 public:
     // Returns friction coefficients at the given NED position (m from local origin).
     [[nodiscard]] virtual FrictionCoefficients frictionCoefficients(
         const Eigen::Vector3f& position_ned_m) const = 0;
 
-    virtual ~V_SurfaceFriction() = default;
+    virtual ~SurfaceFriction() = default;
 };
 
 }  // namespace liteaero::simulation
