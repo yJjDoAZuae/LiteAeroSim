@@ -72,6 +72,9 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `SurfaceFriction` | `include/landing_gear/SurfaceFriction.hpp` | ✅ Implemented |
 | `SurfaceFrictionUniform` | `include/landing_gear/SurfaceFrictionUniform.hpp` | ✅ Implemented (named constructors: pavement/grass/dirt/gravel, wet/dry) |
 | `LandingGear` | `include/landing_gear/LandingGear.hpp` | ✅ Implemented + serialization (JSON + proto); wired into `Aircraft::step()` |
+| `AeroModel` | `include/aerodynamics/AeroModel.hpp` | 🔲 Planned — abstract aero model interface; defined by item 7; see [aero_coefficient_model.md](../architecture/aero_coefficient_model.md) |
+| `BodyAxisCoeffModel` | `include/aerodynamics/BodyAxisCoeffModel.hpp` | 🔲 Planned — body-axis stability derivative model; implements `AeroModel`; defined by item 6 + item 7; see [aero_coefficient_model.md](../architecture/aero_coefficient_model.md) |
+| `PropulsionCouplingCoefficients` | TBD | 🔲 Planned — propulsion-aero coupling coefficient struct; defined by item 6; see [propulsion_coeff_estimator.md](../architecture/propulsion_coeff_estimator.md) |
 | `FlightLogReader` | `python/tools/log_reader.py` | 🔲 Planned — see [post_processing.md](../architecture/post_processing.md) |
 | `AnomalyDetector` | `python/tools/anomaly.py` | 🔲 Planned |
 | `BehaviorVerifier` | `python/tools/behavior_verifier.py` | 🔲 Planned |
@@ -119,26 +122,7 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ---
 
-## 1. Aerodynamic Coefficient Design Study
-
-**Blocking dependencies:** None. `AeroCoeffEstimator` is implemented.
-
-Design authority: [`docs/architecture/aero_coefficient_model.md`](../architecture/aero_coefficient_model.md).
-
-Prerequisite for item 7 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-16(c).
-
-### Deliverables — Aerodynamic Coefficient Design Study
-
-- `aero_coefficient_model.md` completed and all open questions resolved.
-- `AircraftGeometry` JSON files and coefficient tables for Cases A, B, and C.
-- `BodyAxisCoeffModel` coefficient format decided and documented.
-- Element registry updated (`AeroModel` named, `BodyAxisCoeffModel` format defined).
-
-Must be complete before item 7 begins.
-
----
-
-## 2. Post-Processing — Visualization Tools
+## 1. Post-Processing — Visualization Tools
 
 **Blocking dependencies:** None. Depends only on external Python libraries (all
 available). Does not depend on any logged channel schema or sensor implementation.
@@ -185,7 +169,7 @@ dev = [
 
 ---
 
-## 3. Manual Input — Joystick and Keyboard
+## 2. Manual Input — Joystick and Keyboard
 
 **Blocking dependencies:** None. `AircraftCommand` is implemented.
 
@@ -205,10 +189,10 @@ an `AircraftCommand`. These live in the Interface Layer and have no physics logi
 // include/input/ManualInput.hpp
 namespace liteaero::simulation {
 
-class V_ManualInput {
+class ManualInput {
 public:
     virtual AircraftCommand read() = 0;   // non-blocking; returns latest command
-    virtual ~V_ManualInput() = default;
+    virtual ~ManualInput() = default;
 };
 
 } // namespace liteaero::simulation
@@ -228,7 +212,7 @@ Add a platform-conditional dependency on SDL2 for `JoystickInput`.
 
 ---
 
-## 4. Sensor Models — Implementable Subset
+## 3. Sensor Models — Implementable Subset
 
 **Blocking dependencies:** None. `KinematicState` and `V_Terrain` are implemented.
 
@@ -250,9 +234,9 @@ listed; `SensorLaserAlt` and `SensorRadAlt` outputs are required by the `Anomaly
 
 ---
 
-## 5. Logged Channel Registry — Design
+## 4. Logged Channel Registry — Design
 
-**Blocking dependencies:** SimRunner (delivered), LandingGear C++ (delivered), item 4
+**Blocking dependencies:** SimRunner (delivered), LandingGear C++ (delivered), item 3
 (sensor models subset). The registry must reflect the complete channel set produced by the
 simulation loop, including gear contact channels and sensor channels.
 
@@ -274,7 +258,7 @@ Design document (`docs/architecture/channel_registry.md`) specifying:
 
 ---
 
-## 6. Real Flight Log Format — Design
+## 5. Real Flight Log Format — Design
 
 **Blocking dependencies:** None. This is a standalone design decision.
 
@@ -288,7 +272,7 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 - What log format(s) real aircraft produce (e.g., ArduPilot DataFlash, MAVLink ULOG,
   custom CSV, or a configurable adapter).
 - Channel name mapping from the real-log format to the simulation channel naming
-  convention defined in item 5.
+  convention defined in item 4.
 - Policy for handling channels present in the real log but absent from the sim schema,
   and vice versa.
 - Whether a translation/adapter layer is implemented in `FlightLogReader` or as a
@@ -296,21 +280,49 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 
 ---
 
+## 6. Aerodynamic Coefficient Design Study
+
+**Blocking dependencies:** None. `AeroCoeffEstimator` is implemented.
+
+Design authority documents:
+
+- Coefficient model format, sign conventions, and propulsion integration:
+  [`docs/architecture/aero_coefficient_model.md`](../architecture/aero_coefficient_model.md)
+- Aerodynamic coefficient estimation methods and `AeroCoeffEstimator` extension:
+  [`docs/architecture/aero_coeff_estimator.md`](../architecture/aero_coeff_estimator.md)
+- Propulsion parameter estimation and propulsion-aero coupling:
+  [`docs/architecture/propulsion_coeff_estimator.md`](../architecture/propulsion_coeff_estimator.md)
+
+Prerequisite for item 7 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-16(c).
+
+### Deliverables — Aerodynamic and Propulsion Coefficient Design Study
+
+- `aero_coefficient_model.md` completed and all open questions resolved.
+- `aero_coeff_estimator.md` completed and all open questions resolved.
+- `propulsion_coeff_estimator.md` completed and all open questions resolved.
+- `AircraftGeometry` + `PropulsionGeometry` JSON files and coefficient tables for Cases A, B, and C.
+- `BodyAxisCoeffModel` and `PropulsionCouplingCoefficients` formats decided and documented.
+- Element registry updated (`AeroModel` named, `BodyAxisCoeffModel` and `PropulsionCoeffEstimator` formats defined).
+
+Must be complete before item 7 begins.
+
+---
+
 ## 7. Aircraft6DOF — Design and Implementation
 
-**Blocking dependencies:** Item 1 (aerodynamic coefficient design study).
+**Blocking dependencies:** Item 6 (aerodynamic coefficient design study).
 
 Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
 [`docs/architecture/system/future/element_registry.md`](../architecture/system/future/element_registry.md).
 
 ### Scope — Aircraft6DOF
 
-- **`V_AeroModel`** — abstract aerodynamic model interface; produces forces and moments in
+- **`AeroModel`** — abstract aerodynamic model interface; produces forces and moments in
   body frame; decouples the 6DOF integrator from the coefficient axis convention.
-- **`BodyAxisCoeffModel`** — implements `V_AeroModel` using body-axis stability derivatives
+- **`BodyAxisCoeffModel`** — implements `AeroModel` using body-axis stability derivatives
   (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular
-  rates. Coefficient model format defined by item 1.
-- **`Aircraft6DOF`** — full 6DOF dynamics; depends on `V_AeroModel` for forces and moments;
+  rates. Coefficient model format defined by item 6.
+- **`Aircraft6DOF`** — full 6DOF dynamics; depends on `AeroModel` for forces and moments;
   accepts `SurfaceDeflectionCommand` (control surface deflection angles + per-motor
   throttle); produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4
   simulations (no FBW bridge in that topology).
@@ -331,7 +343,7 @@ proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must bot
 
 ## 8. Post-Processing — Analysis Tools Design Harmonization and Implementation
 
-**Blocking dependencies:** Item 5 (Logged Channel Registry), item 6 (Real Flight Log
+**Blocking dependencies:** Item 4 (Logged Channel Registry), item 5 (Real Flight Log
 Format), and LiteAero Flight command channel schema (cross-repo dependency — track in
 LiteAero Flight roadmap).
 
@@ -346,8 +358,8 @@ channel schema into `BehaviorVerifier` criteria. It then implements those module
 Update `docs/architecture/post_processing.md` §Analysis Modules:
 
 - Replace all channel name references in `AnomalyDetector` rules with names from the
-  Logged Channel Registry (item 5).
-- Specify the `DataOverlay` format adapter for the real flight log format (item 6).
+  Logged Channel Registry (item 4).
+- Specify the `DataOverlay` format adapter for the real flight log format (item 5).
 - Define `BehaviorVerifier` command channel names from the LiteAero Flight command schema.
 - Define the Scenario Reference Data Format for `WaypointReached` and similar criteria.
 
@@ -357,9 +369,9 @@ Implement in dependency order:
 
 | Module | File | Blocked by |
 | --- | --- | --- |
-| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 5, sensor item 4 |
-| `DataOverlay` | `python/tools/data_overlay.py` | Item 6 |
-| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 5, LiteAero Flight schema |
+| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 4, sensor item 3 |
+| `DataOverlay` | `python/tools/data_overlay.py` | Item 5 |
+| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 4, LiteAero Flight schema |
 
 ### Tests — Analysis Tools
 
@@ -369,7 +381,7 @@ Implement in dependency order:
 
 ## 9. LandingGear — Python Bindings and Scenario Tests
 
-**Blocking dependencies:** LandingGear C++ (delivered, LG-1), item 2
+**Blocking dependencies:** LandingGear C++ (delivered, LG-1), item 1
 (visualization tools exist for animation).
 
 Implement Steps G–H from the design authority document
@@ -458,3 +470,24 @@ can begin. Schedule when prerequisite sensor and terrain models are stable.
 | `SensorLidar` | Synthetic lidar; generates 3D point cloud by ray-casting against `V_Terrain` |
 | `SensorLaserAGL` | Synthetic laser altimeter; computes AGL range by ray-casting against `V_Terrain` |
 | `SensorLineOfSight` | Computes RF link quality and terrain occlusion by ray-casting against `V_Terrain` |
+
+---
+
+## Terrain-1. Rename `V_Terrain` to `Terrain` (liteaero-flight)
+
+**Blocking dependencies:** None.
+
+`liteaero::terrain::V_Terrain` uses the forbidden `V_` Hungarian-notation prefix.
+The correct name is `Terrain`. This rename touches liteaero-flight (the abstract base
+`V_Terrain.hpp`) and all liteaero-sim call sites that include
+`<liteaero/terrain/V_Terrain.hpp>` or reference `liteaero::terrain::V_Terrain`:
+
+- `include/Aircraft.hpp`
+- `include/landing_gear/LandingGear.hpp`
+- `include/environment/TerrainMesh.hpp` (inherits from `V_Terrain`)
+- All `.cpp` files that use the pointer type directly
+
+**Scope:** Cross-repository rename (liteaero-flight + liteaero-sim). Update the Current
+State table, delivered item 14, item LG-1 description, items 3 and 12 of this roadmap,
+and all sensor design documents that reference the interface by name once the rename is
+complete.

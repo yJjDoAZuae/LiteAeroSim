@@ -43,16 +43,16 @@ flowchart TD
 
 | ID | Use Case | Primary Actor | Mechanism |
 | ---- | ---------- | --------------- | ----------- |
-| UC-1 | Compute thrust for one timestep | `Aircraft::step()` | `V_Propulsion::step()` |
-| UC-2 | Query current thrust after step | `Aircraft::step()` | `V_Propulsion::thrust_n()` |
-| UC-3 | Reset warm-start state | `Aircraft::reset()` | `V_Propulsion::reset()` |
+| UC-1 | Compute thrust for one timestep | `Aircraft::step()` | `Propulsion::step()` |
+| UC-2 | Query current thrust after step | `Aircraft::step()` | `Propulsion::thrust_n()` |
+| UC-3 | Reset warm-start state | `Aircraft::reset()` | `Propulsion::reset()` |
 | UC-4 | Serialize mid-flight snapshot | Logger, pause/resume | `serializeJson()` / `serializeProto()` |
 | UC-5 | Restore from snapshot | Pause/resume | `deserializeJson()` / `deserializeProto()` |
 | UC-6 | Substitute engine type | Scenario code | Inject concrete subclass via `Aircraft` constructor |
 | UC-7 | Construct from typed parameters | Scenario, test | Concrete class constructor or factory |
 | UC-8 | Engage / disengage afterburner | Simulation loop | `PropulsionJet::setAfterburner(bool)` |
 | UC-9 | Model thrust lapse with altitude and speed | Internal to `step()` | Thrust envelope function; limits fed to `FilterSS2Clip::valLimit` |
-| UC-10 | Select power source for propeller | Scenario code | Inject `V_Motor` subclass via `PropulsionProp` constructor |
+| UC-10 | Select power source for propeller | Scenario code | Inject `Motor` subclass via `PropulsionProp` constructor |
 
 ---
 
@@ -60,16 +60,20 @@ flowchart TD
 
 ```mermaid
 classDiagram
-    class V_Propulsion {
+    class DynamicElement {
         <<abstract>>
-        +step(throttle_nd, tas_mps, rho_kgm3) float
-        +thrust_n() float
+        +initialize(config) void
         +reset() void
         +serializeJson() json
         +deserializeJson(j) void
+    }
+
+    class Propulsion {
+        <<abstract>>
+        +step(throttle_nd, tas_mps, rho_kgm3) float
+        +thrust_n() float
         +serializeProto() bytes
         +deserializeProto(bytes) void
-        +~V_Propulsion()
     }
 
     class PropulsionJet {
@@ -82,25 +86,19 @@ classDiagram
         +step(throttle_nd, tas_mps, rho_kgm3) float
         +thrust_n() float
         +setAfterburner(on) void
-        +reset() void
-        +serializeJson() json
-        +deserializeJson(j) void
         +serializeProto() bytes
         +deserializeProto(bytes) void
     }
 
     class PropulsionProp {
-        -_propeller : PropellerAero
-        -_motor : unique_ptr~V_Motor~
+        -_propeller : optional~PropellerAero~
+        -_motor : unique_ptr~Motor~
         -_rotor_filter : FilterSS2Clip
         -_thrust_n : float
         +PropulsionProp(propeller, motor, dt_s, rotor_tau_s)
         +step(throttle_nd, tas_mps, rho_kgm3) float
         +thrust_n() float
         +omega_rps() float
-        +reset() void
-        +serializeJson() json
-        +deserializeJson(j) void
         +serializeProto() bytes
         +deserializeProto(bytes) void
     }
@@ -114,9 +112,6 @@ classDiagram
         +step(throttle_nd, tas_mps, rho_kgm3) float
         +thrust_n() float
         +batteryCurrent_a(tas_mps, rho_kgm3) float
-        +reset() void
-        +serializeJson() json
-        +deserializeJson(j) void
         +serializeProto() bytes
         +deserializeProto(bytes) void
     }
@@ -133,12 +128,12 @@ classDiagram
         +advanceRatio(Omega, V) float
     }
 
-    class V_Motor {
+    class Motor {
         <<abstract>>
         +noLoadOmega_rps(throttle_nd, rho_kgm3) float
         +maxOmega_rps() float
         +inertia_kg_m2() float
-        +~V_Motor()
+        +~Motor()
     }
 
     class MotorElectric {
@@ -148,7 +143,7 @@ classDiagram
         -_supply_voltage_v : float
         -_i_max_a : float
         -_esc_efficiency_nd : float
-        +MotorElectric(motor, esc)
+        +MotorElectric(params)
         +noLoadOmega_rps(throttle_nd, rho_kgm3) float
         +maxOmega_rps() float
         +inertia_kg_m2() float
@@ -177,36 +172,36 @@ classDiagram
     }
 
     class Aircraft {
-        -_propulsion : unique_ptr~V_Propulsion~
+        -_propulsion : unique_ptr~Propulsion~
     }
 
-    V_Propulsion    <|-- PropulsionJet  : extends
-    V_Propulsion    <|-- PropulsionProp : extends
-    V_Propulsion    <|-- PropulsionEDF  : extends
-    V_Motor         <|-- MotorElectric  : extends
-    V_Motor         <|-- MotorPiston    : extends
+    DynamicElement  <|-- Propulsion     : extends
+    Propulsion      <|-- PropulsionJet  : extends
+    Propulsion      <|-- PropulsionProp : extends
+    Propulsion      <|-- PropulsionEDF  : extends
+    Motor           <|-- MotorElectric  : extends
+    Motor           <|-- MotorPiston    : extends
     PropulsionJet   *-- FilterSS2Clip   : owns (_spool_filter, _ab_filter)
-    PropulsionProp  *-- PropellerAero   : owns (value member)
+    PropulsionProp  o-- PropellerAero   : optional
     PropulsionProp  *-- FilterSS2Clip   : owns (_rotor_filter)
-    PropulsionProp  o-- V_Motor         : owns (unique_ptr)
+    PropulsionProp  o-- Motor           : owns (unique_ptr)
     PropulsionEDF   *-- FilterSS2Clip   : owns (_spool_filter)
-    Aircraft        o-- V_Propulsion    : owns (unique_ptr)
+    Aircraft        o-- Propulsion      : owns (unique_ptr)
 ```
 
 ---
 
-## `V_Propulsion` — Abstract Interface
+## `Propulsion` — Abstract Interface
 
-**File:** `include/propulsion/V_Propulsion.hpp`
-**Namespace:** `liteaerosim::propulsion`
+**File:** `include/propulsion/Propulsion.hpp`
+**Namespace:** `liteaero::simulation`
 
 ```cpp
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
-class V_Propulsion {
+// Inherits initialize(), reset(), serializeJson(), deserializeJson() from DynamicElement.
+class Propulsion : public liteaero::control::DynamicElement {
 public:
-    virtual ~V_Propulsion() = default;
-
     // Advance propulsion state by one timestep and return thrust magnitude (N).
     //   throttle_nd — normalized throttle demand [0, 1]
     //   tas_mps     — true airspeed (m/s)
@@ -218,18 +213,13 @@ public:
     // Thrust output from the most recent step() call (N). Zero before the first step.
     [[nodiscard]] virtual float thrust_n() const = 0;
 
-    // Reset warm-start state. thrust_n() returns 0 after reset().
-    virtual void reset() = 0;
-
-    // Serialize warm-start state only (not configuration parameters).
+    // Protobuf serialization — JSON is inherited from DynamicElement.
     // Snapshot includes "schema_version" (int) and "type" (string discriminator).
-    [[nodiscard]] virtual nlohmann::json       serializeJson()                              const = 0;
-    virtual void                               deserializeJson(const nlohmann::json&        j)    = 0;
     [[nodiscard]] virtual std::vector<uint8_t> serializeProto()                            const = 0;
     virtual void                               deserializeProto(const std::vector<uint8_t>& b)    = 0;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation
 ```
 
 ### Interface Contracts
@@ -237,16 +227,21 @@ public:
 | Precondition | Method | Postcondition |
 | --- | --- | --- |
 | `throttle_nd` ∈ [0, 1] | `step()` | `thrust_n() ≥ 0` |
-| — | `reset()` | `thrust_n() == 0` |
-| — | `serializeJson()` | snapshot has `"schema_version"` and `"type"` |
-| snapshot `"type"` matches concrete class | `deserializeJson()` | warm-start state restored |
+| — | `reset()` (from `DynamicElement`) | `thrust_n() == 0` |
+| — | `serializeJson()` (from `DynamicElement`) | snapshot has `"schema_version"` and `"type"` |
+| snapshot `"type"` matches concrete class | `deserializeJson()` (from `DynamicElement`) | warm-start state restored |
 | snapshot `"type"` does not match concrete class | `deserializeJson()` | throws `std::runtime_error` |
 
-### Why Not `DynamicBlock`
+### Relationship to `DynamicElement`
 
-`DynamicBlock` models scalar SISO elements. `V_Propulsion::step()` takes three inputs
-(`throttle_nd`, `tas_mps`, `rho_kgm3`) and is therefore not topologically SISO.
-`V_Propulsion` is a standalone polymorphic base, like `AeroPerformance`.
+`Propulsion` extends `liteaero::control::DynamicElement`, inheriting the standard
+lifecycle contract (`initialize()`, `reset()`, `serializeJson()`, `deserializeJson()`).
+This is consistent with all other stateful simulation components in the domain layer.
+
+`Propulsion::step()` takes three inputs (`throttle_nd`, `tas_mps`, `rho_kgm3`) and
+is therefore not topologically SISO — it does not extend `SisoElement`. The three-input
+signature reflects the physical reality that available thrust depends on both throttle
+command and the current flight condition.
 
 ---
 
@@ -548,13 +543,13 @@ struct PropulsionEdfParams {
 ### Class Declaration — PropulsionEDF
 
 ```cpp
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
-class PropulsionEDF : public V_Propulsion {
+class PropulsionEDF : public Propulsion {
 public:
     PropulsionEDF(const PropulsionEdfParams& params, float dt_s);
 
-    // V_Propulsion interface
+    // Propulsion interface
     [[nodiscard]] float step(float throttle_nd, float tas_mps, float rho_kgm3) override;
     [[nodiscard]] float thrust_n() const override;
     void reset() override;
@@ -575,7 +570,7 @@ private:
     float               _thrust_n;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation
 ```
 
 ---
@@ -658,7 +653,7 @@ $$
 ### Interface
 
 ```cpp
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 struct PropellerAero {
     float diameter_m;
@@ -684,18 +679,18 @@ struct PropellerAero {
     float torque_nm(float Omega_rps, float tas_mps, float rho_kgm3) const;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation
 ```
 
 ---
 
-## `V_Motor` — Abstract Motor Interface
+## `Motor` — Abstract Motor Interface
 
-**File:** `include/propulsion/V_Motor.hpp`
-**Namespace:** `liteaerosim::propulsion`
+**File:** `include/propulsion/Motor.hpp`
+**Namespace:** `liteaero::simulation`
 
 The motor abstraction decouples the power source from the propeller aerodynamics.
-`PropulsionProp` holds a `V_Motor` and uses it to determine:
+`PropulsionProp` holds a `Motor` and uses it to determine:
 
 1. The **no-load shaft speed** for a given throttle and flight condition — this is the
    target input to the rotor speed `FilterSS2Clip`.
@@ -703,11 +698,11 @@ The motor abstraction decouples the power source from the propeller aerodynamics
 3. The **rotor-system inertia** — used to derive the `FilterSS2Clip` time constant.
 
 ```cpp
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
-class V_Motor {
+class Motor {
 public:
-    virtual ~V_Motor() = default;
+    virtual ~Motor() = default;
 
     // Free-running (no-load) shaft speed for the given throttle and air density.
     // PropulsionProp passes this as the target to the rotor FilterSS2Clip.
@@ -724,7 +719,7 @@ public:
     [[nodiscard]] virtual float inertia_kg_m2() const = 0;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation
 ```
 
 ---
@@ -865,7 +860,7 @@ computation path.
 ### Class Declaration — MotorElectric
 
 ```cpp
-namespace liteaerosim::propulsion {
+namespace liteaero::simulation {
 
 struct MotorElectricMotorParams {
     float kv_rps_per_v;         // Back-EMF / velocity constant (rad/s/V)
@@ -879,12 +874,12 @@ struct MotorElectricEscParams {
     float esc_efficiency_nd;    // DC-to-3-phase power conversion efficiency [0, 1]
 };
 
-class MotorElectric : public V_Motor {
+class MotorElectric : public Motor {
 public:
     MotorElectric(const MotorElectricMotorParams& motor,
                   const MotorElectricEscParams&   esc);
 
-    // V_Motor interface
+    // Motor interface
     [[nodiscard]] float noLoadOmega_rps(float throttle_nd, float rho_kgm3) const override;
     [[nodiscard]] float maxOmega_rps()  const override;
     [[nodiscard]] float inertia_kg_m2() const override;
@@ -905,7 +900,7 @@ private:
     float _esc_efficiency_nd;
 };
 
-} // namespace liteaerosim::propulsion
+} // namespace liteaero::simulation
 ```
 
 ---
@@ -960,7 +955,7 @@ This is the target speed passed to the `FilterSS2Clip`. The filter's lag, togeth
 
 ### Design Overview
 
-`PropulsionProp` owns a `PropellerAero` (value member) and a `V_Motor` (polymorphic
+`PropulsionProp` owns a `PropellerAero` (value member) and a `Motor` (polymorphic
 pointer). The rotor speed dynamics are modelled entirely by a `FilterSS2Clip`.
 
 The rotor speed `Omega` is the coupling variable between motor and propeller:
@@ -989,7 +984,7 @@ rotor speed — typically 0.2–2 s for electric UAS drives and 0.5–3 s for pi
 installations, depending on propeller disk loading and drive-train inertia.
 
 Deriving `rotor_tau_s` from physical parameters: if the motor inertia $J$ (from
-`V_Motor::inertia_kg_m2()`) and an estimate of the propeller torque gradient
+`Motor::inertia_kg_m2()`) and an estimate of the propeller torque gradient
 $|\partial Q_{prop}/\partial\Omega|$ at cruise are available, then:
 
 $$
@@ -1012,7 +1007,7 @@ _rotor_filter.valLimit.setUpper(motor.maxOmega_rps());
 | Source | Parameter | Unit | Description |
 | --- | --- | --- | --- |
 | `PropellerAero` | `diameter_m`, `pitch_m`, `blade_count`, `blade_solidity` | — | Propeller geometry |
-| `V_Motor` | (varies by subclass) | — | Motor model parameters |
+| `Motor` | (varies by subclass) | — | Motor model parameters |
 | `PropulsionProp` | `dt_s` | s | Fixed simulation timestep |
 | `PropulsionProp` | `rotor_tau_s` | s | Rotor speed first-order lag (0.2–3 s); see Rotor Time Constant above |
 
@@ -1023,7 +1018,7 @@ _rotor_filter.valLimit.setUpper(motor.maxOmega_rps());
 | `_rotor_filter.x()` | `rotor_state[0..1]` | Rotor filter internal state vector `[x[0], x[1]]`; restored via `resetState()` |
 | `_thrust_n` | `thrust_n` | Last computed thrust (N); restored directly |
 
-`V_Motor` is stateless — no motor state is serialized.
+`Motor` is stateless — no motor state is serialized.
 
 ### JSON State Schema — PropulsionProp
 
@@ -1139,8 +1134,8 @@ message PropulsionPropState {
 sequenceDiagram
     participant App  as Application / Test
     participant AC   as Aircraft
-    participant PP   as V_Propulsion (concrete)
-    participant MOT  as V_Motor (concrete, Prop only)
+    participant PP   as Propulsion (concrete)
+    participant MOT  as Motor (concrete, Prop only)
 
     App ->> MOT : new MotorElectric / MotorPiston (params)
     App ->> PP  : new PropulsionProp(propeller, motor, dt_s, rotor_tau_s)
@@ -1186,12 +1181,12 @@ objects are constructed directly in application or test code.
 
 | File | Contents |
 | ------ | ---------- |
-| `include/propulsion/V_Propulsion.hpp` | Abstract base class |
+| `include/propulsion/Propulsion.hpp` | Abstract base class |
 | `include/propulsion/PropulsionJet.hpp` | Jet model declaration; `PropulsionJetParams` struct |
 | `include/propulsion/PropulsionEDF.hpp` | EDF model declaration; `PropulsionEdfParams` struct |
 | `include/propulsion/PropulsionProp.hpp` | Propeller model declaration |
 | `include/propulsion/PropellerAero.hpp` | `PropellerAero` value type |
-| `include/propulsion/V_Motor.hpp` | Abstract motor interface |
+| `include/propulsion/Motor.hpp` | Abstract motor interface |
 | `include/propulsion/MotorElectric.hpp` | BLDC motor declaration |
 | `include/propulsion/MotorPiston.hpp` | Piston motor declaration |
 | `src/propulsion/PropulsionJet.cpp` | Jet model implementation |

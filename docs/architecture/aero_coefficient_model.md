@@ -11,7 +11,7 @@ This study resolves OQ-16(c) from
 prerequisite for [`Aircraft6DOF` design and implementation (roadmap item 7)](../../roadmap/aircraft.md).
 
 **Scope:** fixed-wing aircraft, subsonic ($M < 0.3$), rigid airframe, no aeroelasticity,
-no ground effect, no propwash coupling beyond the trim model already in `AeroPerformance`.
+no ground effect, propwash coupling not modeled (see [OQ-6](#open-questions)).
 
 ---
 
@@ -30,7 +30,7 @@ are implicit in the load-factor command abstraction.
 $(\alpha, \beta, p, q, r)$ and control $(\delta_e, \delta_a, \delta_r)$. `BodyAxisCoeffModel`
 must provide these. The format defined here must be expressive enough to cover the range
 of fixed-wing configurations expected in LiteAero missions while remaining tractable for
-`AeroCoeffEstimator` and hand-specified datasets.
+[`AeroCoeffEstimator`](aero_coeff_estimator.md) and hand-specified datasets.
 
 ---
 
@@ -64,10 +64,10 @@ flowchart TD
 
 | ID | Use Case | Primary Actor | Mechanism |
 | --- | --- | --- | --- |
-| UC-1 | Compute body-frame forces and moments | `Aircraft6DOF::step()` | `BodyAxisCoeffModel::compute(alpha, beta, p, q, r, controls)` |
+| UC-1 | Compute body-frame forces and moments | `Aircraft6DOF::step()` | `BodyAxisCoeffModel::compute(alpha, beta, p_nd, q_nd, r_nd, q_inf_pa, controls)` |
 | UC-2 | Initialize from JSON config | Scenario, test | `BodyAxisCoeffModel::initialize(config)` |
 | UC-3 | Serialize / deserialize | Logger, save/restore | `serializeJson()` / `serializeProto()` |
-| UC-4 | Estimate from geometry | `AeroCoeffEstimator` | Geometry → `AeroCoeffEstimatorConfig` → JSON |
+| UC-4 | Estimate from geometry | `AeroCoeffEstimator` | `AircraftGeometry` → `AeroCoeffEstimator` → JSON |
 | UC-5 | Hand-specify coefficients | Developer, test | Directly authored JSON config |
 
 ---
@@ -91,6 +91,27 @@ Normalization: all force coefficients normalized by $q_\infty S_\text{ref}$; mom
 coefficients by $q_\infty S_\text{ref} \bar{c}$ (pitch) or $q_\infty S_\text{ref} b$
 (roll, yaw). Angular rate inputs are non-dimensionalized:
 $\hat{p} = pb/(2V)$, $\hat{q} = q\bar{c}/(2V)$, $\hat{r} = rb/(2V)$.
+
+Non-dimensionalization is performed by the caller (`Aircraft6DOF`) before passing rates
+to `BodyAxisCoeffModel::compute()`. The model receives $\hat{p}$, $\hat{q}$, $\hat{r}$
+directly; it does not hold airspeed state internally.
+
+### Control Input Sign Conventions
+
+| Symbol | Positive direction | Primary moment effect | Typical sign of effectiveness derivative |
+| --- | --- | --- | --- |
+| $\delta_e$ | Trailing edge down | Nose-down pitch | $C_{m_{\delta_e}} < 0$ |
+| $\delta_a$ | Left aileron TE down, right aileron TE up | Right-wing-down roll | $C_{l_{\delta_a}} > 0$ |
+| $\delta_r$ | Trailing edge to starboard | Nose-left yaw | $C_{n_{\delta_r}} < 0$ |
+
+All control inputs are in radians. For flying-wing (elevon) configurations the scenario
+layer maps physical elevon commands to effective $\delta_e$ and $\delta_a$ before calling
+`compute()`:
+
+$$\delta_e = \tfrac{1}{2}(\delta_{L} + \delta_{R}), \qquad \delta_a = \tfrac{1}{2}(\delta_{R} - \delta_{L})$$
+
+where $\delta_L$ and $\delta_R$ are the left and right elevon trailing-edge-down
+deflections. `BodyAxisCoeffModel` never receives raw elevon commands.
 
 ---
 
@@ -132,6 +153,7 @@ verification use cases that drive `Aircraft6DOF`.
 | $C_{m_q}$ | Pitch damping | negative | `AeroCoeffEstimator` |
 | $C_{m_{\delta_e}}$ | Elevator pitch effectiveness | negative | DATCOM / geometry |
 | $C_{Y_\beta}$ | Lateral force — sideslip slope | negative | `AeroCoeffEstimator` |
+| $C_{Y_p}$ | Lateral force — roll rate | small | `AeroCoeffEstimator` |
 | $C_{Y_r}$ | Lateral force — yaw rate | positive | `AeroCoeffEstimator` |
 | $C_{Y_{\delta_r}}$ | Rudder side force | positive | DATCOM / geometry |
 | $C_{l_\beta}$ | Roll — dihedral effect | negative (stable) | geometry |
@@ -145,8 +167,90 @@ verification use cases that drive `Aircraft6DOF`.
 | $C_{n_{\delta_a}}$ | Aileron yaw coupling | small (adverse) | geometry |
 | $C_{n_{\delta_r}}$ | Rudder yaw effectiveness | negative | DATCOM / geometry |
 
-All coefficients are dimensionless unless otherwise noted. The sign convention follows
-Etkin & Reid *Dynamics of Flight* (3rd ed.) and the body-frame definitions above.
+All coefficients are dimensionless per the non-dimensionalization relationships below.
+The sign convention follows Etkin & Reid *Dynamics of Flight* (3rd ed.) and the
+body-frame definitions above.
+
+### Non-Dimensionalization
+
+#### Non-Dimensional Form (Stored in `BodyAxisCoeffModel`)
+
+Force coefficients are non-dimensionalized by dynamic pressure and reference area:
+
+$$C_F = \frac{F}{q_\infty S_\text{ref}}$$
+
+Moment coefficients are further divided by a reference length — mean aerodynamic chord
+$\bar{c}$ for pitch, wingspan $b$ for roll and yaw:
+
+$$C_m = \frac{M_y}{q_\infty S_\text{ref} \bar{c}}, \qquad
+  C_l = \frac{M_x}{q_\infty S_\text{ref} b}, \qquad
+  C_n = \frac{M_z}{q_\infty S_\text{ref} b}$$
+
+Angular rate derivatives carry the same length factor through the non-dimensional rate
+definition ($\hat{p} = pb/(2V)$, $\hat{q} = q\bar{c}/(2V)$, $\hat{r} = rb/(2V)$) so
+that, for example, $C_{Z_q}\hat{q}$ is dimensionless regardless of airspeed or geometry.
+
+#### Dimensional Recovery (Performed by `Aircraft6DOF`)
+
+`BodyAxisCoeffModel::compute()` returns non-dimensional force and moment coefficients.
+`Aircraft6DOF` recovers the dimensional body-frame forces and moments:
+
+$$\begin{pmatrix} F_x \\ F_y \\ F_z \end{pmatrix} = q_\infty S_\text{ref}
+  \begin{pmatrix} C_X \\ C_Y \\ C_Z \end{pmatrix} \quad [\text{N}]$$
+
+$$\begin{pmatrix} M_x \\ M_y \\ M_z \end{pmatrix} = q_\infty S_\text{ref}
+  \begin{pmatrix} b\,C_l \\ \bar{c}\,C_m \\ b\,C_n \end{pmatrix} \quad [\text{N\,m}]$$
+
+The reference quantities $S_\text{ref}$, $\bar{c}$, and $b$ are stored in
+`BodyAxisCoeffModel` alongside the coefficients (see JSON schema above) and serialized as
+part of the same config object.
+
+#### Why Non-Dimensional Storage
+
+- Coefficients are independent of flight condition: the same $C_{Z_\alpha}$ applies at
+  any airspeed, altitude, or aircraft scale, which makes datasets reusable and
+  comparable across configurations.
+- `AeroCoeffEstimator` and DATCOM both produce non-dimensional outputs natively.
+- Hand-specified datasets from published sources (e.g. Etkin & Reid appendix aircraft)
+  are tabulated in non-dimensional form.
+
+#### Relationship to `AeroPerformance`
+
+The existing `AeroPerformance::compute()` returns forces directly in Newtons (wind frame).
+`BodyAxisCoeffModel::compute()` returns dimensionless coefficients; the dimensional scaling
+step is explicit in `Aircraft6DOF`. This separation keeps the coefficient model
+independent of flight condition and simplifies unit testing.
+
+### Serialization Requirements
+
+`BodyAxisCoeffModel` must implement both `serializeJson()` / `deserializeJson()` and
+`serializeProto()` / `deserializeProto()` (project standard, CLAUDE.md §5). Round-trip
+tests are required for both formats, covering a hand-specified coefficient set and a
+geometry-estimated set. The serialized form must include all 25 coefficient fields and a
+`"schema_version": 1` field.
+
+### JSON Configuration Schema (Sketch)
+
+```json
+{
+  "schema_version": 1,
+  "reference_area_m2":   0.6,
+  "reference_chord_m":   0.22,
+  "reference_span_m":    2.4,
+  "cx0":  -0.028, "cx_alpha":  0.10,  "cx_de":    0.0,
+  "cz0":   0.0,   "cz_alpha": -4.80,  "cz_q":   -12.0, "cz_de":  -0.45,
+  "cm0":   0.02,  "cm_alpha": -0.55,  "cm_q":   -18.0, "cm_de":  -1.20,
+  "cy_beta": -0.35, "cy_p":  -0.05, "cy_r":   0.25, "cy_dr":  0.18,
+  "cl_beta": -0.09, "cl_p":  -0.45, "cl_r":   0.12,
+  "cl_da":   0.22,  "cl_dr":  0.02,
+  "cn_beta":  0.08, "cn_p":  -0.02, "cn_r":  -0.10,
+  "cn_da":   -0.01, "cn_dr": -0.09
+}
+```
+
+All values dimensionless (per-radian for angle-based derivatives). Reference geometry
+fields (`reference_area_m2`, `reference_chord_m`, `reference_span_m`) are required; they
+are used by `Aircraft6DOF` to scale force and moment outputs.
 
 ---
 
@@ -222,7 +326,7 @@ degenerate cases.
 
 | Case | Wing span | Wing area | Config | Purpose |
 | --- | --- | --- | --- | --- |
-| A — Small fixed-wing (VTOL transition) | 1.2 m | 0.25 m² | Flying wing, no tail | Tests zero $C_{m_{\delta_e}}$ path (elevons only), small AR, high sweep |
+| A — Small fixed-wing (VTOL transition) | 1.2 m | 0.25 m² | Flying wing, no tail | Elevon mixing handled upstream (see Control Input Sign Conventions); model receives $\delta_e$/$\delta_a$ directly. $C_{n_{\delta_r}} = C_{l_{\delta_r}} = C_{Y_{\delta_r}} = 0$ (no rudder). Verifies that zero-valued fields are accepted without error. |
 | B — Conventional trainer | 2.4 m | 0.6 m² | Tractor, cruciform tail, ailerons + elevator + rudder | Baseline: all derivatives non-zero, symmetric |
 | C — High-AR soarer | 4.0 m | 0.55 m² | Pusher, T-tail, large dihedral | Tests $C_{l_\beta}$ magnitude, $C_{m_q}$ at high AR, T-tail downwash correction |
 
@@ -239,7 +343,7 @@ For each case:
 `BodyAxisCoeffModel` implements `AeroModel` (the abstract aerodynamic interface):
 
 ```
-AeroModel::compute(alpha_rad, beta_rad, p_nd, q_nd, r_nd, controls)
+AeroModel::compute(alpha_rad, beta_rad, p_nd, q_nd, r_nd, q_inf_pa, controls)
     → BodyForces { fx_n, fy_n, fz_n, mx_nm, my_nm, mz_nm }
 ```
 
@@ -249,6 +353,104 @@ avoids the α/β rotation that `AeroPerformance` requires.
 
 The `AeroModel` interface also enables future concrete implementations (table lookup,
 neural-net surrogate, CFD co-simulation) without modifying `Aircraft6DOF`.
+
+---
+
+## Propulsion Integration
+
+Propulsion forces and their aerodynamic coupling effects are modeled in parallel with
+`BodyAxisCoeffModel`. The full design of propulsion parameter estimation is in
+[`propulsion_coeff_estimator.md`](propulsion_coeff_estimator.md). This section defines
+how propulsion and aerodynamics are combined inside `Aircraft6DOF`.
+
+### Force and Moment Superposition
+
+`Aircraft6DOF` computes total body-frame forces and moments each step as:
+
+$$\mathbf{F}_\text{total} = \mathbf{F}_\text{aero} + \mathbf{F}_\text{thrust} + \mathbf{F}_\text{gravity}$$
+
+$$\mathbf{M}_\text{total} = \mathbf{M}_\text{aero} + \mathbf{M}_\text{thrust\,offset} + \mathbf{M}_\text{gyro} + \mathbf{M}_\text{propwash\,correction}$$
+
+where:
+
+- $\mathbf{F}_\text{aero}$ and $\mathbf{M}_\text{aero}$ — from `BodyAxisCoeffModel::compute()`, scaled by $q_\infty S_\text{ref}$ and reference lengths.
+- $\mathbf{F}_\text{thrust}$ — from `Propulsion::step()`, applied along the body $x$-axis (or along the configured thrust direction for non-axial installations).
+- $\mathbf{M}_\text{thrust\,offset}$ — additive moment from thrust-line offset from CG (see below).
+- $\mathbf{M}_\text{gyro}$ — gyroscopic moment from spinning propeller or fan (see below).
+- $\mathbf{M}_\text{propwash\,correction}$ — throttle-dependent correction to aerodynamic moments.
+
+### Thrust-Line Offset Moment
+
+If the thrust line does not pass through the CG, it produces a direct pitching and yawing
+moment each step:
+
+$$M_{y,\text{offset}} = T \cdot z_T, \qquad M_{z,\text{offset}} = T \cdot y_T$$
+
+where $z_T$ is the body-$z$ offset of the thrust point below the CG (positive = thrust
+point below CG, body $z$ down → nose-up moment), and $y_T$ is the lateral offset. These
+are **not** stability derivatives — they depend on instantaneous thrust, not aerodynamic
+state.
+
+### Propwash Correction to Aerodynamic Moments
+
+At high throttle and low airspeed, the propeller slipstream increases dynamic pressure
+over the horizontal tail, augmenting tail effectiveness:
+
+$$C_{m_q,\text{eff}} = C_{m_q} + \Delta C_{m_q}(\delta_T), \qquad
+  C_{Z_q,\text{eff}} = C_{Z_q} + \Delta C_{Z_q}(\delta_T)$$
+
+The correction $\Delta C_{m_q}(\delta_T)$ is estimated by
+`PropulsionCoeffEstimator::estimateCoupling()` from propeller and tail geometry. It is
+supplied to `Aircraft6DOF` via a `PropulsionCouplingCoefficients` struct alongside the
+main `BodyAxisCoeffModel` config.
+
+### Gyroscopic Moment
+
+A spinning propeller or fan with moment of inertia $I_{prop}$ and angular speed $\Omega$
+creates cross-axis moments from aircraft rotation:
+
+$$M_{y,\text{gyro}} = -I_{prop}\,\Omega\,r, \qquad M_{z,\text{gyro}} = I_{prop}\,\Omega\,q$$
+
+$\Omega$ is read from the propulsion model each step via `PropulsionProp::omega_rps()`.
+For `PropulsionJet` and `PropulsionEDF`, gyroscopic effects are zero (no exposed rotor
+speed).
+
+### P-Factor
+
+Asymmetric propeller thrust at angle of attack adds a yawing moment proportional to
+$\alpha$ and thrust loading:
+
+$$\Delta C_n = C_{n_P} \cdot \frac{T}{q_\infty S b} \cdot \alpha$$
+
+$C_{n_P}$ is estimated by `PropulsionCoeffEstimator::estimateCoupling()`. This term is
+additive and computed inside `Aircraft6DOF` alongside the aerodynamic moments.
+
+### What Enters `BodyAxisCoeffModel` vs. What Is Computed Separately
+
+| Effect | In `BodyAxisCoeffModel`? | Computed separately in `Aircraft6DOF`? |
+| --- | --- | --- |
+| Aerodynamic forces/moments | Yes — all 25 derivatives | — |
+| Thrust force (axial) | No | Yes — from `Propulsion::step()` |
+| Thrust-line offset moment | No | Yes — $T \cdot [z_T, y_T]$ |
+| Propwash augmentation | As $\delta_T$-dependent correction to $C_{m_q}$, $C_{Z_q}$ | Correction factor supplied via `PropulsionCouplingCoefficients` |
+| P-factor yawing moment | No | Yes — additive $\Delta C_n$ term |
+| Gyroscopic moment | No | Yes — $I_{prop}\Omega q$ / $I_{prop}\Omega r$ |
+| Slipstream rolling moment | As $\delta_T$-dependent $\Delta C_l$ | Correction factor supplied via `PropulsionCouplingCoefficients` |
+
+---
+
+## Test Strategy
+
+| Category | What is tested | How |
+| --- | --- | --- |
+| Unit — `compute()` | Forces and moments match hand-computed values for known inputs | Hand-specified JSON, single call, `EXPECT_NEAR` on all 6 outputs |
+| Unit — zero inputs | At $\alpha=\beta=0$, zero rates, zero controls: $C_Y=C_l=C_n=0$; $C_X=C_{X_0}$, $C_Z=C_{Z_0}$, $C_m=C_{m_0}$ | Same fixture |
+| Unit — linearity | Doubling $\alpha$ doubles $C_{Z_\alpha}\alpha$ contribution (all other inputs zero) | Two calls, compare ratio |
+| Unit — $q_\infty$ scaling | Force outputs scale linearly with `q_inf_pa` | Two calls at different $q_\infty$, verify proportionality |
+| Serialization — JSON | Round-trip `serializeJson()` / `deserializeJson()` preserves all 25 coefficients and reference geometry | `EXPECT_FLOAT_EQ` for every field |
+| Serialization — protobuf | Round-trip `serializeProto()` / `deserializeProto()` preserves all fields | Same |
+| Design study — Case B | Predicted static margin and control power match handbook estimate within ±20% | Run `AeroCoeffEstimator` on Case B geometry, compare derivatives to reference values from DATCOM §4 |
+| Design study — Cases A, C | No degenerate outputs (NaN, inf, zero lift-curve slope) | Run `AeroCoeffEstimator` on each geometry; verify all expected-nonzero derivatives are nonzero |
 
 ---
 
