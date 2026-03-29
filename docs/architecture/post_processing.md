@@ -106,6 +106,21 @@ flowchart TD
 | PP-F16 | `BehaviorCriterion` checks are expressed in terms of observable channel values — not internal algorithm state — so the verifier operates purely from the log regardless of which system produced the commands. |
 | PP-F17 | `BehaviorReport` assigns each criterion a result (Pass, Fail, Inconclusive) with a timestamp range, measured value, and expected bound. Failed criteria cause a non-zero exit code. |
 | PP-F18 | `TimeHistoryFigure` accepts command channels and response channels in the same panel, with command traces rendered as dashed lines and response traces as solid lines, to support UC-PP10. |
+| PP-F19 | `LiveTimeHistoryFigure` renders real-time channel data in vertically stacked panels with a rolling time window anchored at the most recently received data point. |
+| PP-F20 | `LiveTimeHistoryFigure` uses the same panel layout, color scheme, axis label conventions, and trace styles as `TimeHistoryFigure`. Panel definitions use the same arguments as `TimeHistoryFigure.add_panel` so that the same panel specification can be applied to both views without modification. |
+| PP-F21 | `LiveTimeHistoryFigure` exposes user controls for the time axis: zoom in/out, scroll, and reset to present time (re-anchors the rolling window at the live edge after the user has scrolled back). |
+| PP-F22 | `LiveTimeHistoryFigure` exposes per-panel vertical axis controls: set explicit y-limits, and reset y-limits to the maximum extents of the data currently buffered in the rolling window. |
+| PP-F23 | `TrajectoryView` and all 3D trajectory visualizations render terrain geometry as a surface beneath the aircraft ribbon trail. The terrain surface is rendered in both post-processing and live trajectory views. |
+| PP-F24 | Terrain colormap saturation is adjustable from 0.0 (greyscale) to 1.0 (full saturation). Desaturating the terrain increases visual contrast against aircraft markers and ribbon trails. |
+| PP-F25 | The default ownship trajectory color is medium blue (`#4A7FC1`); the default exogenous platform color is medium red (`#C14A4A`). Both are drawn from a compatible palette at consistent medium saturation: green (`#4CA64C`), orange (`#C1894A`), purple (`#8A4AC1`), teal (`#4AA6A6`). Exact hex values are proposed defaults subject to visual review — see OQ-PP-22. |
+| PP-F26 | Aircraft marker alpha and ribbon trail base alpha are individually configurable per loaded source. |
+| PP-F27 | The live ribbon trail alpha fades on a logarithmic scale from fully opaque at the aircraft's current position to fully transparent at the oldest visible segment: $\alpha_i = \log(i+1) / \log(N_\text{trail})$ where $i = 0$ is the tail and $i = N_\text{trail} - 1$ is the head. The log scale ensures the ribbon appears solid for most of its visible length (at $i = N_\text{trail}/2$, $\alpha \approx 0.87$ for $N_\text{trail} = 200$) and fades smoothly to transparent only near the tail. |
+| PP-F28 | `TrajectoryView` supports four selectable camera modes: body-axis FPV, 3rd-person trailing, orthographic god's eye, and orthographic local top view. The active camera mode is selectable via a control during playback. |
+| PP-F29 | Body-axis FPV camera: camera position equals the aircraft position; view direction is the aircraft nose (body x-axis); up direction is the aircraft dorsal axis (body z-axis). The viewer experiences the full 6DOF attitude of the aircraft. |
+| PP-F30 | 3rd-person trailing camera: camera is horizon-leveled (roll = 0); position trails the aircraft by a configurable body-frame offset and a configurable temporal delay (the camera tracks the aircraft's past position so the aircraft appears ahead of centre); altitude is offset above the aircraft by a configurable amount. |
+| PP-F31 | God's eye camera: full orthographic top-down projection; view extent is set to encompass the complete trajectory with margin. |
+| PP-F32 | Local top-view camera: orthographic top-down projection; supports north-up and track-up orientations; zoom is user-controllable. |
+| PP-F33 | `FlightLogReader.load_mcap()` supports both JSON and protobuf MCAP message encodings. Protobuf is preferred for live streaming channels where data compactness is important; JSON is supported for offline post-processing and debugging. |
 
 ### Non-Functional
 
@@ -132,10 +147,11 @@ simulation design item that is not yet complete.
 
 | Module | External dependencies | Blocking sim design gaps |
 | --- | --- | --- |
-| `FlightLogReader` | `mcap` Python SDK, `pandas` | None |
+| `FlightLogReader` | `mcap` Python SDK, `mcap-protobuf-support`, `pandas` | Protobuf schema from C++ Logger (OQ-PP-6); MCAP source-name mapping (OQ-PP-6) |
 | `ModeEventSeries` | `pandas` | None |
 | `TimeHistoryFigure` | `plotly` | None |
-| `RibbonTrail` | `numpy`, `matplotlib` | None |
+| `LiveTimeHistoryFigure` | Technology TBD — see OQ-PP-17 | None (time history only); terrain dependency deferred to item 9 if a live 3D trajectory view is added later |
+| `RibbonTrail` | `numpy`, `matplotlib` | None (geometry only); terrain rendering blocked on OQ-PP-20 |
 | `HudOverlay` | `matplotlib` | None |
 | `TrajectoryView` | `matplotlib` | None |
 
@@ -242,11 +258,29 @@ classDiagram
         +export_html(path) void
     }
 
+    class LiveTimeHistoryFigure {
+        -_panels : list~Panel~
+        -_mode_events : ModeEventSeries
+        -_window_s : float
+        +add_panel(channels, title, y_label) Panel
+        +set_mode_events(events) void
+        +set_time_window(duration_s) void
+        +reset_to_present() void
+        +set_y_limits(panel_index, y_min, y_max) void
+        +reset_y_limits(panel_index) void
+        +show() void
+    }
+
     class TrajectoryView {
         -_ribbon : RibbonTrail
         -_hud : HudOverlay
         -_mode_events : ModeEventSeries
-        +load(df, label, color) void
+        -_camera_mode : CameraMode
+        -_terrain_saturation : float
+        +load(df, label, color, alpha) void
+        +set_mode_events(events) void
+        +set_camera_mode(mode) void
+        +set_terrain_saturation(value) void
         +animate(interval_ms) FuncAnimation
         +show() void
     }
@@ -274,6 +308,7 @@ classDiagram
     BehaviorVerifier --> BehaviorReport
     BehaviorVerifier o-- BehaviorCriterion
     ModeEventSeries --> TimeHistoryFigure
+    ModeEventSeries --> LiveTimeHistoryFigure
     ModeEventSeries --> TrajectoryView
     TrajectoryView o-- RibbonTrail
     TrajectoryView o-- HudOverlay
@@ -459,7 +494,15 @@ class ModeEvent:
 ```
 
 Mode names are mapped from a configurable `{int: str}` dictionary. `ModeEventSeries` is
-consumed by both `TimeHistoryFigure` and `TrajectoryView` to ensure consistent labeling.
+consumed by `TimeHistoryFigure`, `LiveTimeHistoryFigure`, and `TrajectoryView` to ensure
+consistent labeling across all views.
+
+**Mode source (OQ-PP-3 resolved):** Mode IDs are read from an explicit channel logged by
+the simulation — not inferred post-hoc from command transitions. Explicit logging is
+preferred because live streaming cannot afford the computation overhead of detecting mode
+changes through analysis. Inference from command transitions is supported as a fallback
+for logs that do not carry an explicit mode channel. The channel name is defined by the
+Logged Channel Registry (item 4).
 
 **Initial value:** Whether the channel's initial value is emitted as a `ModeEvent` (before
 any transition occurs) or whether only state changes are emitted is not specified here and
@@ -531,6 +574,43 @@ renderer). Traces below this threshold use `go.Scatter` for compatibility.
 
 ---
 
+### `LiveTimeHistoryFigure`
+
+**File:** `python/tools/live_time_history.py` (proposed)
+
+Displays real-time channel data in a rolling time window during a running simulation.
+Architecturally separate from `TimeHistoryFigure` — the two classes do not share an
+interface — but share the same visual language: identical panel layout, color scheme,
+axis label conventions, and trace styles. A user switching between live and post-processing
+views of the same flight does not need to re-orient.
+
+**Panel definition:** Panel configuration uses the same arguments as
+`TimeHistoryFigure.add_panel`. The same panel specification object can be applied to both
+views without modification.
+
+**Nominal presentation:** The time axis shows a rolling window of configurable width
+anchored at the most recently received data point. When the user interacts with the time
+axis (scrolls back to examine earlier data), the anchor is released. The "reset to present"
+control re-anchors the window at the live edge.
+
+**User controls:**
+
+- *Time axis:* zoom in/out; scroll left/right; reset to present time.
+- *Vertical axis (per panel):* set explicit y-limits; reset y-limits to the maximum
+  extents of the data currently buffered in the rolling window.
+
+**Mode event overlay:** Same vertical dashed-line convention as `TimeHistoryFigure`.
+`ModeEventSeries` is accepted via `set_mode_events()`.
+
+**Open questions:** The display technology (matplotlib with `FuncAnimation`/`Button`/
+`Slider` widgets, Plotly `FigureWidget` in Jupyter, or Plotly Dash for browser-based
+display) is unresolved — see OQ-PP-17. The data ingestion interface (push via caller,
+polling a live MCAP, or subscription to a `SimRunner` buffer) is unresolved — see
+OQ-PP-18. The default rolling window duration and whether it is per-figure or per-panel
+is unresolved — see OQ-PP-19.
+
+---
+
 ### `TrajectoryView` and `RibbonTrail`
 
 **File:** `python/tools/trajectory_view.py`
@@ -545,13 +625,76 @@ The figure uses a single matplotlib window divided into two regions:
 │  Ribbon trail + aircraft marker + HUD overlay                 │
 └───────────────────────────────────────────────────────────────┘
 ┌───────────────────────────────────────────────────────────────┐
-│  Playback controls (matplotlib widgets)           8% height   │
+│  Playback and camera controls                     8% height   │
 │  [◀◀] [▶] [▶▶]  speed: [0.5×] [1×] [2×] [5×]  [loop]       │
+│  camera: [FPV] [3rd] [Eye] [Top▾north/track]                 │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 The 3D axes are interactive: the user can rotate and zoom freely; animation continues
 during interaction.
+
+#### Terrain Surface
+
+Terrain geometry is rendered as a surface beneath the ribbon trail (PP-F23). The terrain
+provides spatial context for interpreting the trajectory — altitude above terrain, approach
+path relative to ridgelines, etc. The terrain surface is required in both post-processing
+`TrajectoryView` and any future live 3D trajectory view.
+
+How terrain geometry is made available to the Python view (pybind11 `TerrainMesh` binding,
+pre-exported glTF file, or direct numpy mesh arrays) is unresolved — see OQ-PP-20. The
+LOD to use for rendering is unresolved — see OQ-PP-21.
+
+#### Visual Design
+
+##### Color Palette
+
+`TrajectoryView.load()` accepts a `color` argument for each loaded source. The palette
+below provides the default values and a set of compatible alternatives:
+
+| Role | Name | Hex | HSL (approx.) |
+| --- | --- | --- | --- |
+| Ownship (default) | Medium blue | `#4A7FC1` | 212° 50% 52% |
+| Exogenous platform (default) | Medium red | `#C14A4A` | 0° 50% 52% |
+| Alternate | Medium green | `#4CA64C` | 120° 50% 47% |
+| Alternate | Medium orange | `#C1894A` | 30° 52% 52% |
+| Alternate | Medium purple | `#8A4AC1` | 270° 50% 52% |
+| Alternate | Medium teal | `#4AA6A6` | 180° 45% 47% |
+
+All palette entries are matched at approximately the same perceptual saturation and
+lightness. They remain visually compatible when multiple sources are overlaid. Arbitrary
+CSS hex colors are accepted when the standard palette is insufficient.
+
+The exact hex values are proposed defaults subject to visual verification against terrain
+colormap and both light and dark backgrounds — see OQ-PP-22.
+
+##### Terrain Saturation
+
+Terrain colormap saturation is controlled via `set_terrain_saturation(value)` where
+`value` is in the range 0.0 (greyscale) to 1.0 (full saturation, default). Reducing
+saturation increases visual contrast between terrain and the aircraft marker and ribbon
+trail. The API form (method call vs. constructor argument) is unresolved — see OQ-PP-23.
+
+##### Aircraft Alpha
+
+Aircraft marker alpha and ribbon trail base alpha are individually configurable per loaded
+source via the `alpha` argument to `load()` (default 1.0 for the marker). The ghost ribbon
+(full historical trail at low opacity for spatial context) uses a fixed low alpha (current
+default: 0.15).
+
+##### Ribbon Trail Transparency Fade
+
+The live ribbon alpha varies along the trail on a logarithmic scale:
+
+$$\alpha_i = \frac{\log(i + 1)}{\log(N_\text{trail})}$$
+
+where $i = 0$ is the tail (oldest, fully transparent) and $i = N_\text{trail} - 1$ is
+the head (current position, fully opaque). At $N_\text{trail} = 200$, the midpoint
+($i = 100$) has $\alpha \approx 0.87$, so the ribbon appears solid for most of its visible
+length and fades smoothly only near the tail.
+
+Per-quad alpha values are computed during `RibbonTrail.build()` and stored alongside the
+color array. The animation loop applies them to the live `Poly3DCollection` each frame.
 
 #### Ribbon Trail Geometry
 
@@ -620,6 +763,21 @@ Animation loop (FuncAnimation, ≥ 20 fps)
 ```
 
 `blit=False` — the 3D axes cannot blit because the projection changes on rotation.
+
+#### Camera Modes
+
+`TrajectoryView` supports four camera modes selectable via `set_camera_mode(mode)` (PP-F29–PP-F32).
+The active mode is stored in `_camera_mode : CameraMode` and applied each animation frame.
+
+| Mode ID | Constant | Description |
+| --- | --- | --- |
+| Body-axis FPV | `CameraMode.FPV` | Camera placed at the aircraft nose, looking forward along the body x-axis. Roll, pitch, and yaw track the aircraft attitude exactly. Provides a pilot's-eye view of the trajectory (PP-F29). |
+| 3rd-person trailing | `CameraMode.TRAIL` | Camera offset behind and above the aircraft in a horizon-leveled frame. The position offset is fixed in the horizontal plane with a configurable altitude offset. The camera response applies a temporal delay so that rapid attitude changes do not whip the view (PP-F30). |
+| God's eye orthographic | `CameraMode.GODS_EYE` | Full-map orthographic projection from directly above. The camera covers the entire trajectory extent at a fixed altitude. Provides a complete spatial overview of the flight path (PP-F31). |
+| Local orthographic top | `CameraMode.LOCAL_TOP` | Orthographic top-down projection centered on the current aircraft position. Supports both **north-up** and **track-up** orientation. Zoom is user-configurable. North-up holds a fixed heading; track-up rotates the view so the aircraft heading is always toward the top of the frame (PP-F32). |
+
+The technology selection for camera controls (mode-switch buttons, zoom slider, north/track-up toggle)
+is deferred pending OQ-PP-4 resolution.
 
 ---
 
@@ -779,19 +937,131 @@ operate on the returned figure or artist objects only. Matplotlib is configured 
 
 | # | Question | Impact |
 | --- | --- | --- |
-| OQ-PP-1 | Should `TimeHistoryFigure` support a live-update mode that tails an MCAP file being written by a running simulation? | Affects `FlightLogReader` streaming interface |
-| OQ-PP-2 | Is terrain mesh geometry available to `TrajectoryView` for rendering the ground surface under the trajectory? | Affects `TrajectoryView` scene setup |
-| OQ-PP-3 | Should mode IDs be embedded directly in the log schema as an enum channel, or inferred post-hoc from command transitions? | Affects `ModeEventSeries` data contract and trajectory mode-segment coloring |
-| OQ-PP-4 | Should playback controls be implemented as matplotlib `Button` widgets or as a minimal Dash/Panel app for browser-based playback? Playback controls are not yet implemented; space is reserved in the layout. | Affects `TrajectoryView` playback architecture |
-| OQ-PP-5 | What message encoding does the C++ Logger use in MCAP files — protobuf or JSON? The current `FlightLogReader` only handles JSON-encoded messages; protobuf decoding raises `NotImplementedError`. If protobuf, does the `mcap-protobuf-support` package's dynamic decoder (using the schema embedded in the file) satisfy the requirement, or is a generated stub required? | Affects `FlightLogReader.load_mcap()` implementation; must be resolved before `load_mcap` can read actual C++ Logger output |
-| OQ-PP-6 | How does the C++ Logger encode source names in MCAP? The current implementation uses `channel.topic` as the source name key. If the Logger registers multiple channels per topic, or uses a different field for the logical source name, the DataFrame grouping will be incorrect. | Affects `load_mcap()` source-name mapping; must be verified against the Logger implementation |
-| OQ-PP-7 | How should `load_csv()` derive the source name? The current implementation uses the filename stem (e.g., `aircraft.csv` → key `"aircraft"`). Should the source name be embedded in the CSV header row instead, so it is independent of how the file is named? | Affects `load_csv()` return value keys and the `test_load_mcap_matches_csv` round-trip test |
-| OQ-PP-8 | Should `FlightLogReader` be stateful (caching the last-loaded frames so `channel_names(source)` can look them up) or stateless (requiring the caller to pass a DataFrame to `channel_names`)? | Affects the class API; stateful design couples `channel_names()` to a preceding `load_*()` call |
-| OQ-PP-9 | Should `ModeEventSeries.from_dataframe()` emit the channel's initial value as a `ModeEvent` (before any transition has occurred), or only emit events on state changes? | Affects how many events are produced and whether time-history overlays show the starting mode |
-| OQ-PP-10 | Should the mode-name map be a parameter of `from_dataframe()`, a constructor argument of `ModeEventSeries`, or a separate mapping step applied after parsing? | Affects the `ModeEventSeries` and `from_dataframe()` signatures |
-| OQ-PP-11 | Should `TimeHistoryFigure` accept source DataFrames via a `load(frames)` method (current implementation), via individual `add_panel()` calls that reference sources by name, or some other mechanism? Should `build()` be part of the public interface, or should only `show()` and `export_html()` be exposed? | Affects the public API and testability |
-| OQ-PP-12 | The ribbon geometry formula $\mathbf{w}_i = R_i [0,\ w/2,\ 0]$ describes $w$ as "the configurable ribbon half-width (default: aircraft wing span)." This is internally inconsistent. Clarify: is the `build()` parameter the full wing span (so the formula gives the half-span vector) or the desired half-span (so the `/2` in the formula is erroneous)? | Affects the `RibbonTrail.build()` parameter name, default value, and all callers |
-| OQ-PP-13 | What vertex winding order should the ribbon quads use? The order affects backface culling behavior in matplotlib's `Poly3DCollection` renderer. | Affects whether ribbon faces are visible from above and below |
-| OQ-PP-14 | A ribbon quad spans trajectory indices $i$ and $i+1$. Which roll value governs the quad's face color — $\phi_i$, $\phi_{i+1}$, or the midpoint $(\phi_i + \phi_{i+1})/2$? | Affects visual continuity of the roll colormap across the ribbon |
-| OQ-PP-15 | Should the trajectory also be drawn as a `Line3D` (separate from the ribbon) with per-mode segment colors, or is the ribbon the only trajectory representation? The mode-segment `Line3D` described in §TrajectoryView is not yet implemented. | Affects `TrajectoryView` visual design and whether OQ-PP-3 must be resolved first |
-| OQ-PP-16 | Should `matplotlib`, `pandas`, `plotly`, and `mcap` be declared in `[project] dependencies` (installed for all users) or in `[dependency-groups] dev` (installed only for development workflows)? | Affects `pyproject.toml` structure and what a downstream consumer of the package gets |
+| OQ-PP-1 | **Resolved.** A separate `LiveTimeHistoryFigure` class is required. It does not share the function interface of `TimeHistoryFigure` but uses the same visual style and panel configuration. Nominal presentation is a rolling time window anchored at present time. Required user controls: zoom/scroll time, reset to present, per-panel y-limit set/reset. Three new OQs opened: OQ-PP-17 (display technology), OQ-PP-18 (data ingestion interface), OQ-PP-19 (rolling window duration). | `LiveTimeHistoryFigure` module added to design |
+| OQ-PP-2 | **Resolved.** Terrain geometry is rendered as a surface beneath the ribbon trail in all 3D trajectory views — both post-processing (`TrajectoryView`) and any future live 3D trajectory view. Two new OQs opened: OQ-PP-20 (terrain data access mechanism), OQ-PP-21 (LOD selection). | `TrajectoryView` terrain surface required; PP-F23 added |
+| OQ-PP-3 | **Resolved.** Mode IDs are embedded as an explicit channel in the log stream. Explicit annotation is preferred over post-hoc inference from command transitions because live presentation cannot afford the computation overhead of analyzing the stream to detect mode changes. Inference from command transitions is a documented fallback for logs that do not carry an explicit mode channel. The concrete channel name (e.g., `flight_control_mode_id`) is defined by the Logged Channel Registry (item 4). OQ-PP-15 is unblocked from its OQ-PP-3 dependency. | `ModeEventSeries.from_dataframe()` reads an explicit mode channel; fallback inference path to be documented; OQ-PP-15 dependency on OQ-PP-3 cleared |
+| OQ-PP-4 | **Criteria resolved; technology selection is a design task.** Deciding criteria: (a) portable to Linux and ARM processors, (b) responsive and reliable button interaction, (c) good visual quality. Camera mode controls (mode-switch buttons, zoom slider, north/track-up toggle) are also required in addition to playback controls. The technology selection (matplotlib widgets, Dash, Panel, or other) must be resolved as a dedicated design task before playback and camera controls can be implemented. | Affects `TrajectoryView` playback and camera-control architecture |
+| OQ-PP-5 | **Resolved.** Both JSON and protobuf message encodings are supported. Protobuf is preferred for live and streaming use cases for data compactness. `FlightLogReader` must handle both; `mcap-protobuf-support` is added as a required dependency. The concrete protobuf schema is defined by the C++ Logger — that definition is still pending. | Affects `FlightLogReader.load_mcap()`; `mcap-protobuf-support` added to dependency table; schema TBD from C++ Logger |
+| OQ-PP-6 | **Not resolvable at this time.** This question depends on the C++ Logger's MCAP channel registration design, which has not yet been specified. A dedicated use-case and design development task is required before the source-name mapping can be resolved. | Affects `load_mcap()` source-name mapping; blocked until C++ Logger MCAP channel design is defined |
+| OQ-PP-7 | **Resolved.** The source name is embedded in the CSV header row, not derived from the filename. This decouples the source identity from how the file is named and is required because the log may contain sources other than the aircraft simulation. The concrete header field name is defined by the C++ Logger CSV export format. | Affects `load_csv()` source-name extraction; `test_load_mcap_matches_csv` fixture must embed the source name in the CSV header |
+| OQ-PP-8 | **Awaiting decision — see option analysis below.** Should `FlightLogReader` be stateful (internal DataFrame cache) or stateless (caller passes DataFrame to `channel_names`)? Three options are identified; implications are documented in the option analysis below this table. | Affects the class API and `channel_names()` signature |
+| OQ-PP-9 | **Resolved.** `ModeEventSeries.from_dataframe()` emits the channel's initial value as a `ModeEvent` at the first sample time, before any transition has occurred. This ensures that time history and 3D overlays display the starting mode from the beginning of the log, not only from the first mode change. | Affects `from_dataframe()` implementation; initial-value test case required |
+| OQ-PP-10 | **Awaiting decision — see option analysis below.** Should the mode-name map be a parameter of `from_dataframe()`, a constructor argument, or a separate post-parse mapping step? Three options are identified; implications are documented in the option analysis below this table. | Affects `ModeEventSeries` and `from_dataframe()` signatures |
+| OQ-PP-11 | **Awaiting decision — see option analysis below.** Should `TimeHistoryFigure` expose `load()` + `build()` as public API (current), or should `build()` be internal and only `show()` / `export_html()` be public? Two options are identified; implications are documented in the option analysis below this table. | Affects the public API surface and test strategy |
+| OQ-PP-12 | **Resolved.** The `build()` parameter is the full aircraft wing span. The formula computes the half-span wing vector as $\mathbf{w}_i = R_i [0,\ \text{wing\_span\_m}/2,\ 0]$. The parameter is renamed `wing_span_m`; the current `half_width_m` usage in the code is incorrect and must be updated. | Affects `RibbonTrail.build()` parameter name and the wing vector calculation; all callers updated |
+| OQ-PP-13 | **Resolved.** Ribbon quads use counter-clockwise (CCW) vertex winding when viewed from the outward face normal (above the ribbon surface), consistent with OpenGL convention and standard game engine interfaces. Winding order: `v_lower[i] → v_lower[i+1] → v_upper[i+1] → v_upper[i]`. This places the front-face normal pointing away from the aircraft centerline. | Affects `RibbonTrail.build()` quad assembly; winding test required |
+| OQ-PP-14 | **Resolved.** Trail length is specified as a duration in seconds (`trail_duration_s`), not a segment count. For each quad, a normalized age $\tau_i \in [0, 1]$ is computed from the time midpoint of the quad: $\tau_i = (t_\text{current} - t_{\text{mid},i}) / \text{trail\_duration\_s}$, clamped to $[0, 1]$, where $t_{\text{mid},i} = (t_i + t_{i+1}) / 2$. Face color is mapped from the roll angle at $t_{\text{mid},i}$ (time-interpolated midpoint). Saturation decreases linearly with $\tau$ (full saturation at $\tau=0$, grayscale at $\tau=1$). Transparency follows the log-scale formula updated for $\tau$: $\alpha_i = \log(2 - \tau_i) / \log 2$ ($\tau=0 \to \alpha=1$; $\tau=1 \to \alpha=0$; $\tau=0.5 \to \alpha \approx 0.585$). The PP-F27 log-scale principle is preserved; its formula is updated to the time-domain form. | Affects `RibbonTrail.build()` (adds `timestamps` parameter), the animation loop (computes τ per frame), and PP-F27 |
+| OQ-PP-15 | **Resolved.** The ribbon optionally renders edge lines along its outer edges (both upper and lower wing-tip edges). The edge lines are optional — controlled per source by a flag on `load()`. Edge lines follow the same time-based transparency fade as the ribbon face color ($\alpha_i = \log(2 - \tau_i) / \log 2$). Edge line color is a darkened version of the ribbon face color for contrast. OQ-PP-3 dependency cleared. | Adds `show_edges` parameter to `RibbonTrail.build()` and `TrajectoryView.load()`; edge line color computation required |
+| OQ-PP-16 | **Resolved.** `matplotlib`, `pandas`, `plotly`, and `mcap` are declared in `[project] dependencies` in `python/pyproject.toml`. They are required for the primary use case of the package (post-processing visualization) and must be available to all consumers. | Affects `pyproject.toml` `[project] dependencies` section |
+| OQ-PP-17 | **Not resolvable at this time.** Technology selection is driven by the use cases, functional requirements (PP-F19–PP-F22), license requirements, and portability requirements (Linux and ARM — PP-F04 analog) for live visualization. These requirements must be formally documented and evaluated before a technology choice can be made. A dedicated design task is required. | Blocks `LiveTimeHistoryFigure` implementation; requires design task with use-case and requirements analysis |
+| OQ-PP-18 | **Awaiting decision — see option analysis below.** How does data reach `LiveTimeHistoryFigure` during a running simulation? Three options identified; implications documented in the option analysis section below this table. | Determines the data ingestion interface and whether `FlightLogReader` is involved in the live path |
+| OQ-PP-19 | **Resolved.** The rolling time window is a single figure-level setting shared across all panels (not per-panel). Default duration is 30 seconds. The shared window is required for readability — all panels must show the same time span so the user can correlate events across panels. Configurable via `set_time_window(duration_s)`. | Affects `LiveTimeHistoryFigure.__init__` (adds `window_s: float = 30.0`) and `set_time_window()` |
+| OQ-PP-20 | **Not resolvable at this time.** The terrain data access mechanism must be determined by project requirements and use cases — the available options (pybind11 binding, pre-exported glTF, caller-supplied vertex/face array) impose different constraints on the simulation workflow, performance, and deployment. A dedicated requirements and use-case analysis is required before an approach can be selected. | Blocks terrain rendering implementation in `TrajectoryView`; requires use-case and requirements analysis task |
+| OQ-PP-21 | **Resolved.** Both adaptive LOD selection (based on current view bounds and zoom level) and user-configurable LOD override are required. The adaptive mode selects the coarsest LOD that maintains acceptable visual quality for the visible area; the user-configurable override allows forcing a specific LOD for performance tuning or reproducible presentation. The concrete LOD selection algorithm and the LOD scale of the terrain mesh are defined by item 9. | Affects `TrajectoryView` terrain rendering; LOD algorithm design deferred to item 9 |
+| OQ-PP-22 | **Resolved.** The proposed hex defaults in PP-F25 are accepted as initial defaults. All palette entries are configurable per source via `TrajectoryView.load()`. The default values must be verified against terrain colormaps and both light and dark backgrounds during visual testing; they may be revised as a result of that testing. No design block — implementation may proceed with the proposed defaults. | PP-F25 accepted; configurable palette per source required; visual verification required during testing |
+| OQ-PP-23 | **Resolved.** Terrain colormap saturation is runtime-adjustable via `set_terrain_saturation(value)` to support the live use case where the user may change saturation during playback. A constructor default is also accepted (defaults to 1.0 — full saturation). Both the method and a constructor keyword argument are part of the API. | `TrajectoryView.__init__` accepts `terrain_saturation: float = 1.0`; `set_terrain_saturation(value)` updates it at runtime |
+
+---
+
+## Open Question Option Analysis
+
+Detailed option analysis for questions requiring a user decision before implementation can proceed.
+
+### OQ-PP-8 — FlightLogReader Statefulness
+
+The question is whether `channel_names()` queries an internal cache or requires the caller to supply a DataFrame.
+
+**Option A — Stateful (current behavior):** `FlightLogReader` stores `_frames: dict[str, pd.DataFrame]` after each `load_*()` call. `channel_names(source)` queries this internal cache.
+
+- Pro: Compact calling convention — load once, then query freely.
+- Pro: Matches the expected post-processing workflow (load a file, then inspect what is in it).
+- Con: `channel_names()` is silently stale if called after a second `load_*()` on a different instance or after the loaded data changes. The caller cannot detect this.
+- Con: Not thread-safe if concurrent `load_*()` calls are possible.
+- Con: Cannot query channel names from an externally supplied DataFrame (e.g., one constructed in a notebook).
+
+**Option B — Stateless:** `channel_names(df)` takes a DataFrame directly. No internal cache. `load_*()` returns the frames dict; the caller stores it.
+
+- Pro: No hidden state — behavior is predictable and testable with any DataFrame.
+- Pro: Can be a `@staticmethod` or `@classmethod`.
+- Con: More verbose — the caller must keep the DataFrame in scope and pass it explicitly.
+- Con: `FlightLogReader` becomes a thin wrapper around `pandas` I/O; its value as a class is reduced.
+
+**Option C — Stateful with explicit invalidation:** Same as Option A, but `load_*()` clears the cache and returns the frames dict. An additional `frames()` method exposes the cached data. `channel_names()` raises if called without a prior `load_*()`.
+
+- Pro: Compact calling convention of A with explicit error if misused.
+- Pro: `frames()` exposes the cache for inspection without re-loading.
+- Con: Still not thread-safe; still prevents querying an externally supplied DataFrame.
+
+---
+
+### OQ-PP-10 — Mode-Name Map Location in ModeEventSeries
+
+The question is where the integer-to-string name map is attached: at parse time, at construction, or as a post-parse step.
+
+**Option A — Parameter of `from_dataframe()` (current behavior):** `from_dataframe(df, mode_channel, name_map=None)`.
+
+- Pro: The map is applied at parse time — events are created with names already set.
+- Pro: Minimal API surface — no additional method or constructor argument needed.
+- Con: The map is a one-time argument and is not stored on the `ModeEventSeries` object. If the same series is displayed in two contexts that need different name maps, a re-parse is required.
+- Con: `ModeEventSeries` objects created by other means (e.g., from a list of events) carry no name knowledge.
+
+**Option B — Constructor argument:** `ModeEventSeries(events, name_map=None)`.
+
+- Pro: The map stays associated with the series for its lifetime — any display call can use it.
+- Pro: Supports lazy name resolution: parse the channel first, apply names later.
+- Con: The constructor's `events` argument is a list of raw `ModeEvent` objects, which is an implementation detail. Callers constructing a series from scratch must build the event list manually.
+
+**Option C — Separate post-parse mapping step:** `events = ModeEventSeries.from_dataframe(df, mode_channel)`, then `events.apply_name_map(name_map)` (mutates) or `named = events.with_name_map(name_map)` (returns a new series).
+
+- Pro: Cleanest separation of concerns — parsing is independent of naming.
+- Pro: The map can be applied, changed, or stripped at any point.
+- Con: Larger API surface — an extra method on `ModeEventSeries`.
+- Con: A series without a map applied will produce events with integer mode IDs as display labels — this could silently produce unreadable output if the caller forgets the mapping step.
+
+---
+
+### OQ-PP-11 — TimeHistoryFigure Load and Build API
+
+The question is whether `build()` is part of the public interface.
+
+**Option A — `load()` + `build()` public (current behavior):** `fig.load(frames)` → `fig.add_panel(...)` → `fig.build()` → `fig.show()` / `fig.export_html()`.
+
+- Pro: `build()` can be called from tests without opening a window or writing a file, allowing the Plotly `Figure` object to be inspected directly.
+- Pro: Explicit pipeline — the caller can see each stage of data loading, panel configuration, and rendering.
+- Con: Callers who only want `show()` or `export_html()` must call `build()` explicitly (or `show()`/`export_html()` must call it internally if not already called).
+- Con: `build()` exposes a rendering-infrastructure concept in the public interface, coupling callers to the Plotly internals.
+
+**Option B — `build()` internal, only `show()` and `export_html()` public:** `fig.load(frames)` → `fig.add_panel(...)` → `fig.show()` / `fig.export_html()`.
+
+- Pro: Simpler public API — the caller cannot misuse the build lifecycle.
+- Con: Tests must call `show()` or `export_html()` to exercise rendering, which is heavier than calling `build()` directly. `export_html()` requires a filesystem path; `show()` opens a browser.
+- Con: Loses the ability to directly inspect the `Figure` object in tests without side effects.
+
+---
+
+### OQ-PP-18 — Live Data Ingestion for LiveTimeHistoryFigure
+
+The question is how data flows from the running simulation into the live time history display.
+
+**Option A — Push via caller-invoked method:** The simulation (or a bridge layer) calls `fig.push(source_name, row_dict)` for each new data row. The figure buffers the row and updates the display on the next refresh tick.
+
+- Pro: Decoupled from the simulation's I/O mechanism — any caller that can invoke a Python method can push data.
+- Pro: No filesystem dependency — works even if the simulation does not write a log file.
+- Pro: Lowest latency — data appears as soon as `push()` is called.
+- Con: Requires a Python-callable bridge between the C++ simulation and the figure. This bridge is not yet specified (see item 8, Python bindings).
+- Con: The figure's update loop must be driven by the caller or by a background thread; `show()` must not block.
+
+**Option B — Poll a partial MCAP file:** The simulation writes MCAP to disk as it runs. `LiveTimeHistoryFigure` polls the file on a timer, reads any new messages appended since the last poll, and updates the display.
+
+- Pro: No C++/Python bridge needed — the log file is the interface.
+- Pro: Re-uses `FlightLogReader` for decoding once OQ-PP-5/6 are resolved.
+- Con: Latency is bounded below by the poll interval (typically 100–500 ms).
+- Con: Requires the simulation to flush MCAP writes in a way that partial reads are safe (i.e., the reader must handle truncated messages at the end of the file).
+- Con: The poll mechanism must handle file growth, file rotation, and the simulation stopping mid-flight.
+
+**Option C — Subscribe to a shared ring buffer from SimRunner:** `SimRunner` maintains an in-process ring buffer of recent state rows. `LiveTimeHistoryFigure` subscribes to this buffer and is notified when new rows arrive.
+
+- Pro: Very low latency; no filesystem involvement.
+- Pro: Natural fit if `SimRunner` is already in Python (or exposed via pybind11 bindings).
+- Con: Tight coupling to `SimRunner`'s internal data model — `LiveTimeHistoryFigure` must know the ring buffer's schema and access API.
+- Con: Requires `SimRunner` to be defined and its Python interface to be specified before this can be implemented. Neither exists yet.

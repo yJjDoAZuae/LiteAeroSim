@@ -135,24 +135,25 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 ## 1. Post-Processing — Open Question Resolution and Visualization Rework
 
 **Blocking dependencies:** PP-1 (delivered — first-pass implementation). Items 4 and 8
-for the four deferred OQs (OQ-PP-1, 2, 3, 4).
+for deferred OQs as noted below.
 
 Design authority: [`docs/architecture/post_processing.md`](../architecture/post_processing.md).
 
-Resolve the 16 open questions from PP-1 and update the implementation to match. All
+Resolve the open questions from PP-1 and update the implementation to match. All
 design resolutions update `post_processing.md` before any code changes. Implementation
 follows TDD — each resolved OQ that changes observable behavior requires a test update
-before the production code change. OQ-PP-1 through OQ-PP-4 are future-feature questions
-with no current implementation impact; they are deferred as noted below.
+before the production code change.
 
 ### Deferred Open Questions
 
-| OQ | Deferred to |
-| --- | --- |
-| OQ-PP-1 | No roadmap item assigned — live-update streaming is a separate future feature |
-| OQ-PP-2 | Item 9 (`TrajectoryView` terrain rendering requires pybind11 terrain bindings) |
-| OQ-PP-3 | Item 4 (Logged Channel Registry defines mode-ID logging policy) |
-| OQ-PP-4 | No roadmap item assigned — playback controls are a separate future feature |
+| OQ | Status | Deferred to |
+| --- | --- | --- |
+| OQ-PP-1 | **Resolved** — `LiveTimeHistoryFigure` required; rolling window anchored at present; user zoom/scroll/y-limit controls; architecturally separate from `TimeHistoryFigure`; same visual style. OQs PP-17/18/19 opened. | New roadmap item for live visualization (item 1a or successor) |
+| OQ-PP-2 | **Resolved** — terrain surface rendered beneath ribbon trail in all 3D views (post-processing and live). OQs PP-20/21 opened. | Item 9 (`TrajectoryView` terrain rendering requires pybind11 terrain bindings) |
+| OQ-PP-3 | **Resolved** — explicit mode channel in log stream preferred over post-hoc inference; channel name deferred to item 4 (Logged Channel Registry) | — |
+| OQ-PP-4 | **Criteria resolved; technology TBD** — must be portable to Linux/ARM; responsive, reliable, and good-looking controls; camera mode buttons also required (FPV, trailing, god's eye, local top). Technology selection is a dedicated design task. | New roadmap design task (technology selection for playback and camera controls) |
+| OQ-PP-5 | **Resolved** — both JSON and protobuf encodings supported; protobuf preferred for streaming; `mcap-protobuf-support` required. Schema TBD from C++ Logger. | — |
+| OQ-PP-6 | **Not resolvable** — requires dedicated design development for C++ Logger MCAP channel registration. | New roadmap item (C++ Logger MCAP channel design) |
 
 ### Design Resolutions
 
@@ -160,14 +161,16 @@ Each group below is a design decision. All decisions update `post_processing.md`
 any code changes. The implementation steps in the next section depend on these resolutions
 and must not begin until the corresponding decisions are approved.
 
-#### FlightLogReader (OQ-PP-5, OQ-PP-6, OQ-PP-7, OQ-PP-8)
+#### FlightLogReader (OQ-PP-5 resolved, OQ-PP-6, OQ-PP-7, OQ-PP-8)
 
-- **OQ-PP-5** (MCAP message encoding): Determine the message encoding used by the C++
-  Logger by inspecting `LogSource` registration. Decide whether `load_mcap()` must handle
-  protobuf-encoded messages (via `mcap-protobuf-support` dynamic decoder) or JSON only.
-- **OQ-PP-6** (MCAP source name): Verify how the C++ Logger assigns channel/topic names
-  in MCAP output. Decide which MCAP field (`channel.topic`, `channel.metadata`, or schema
-  name) maps to the DataFrame key.
+- **OQ-PP-5** (MCAP message encoding): **Resolved.** Both JSON and protobuf encodings are
+  supported. Protobuf is preferred for live/streaming use. `mcap-protobuf-support` is a
+  required dependency. The concrete schema is defined by the C++ Logger (still pending).
+  Implementation step B below reflects this resolution.
+- **OQ-PP-6** (MCAP source name): **Not resolvable at this time.** Requires the C++ Logger
+  MCAP channel registration design to be specified first. A dedicated roadmap item is needed
+  for that design work. The current `channel.topic` assumption is documented in the
+  Assumed Implementations section. This OQ blocks implementation step B.
 - **OQ-PP-7** (CSV source name): Decide whether the source name is the filename stem
   (current behavior) or is embedded in the CSV header. Update the `test_load_mcap_matches_csv`
   round-trip test if the key changes.
