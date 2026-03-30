@@ -153,13 +153,13 @@ simulation design item that is not yet complete.
 
 | Module | External dependencies | Blocking sim design gaps |
 | --- | --- | --- |
-| `FlightLogReader` | `mcap` Python SDK, `mcap-protobuf-support`, `pandas` | Protobuf schema from C++ Logger (OQ-PP-6); MCAP source-name mapping (OQ-PP-6) |
+| `FlightLogReader` | `mcap`, `mcap-protobuf-support`, `pandas` | Concrete channel naming convention from C++ Logger design task (architectural decision made in OQ-PP-6; naming convention still pending) |
 | `ModeEventSeries` | `pandas` | None |
 | `TimeHistoryFigure` | `plotly` | None |
-| `LiveTimeHistoryFigure` | Technology TBD — see OQ-PP-17 | None (time history only); terrain dependency deferred to item 9 if a live 3D trajectory view is added later |
-| `RibbonTrail` | `numpy`, `matplotlib` | None (geometry only); terrain rendering blocked on OQ-PP-20 |
-| `HudOverlay` | `matplotlib` | None |
-| `TrajectoryView` | `matplotlib` | None |
+| `LiveTimeHistoryFigure` | `panel`, `plotly` | Ring buffer and channel registry architecture document (OQ-PP-24) |
+| `RibbonTrail` | `numpy`, `vispy`, `matplotlib` (colormap utilities) | None (geometry only); terrain rendering blocked on OQ-PP-20 |
+| `HudOverlay` | `vispy` | None |
+| `TrajectoryView` | `vispy`, `pyside6` | None; terrain rendering blocked on OQ-PP-20 |
 
 These modules may be implemented as soon as this item is authorized.
 
@@ -287,19 +287,20 @@ classDiagram
         +set_mode_events(events) void
         +set_camera_mode(mode) void
         +set_terrain_saturation(value) void
-        +animate(interval_ms) FuncAnimation
+        +animate(interval_ms) void
         +show() void
     }
 
     class RibbonTrail {
         -_vertices : ndarray
         -_colors : ndarray
-        +build(positions, roll_rad, heading_rad, pitch_rad, half_width_m) void
-        +collection() Poly3DCollection
+        -_alphas : ndarray
+        +build(positions, roll_rad, heading_rad, pitch_rad, timestamps, wing_span_m, show_edges) void
+        +mesh() VisualMesh
     }
 
     class HudOverlay {
-        -_ax : Axes3D
+        -_canvas : SceneCanvas
         -_artists : list~Text~
         +update(frame_data) void
     }
@@ -359,17 +360,22 @@ Reads one or more log files and returns a uniform dict of DataFrames regardless 
 source format. Every DataFrame has `time_s` as a float64 index and channel names with
 SI unit suffixes matching the Logger schema (e.g., `altitude_m`, `roll_rate_rad_s`).
 
-**MCAP reading:** Uses the `mcap` Python SDK (`mcap.reader.make_reader`). For each MCAP
-channel, decodes messages into rows. All channels from a given `LogSource` are merged
-into one DataFrame per source name. See OQ-PP-5 (message encoding) and OQ-PP-6
-(source name mapping) — both are unresolved.
+**MCAP reading:** Uses the `mcap` Python SDK (`mcap.reader.make_reader`). Both JSON
+and protobuf message encodings are supported; `mcap-protobuf-support` is required for
+protobuf decoding (OQ-PP-5). Each MCAP topic has the form `"source/field_name"`;
+`load_mcap()` parses the prefix before `/` as the source name and merges all per-field
+channels for each source into one DataFrame on a common time index (OQ-PP-6). The
+concrete naming convention is defined by the C++ Logger design task.
 
 **CSV reading:** Reads the CSV produced by `Logger::exportCsv()` directly with
-`pandas.read_csv`. See OQ-PP-7 (source name derivation).
+`pandas.read_csv`. The source name is embedded in the CSV header row, not derived from
+the filename (OQ-PP-7). The concrete header field name is defined by the C++ Logger
+CSV export format.
 
-**State:** `channel_names(source)` requires knowing what was previously loaded.
-Whether the reader caches the last-loaded frames internally or requires a different
-API design is unresolved — see OQ-PP-8.
+**State:** `FlightLogReader` is stateful with explicit invalidation (OQ-PP-8). `load_*()`
+clears the internal cache, stores the new frames dict, and returns it. A `frames()`
+getter exposes the cached dict. `channel_names(source)` raises if called before any
+`load_*()` call.
 
 **Multi-source MCAP:** A single MCAP file may contain multiple sources. `load_mcap`
 returns one DataFrame per source name registered in the file.
@@ -510,14 +516,14 @@ changes through analysis. Inference from command transitions is supported as a f
 for logs that do not carry an explicit mode channel. The channel name is defined by the
 Logged Channel Registry (item 4).
 
-**Initial value:** Whether the channel's initial value is emitted as a `ModeEvent` (before
-any transition occurs) or whether only state changes are emitted is not specified here and
-is left as OQ-PP-9.
+**Initial value:** `from_dataframe()` emits the channel's initial value as a `ModeEvent`
+at the first sample time, before any transition has occurred (OQ-PP-9). This ensures
+time history and 3D overlays display the starting mode from the beginning of the log.
 
-**Name map location:** The design shows the mode-name dictionary as a property of
-`ModeEventSeries`, but it must be supplied at parse time. Whether it is passed to
-`from_dataframe()`, to the constructor, or stored as a class attribute is unresolved —
-see OQ-PP-10.
+**Name map location:** The name map is a constructor argument:
+`ModeEventSeries(events, name_map=None)`. The map is stored on the object for its
+lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to
+the constructor (OQ-PP-10).
 
 ---
 
@@ -550,11 +556,11 @@ fig.set_mode_events(mode_events)
 fig.export_html("output/landing_review.html")
 ```
 
-**`load()` and `build()`:** A `load(frames)` method supplies source DataFrames and a
-`build()` method returns the Plotly `Figure` object without opening a browser. Neither
-appears in the original class diagram. Whether these belong on the public interface or
-whether data should be passed to individual `add_panel()` calls is unresolved — see
-OQ-PP-11.
+**`load()` and `figure()`:** A `load(frames)` method supplies source DataFrames. A
+`figure()` accessor triggers the internal build if needed and returns the Plotly `Figure`
+object without opening a browser (OQ-PP-11). `show()` and `export_html()` are also
+public. `figure()` is defined on a shared base class or protocol so all future plot types
+implement a consistent interface.
 
 **Mode event overlay:** At each `ModeEvent.time_s`, a vertical dashed line spans the
 full figure height. A text annotation above the line shows the mode name. Both are added
@@ -608,12 +614,16 @@ control re-anchors the window at the live edge.
 **Mode event overlay:** Same vertical dashed-line convention as `TimeHistoryFigure`.
 `ModeEventSeries` is accepted via `set_mode_events()`.
 
-**Open questions:** The display technology (matplotlib with `FuncAnimation`/`Button`/
-`Slider` widgets, Plotly `FigureWidget` in Jupyter, or Plotly Dash for browser-based
-display) is unresolved — see OQ-PP-17. The data ingestion interface (push via caller,
-polling a live MCAP, or subscription to a `SimRunner` buffer) is unresolved — see
-OQ-PP-18. The default rolling window duration and whether it is per-figure or per-panel
-is unresolved — see OQ-PP-19.
+**Display technology:** Panel (HoloViz) with Plotly panes (`pn.pane.Plotly`).
+`pn.state.add_periodic_callback()` drives rolling updates polled from the ring buffer
+(OQ-PP-17).
+
+**Data ingestion:** Live plot data is sourced from a shared ring buffer published by
+`SimRunner` via pybind11, polled on a timer. `FlightLogReader` is not involved in the
+live path (OQ-PP-18, OQ-PP-24).
+
+**Rolling window:** A single figure-level setting shared across all panels; default
+30 seconds. Configurable via `set_time_window(duration_s)` (OQ-PP-19).
 
 ---
 
@@ -627,7 +637,7 @@ The figure uses a single matplotlib window divided into two regions:
 
 ```text
 ┌───────────────────────────────────────────────────────────────┐
-│  3D trajectory axes (mpl_toolkits.mplot3d)       85% height  │
+│  3D trajectory canvas (Vispy OpenGL)             85% height  │
 │  Ribbon trail + aircraft marker + HUD overlay                 │
 └───────────────────────────────────────────────────────────────┘
 ┌───────────────────────────────────────────────────────────────┐
@@ -711,37 +721,43 @@ The ribbon encodes roll attitude as a 3D surface strip. At each trajectory index
 
 $$R_i = R_z(\psi_i)\, R_y(\theta_i)\, R_x(\phi_i)$$
 
-1. The wing half-span vector in world frame:
+1. The wing half-span vector in world frame (OQ-PP-12):
 
-$$\mathbf{w}_i = R_i \begin{bmatrix} 0 \\ w/2 \\ 0 \end{bmatrix}$$
+$$\mathbf{w}_i = R_i \begin{bmatrix} 0 \\ \text{wing\_span\_m}/2 \\ 0 \end{bmatrix}$$
 
-where $w$ is described as the "configurable ribbon half-width (default: aircraft wing
-span)". This description is internally inconsistent: if $w$ is a half-width then dividing
-by 2 produces a quarter-width; if $w$ is the full wing span then $w/2$ is the half-span.
-See OQ-PP-12 for resolution.
+where `wing_span_m` is the full aircraft wing span. The `build()` parameter is named
+`wing_span_m`; the half-span division is internal to the formula.
 
 1. Ribbon edge vertices:
 
 $$\mathbf{v}_{i}^{+} = \mathbf{p}_i + \mathbf{w}_i, \qquad
 \mathbf{v}_{i}^{-} = \mathbf{p}_i - \mathbf{w}_i$$
 
-4. Each ribbon quad spans $(\mathbf{v}_i^-, \mathbf{v}_i^+, \mathbf{v}_{i+1}^+, \mathbf{v}_{i+1}^-)$.
-   Vertex winding order within the quad is not specified — see OQ-PP-13.
+4. Each ribbon quad uses CCW vertex winding when viewed from the outward face normal,
+   consistent with OpenGL convention (OQ-PP-13):
+   $(\mathbf{v}_i^-, \mathbf{v}_{i+1}^-, \mathbf{v}_{i+1}^+, \mathbf{v}_i^+)$.
+   The front-face normal points away from the aircraft centerline.
 
-5. Face color maps roll angle $\phi_i$ through a diverging colormap (RdBu\_r, centered at
-   $\phi = 0$, saturated at $\pm 60°$). A colorbar is placed at the right edge of the
-   3D axes. Each quad spans two trajectory indices ($i$ and $i+1$); which roll sample
-   governs the quad's color is not specified — see OQ-PP-14.
+5. Face color maps roll angle at the time-interpolated midpoint of the quad through a
+   diverging colormap (RdBu\_r, centered at $\phi = 0$, saturated at $\pm 60°$).
+   Normalized age $\tau_i = (t_\text{current} - t_{\text{mid},i}) / \text{trail\_duration\_s}$,
+   clamped to $[0, 1]$. Saturation decreases linearly with $\tau$; transparency follows
+   $\alpha_i = \log(2 - \tau_i) / \log 2$ (OQ-PP-14). A colorbar is placed at the right
+   edge of the 3D axes.
 
-The ribbon is built once as a `Poly3DCollection` before animation starts. During
-playback, the "ghost" ribbon shows the full pre-computed trail; a second shorter
-collection (last $N_\text{trail}$ quads) is redrawn in full opacity as the live trail.
+6. Edge lines along the upper and lower wing-tip edges are optional (OQ-PP-15), enabled
+   per source via the `show_edges` flag on `load()`. Edge lines follow the same $\tau$-based
+   fade as the face color and are rendered in a darkened version of the face color.
 
-**Mode segment coloring:** The trajectory `Line3D` is broken into per-mode segments,
-each drawn in a distinct color from the `tab10` palette. A legend identifies each mode
-by name. This feature is not yet implemented; it depends on OQ-PP-3 (how mode IDs are
-available in the log) and OQ-PP-15 (whether the trajectory is drawn as a `Line3D`
-alongside the ribbon or only as the ribbon itself).
+The ribbon is built once before animation starts. During playback, the "ghost" ribbon
+shows the full pre-computed trail; a second shorter collection (last $N_\text{trail}$
+quads) is redrawn as the live trail with the time-based fade applied.
+
+**Mode segment coloring:** The trajectory path is broken into per-mode segments, each
+drawn in a distinct color from the `tab10` palette. A legend identifies each mode by
+name. This feature is not yet implemented; it depends on OQ-PP-3 (explicit mode channel
+in the log — resolved) and requires the concrete channel name from the Logged Channel
+Registry (item 4).
 
 #### Pre-computation
 
@@ -753,12 +769,12 @@ Pre-computation (runs once on load)
   ↓
   for i in 0..N:
       R_i = rotation_matrix(heading[i], pitch[i], roll[i])
-      w_i = R_i @ [0, half_width, 0]   ← half_width interpretation: see OQ-PP-12
+      w_i = R_i @ [0, wing_span_m / 2, 0]   ← half-span vector (OQ-PP-12)
       v_upper[i] = position[i] + w_i
       v_lower[i] = position[i] - w_i
-      ribbon_color[i] = colormap(roll[i])   ← per-vertex; quad color unspecified: see OQ-PP-14
+      ← quad color and alpha computed per-quad from time midpoint (OQ-PP-14)
 
-Animation loop (FuncAnimation, ≥ 20 fps)
+Animation loop (Vispy, ≥ 20 fps)
   ↓
   _update(frame):
       i = frame_index[frame]           ← stride index into pre-computed arrays
@@ -768,7 +784,8 @@ Animation loop (FuncAnimation, ≥ 20 fps)
       update mode-change banner alpha
 ```
 
-`blit=False` — the 3D axes cannot blit because the projection changes on rotation.
+The Vispy scene graph handles incremental updates; full-scene redraws are not required
+for marker and trail updates.
 
 #### Camera Modes
 
@@ -782,8 +799,9 @@ The active mode is stored in `_camera_mode : CameraMode` and applied each animat
 | God's eye orthographic | `CameraMode.GODS_EYE` | Full-map orthographic projection from directly above. The camera covers the entire trajectory extent at a fixed altitude. Provides a complete spatial overview of the flight path (PP-F31). |
 | Local orthographic top | `CameraMode.LOCAL_TOP` | Orthographic top-down projection centered on the current aircraft position. Supports both **north-up** and **track-up** orientation. Zoom is user-configurable. North-up holds a fixed heading; track-up rotates the view so the aircraft heading is always toward the top of the frame (PP-F32). |
 
-The technology selection for camera controls (mode-switch buttons, zoom slider, north/track-up toggle)
-is deferred pending OQ-PP-4 resolution.
+Camera controls (mode-switch buttons, zoom slider, north/track-up toggle) are implemented
+as PySide6 native widgets (`QPushButton`, `QSlider`, `QRadioButton`) in the Qt layout
+alongside the Vispy canvas (OQ-PP-4).
 
 ---
 
@@ -839,24 +857,32 @@ match their respective trajectory colors.
 | Library | Version | License | Role |
 | --- | --- | --- | --- |
 | `pandas` | ≥ 2.0 | BSD-3-Clause | Data loading, alignment, channel access |
-| `matplotlib` | ≥ 3.8 | PSF | 3D trajectory animation, ribbon trail, HUD, playback widgets |
+| `numpy` | ≥ 1.26 | BSD-3-Clause | Rotation matrices, ribbon geometry, colormap computation |
 | `plotly` | ≥ 5.18 | MIT | Interactive linked time history, HTML export |
 | `mcap` | ≥ 1.1 | MIT | MCAP file reading (Python SDK from mcap.dev) |
-| `numpy` | ≥ 1.26 | BSD-3-Clause | Rotation matrices, ribbon geometry, colormap computation |
+| `mcap-protobuf-support` | ≥ 1.0 | MIT | Protobuf message decoding from MCAP files (OQ-PP-5) |
+| `vispy` | ≥ 0.14 | BSD-3-Clause | 3D trajectory canvas, ribbon trail, terrain mesh, HUD overlay (OQ-PP-26) |
+| `pyside6` | ≥ 6.6 | LGPL-3.0 | Playback and camera control widgets embedded alongside Vispy canvas (OQ-PP-4) |
+| `panel` | ≥ 1.3 | Apache-2.0 | Live time history display — wraps Plotly panes with periodic callbacks (OQ-PP-17) |
+| `matplotlib` | ≥ 3.8 | PSF | 2D colormaps and color utilities used in ribbon geometry |
 
 All licenses are compatible with the project license preference (MIT → BSD → Apache).
+PySide6 is LGPL and must be dynamically linked.
 
-`plotly` and `mcap` are new additions. Add to `python/pyproject.toml`. The appropriate
-dependency group (`[project] dependencies` vs `[dependency-groups] dev`) is unresolved
-— see OQ-PP-16. The minimum versions below reflect the versions verified during
-initial implementation:
+All listed libraries are declared in `[project] dependencies` in `python/pyproject.toml`
+(OQ-PP-16). The minimum versions below reflect the versions verified during initial
+implementation:
 
 ```toml
-matplotlib>=3.8
 pandas>=2.0
+numpy>=1.26
 plotly>=5.18
 mcap>=1.1
-numpy>=1.26   # already present in [project] dependencies
+mcap-protobuf-support>=1.0
+vispy>=0.14
+pyside6>=6.6
+panel>=1.3
+matplotlib>=3.8
 ```
 
 ---
@@ -966,9 +992,9 @@ operate on the returned figure or artist objects only. Matplotlib is configured 
 | OQ-PP-21 | **Resolved.** Both adaptive LOD selection (based on current view bounds and zoom level) and user-configurable LOD override are required. The adaptive mode selects the coarsest LOD that maintains acceptable visual quality for the visible area; the user-configurable override allows forcing a specific LOD for performance tuning or reproducible presentation. The concrete LOD selection algorithm and the LOD scale of the terrain mesh are defined by item 9. | Affects `TrajectoryView` terrain rendering; LOD algorithm design deferred to item 9 |
 | OQ-PP-22 | **Resolved.** The proposed hex defaults in PP-F25 are accepted as initial defaults. All palette entries are configurable per source via `TrajectoryView.load()`. The default values must be verified against terrain colormaps and both light and dark backgrounds during visual testing; they may be revised as a result of that testing. No design block — implementation may proceed with the proposed defaults. | PP-F25 accepted; configurable palette per source required; visual verification required during testing |
 | OQ-PP-23 | **Resolved.** Terrain colormap saturation is runtime-adjustable via `set_terrain_saturation(value)` to support the live use case where the user may change saturation during playback. A constructor default is also accepted (defaults to 1.0 — full saturation). Both the method and a constructor keyword argument are part of the API. | `TrajectoryView.__init__` accepts `terrain_saturation: float = 1.0`; `set_terrain_saturation(value)` updates it at runtime |
-| OQ-PP-26 | **Resolved.** Vispy (OpenGL-based). Correct alpha-blended transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control via direct OpenGL with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. OQ-PP-4 is unblocked — Vispy supports Qt embedding, making PySide6 the natural control widget choice. | `TrajectoryView` rewritten using Vispy; matplotlib 3D dependency removed from `TrajectoryView`; Vispy added to `pyproject.toml`; OQ-PP-4 unblocked |
-| OQ-PP-25 | **Resolved.** Option B: custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The ring buffer and channel registry are implemented in-process; the Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone and does not require interoperability with external ROS2 systems. OQ-PP-24 must be resolved independently. | `SimRunner` architecture unchanged; ring buffer and channel registry design required; OQ-PP-24 unblocked |
 | OQ-PP-24 | **Resolved.** (a) Polling: Python subscribers call `read_available()` on a timer. (b) Per-channel scalar or array: each channel carries a single value or array; type and units declared at registration time. (c) Registry object passed by reference: `SimRunner` holds a `ChannelRegistry&`; Python accesses the same object via pybind11 to discover channels and subscribe. (d) Configurable depth in time: buffer depth specified in seconds at registration; converted to samples using the declared sample rate. (e) pybind11 binding to a C++ ring buffer object: in-process, no IPC overhead. | Ring buffer and channel registry design must be specified in a dedicated architecture document; pybind11 binding required; design blocks `LiveTimeHistoryFigure` implementation |
+| OQ-PP-25 | **Resolved.** Option B: custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The ring buffer and channel registry are implemented in-process; the Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone and does not require interoperability with external ROS2 systems. OQ-PP-24 must be resolved independently. | `SimRunner` architecture unchanged; ring buffer and channel registry design required; OQ-PP-24 unblocked |
+| OQ-PP-26 | **Resolved.** Vispy (OpenGL-based). Correct alpha-blended transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control via direct OpenGL with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. OQ-PP-4 is unblocked — Vispy supports Qt embedding, making PySide6 the natural control widget choice. | `TrajectoryView` rewritten using Vispy; matplotlib 3D dependency removed from `TrajectoryView`; Vispy added to `pyproject.toml`; OQ-PP-4 unblocked |
 
 ---
 
