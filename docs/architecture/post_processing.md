@@ -121,6 +121,12 @@ flowchart TD
 | PP-F31 | God's eye camera: full orthographic top-down projection; view extent is set to encompass the complete trajectory with margin. |
 | PP-F32 | Local top-view camera: orthographic top-down projection; supports north-up and track-up orientations; zoom is user-controllable. |
 | PP-F33 | `FlightLogReader.load_mcap()` supports both JSON and protobuf MCAP message encodings. Protobuf is preferred for live streaming channels where data compactness is important; JSON is supported for offline post-processing and debugging. |
+| PP-F34 | The ring buffer uses a two-level model. **Channel registration is producer-driven:** `SimRunner` registers all channels it can produce with a channel registry when it initializes or when a subsystem starts. **Buffer allocation is subscription-driven:** ring buffer storage is allocated for a channel only when at least one subscriber declares interest in it; channels with no active subscribers are not buffered. `SimRunner` writes to a channel's buffer only while that channel has at least one subscriber. Subscribers do not trigger new computation in `SimRunner` — the simulation always computes what it computes. |
+| PP-F35 | New channels can be registered by `SimRunner` at any time without modifying existing subscribers or restarting the buffer infrastructure. Existing subscribers are unaffected. |
+| PP-F36 | The ring buffer supports multiple simultaneous subscribers. Each subscriber independently declares the set of registered channels it requires. Buffer storage for a channel is retained as long as at least one subscriber needs it; when the last subscriber for a channel detaches, that channel's buffer may be deallocated. |
+| PP-F37 | A late-joining subscriber always starts with an empty buffer regardless of when it attaches. Data accumulates from the moment of subscription. No backfill mechanism is required. |
+| PP-F38 | All channels registered by `SimRunner` are discoverable at runtime via the channel registry, regardless of whether they are currently being buffered. A new plot type can enumerate available channels without prior knowledge of the simulation's output schema. |
+| PP-F39 | Adding a new data stream to `SimRunner` requires: (a) adding the computation to `SimRunner`, and (b) registering the new channel with the channel registry. No modification to existing plot types or subscribers is required. |
 
 ### Non-Functional
 
@@ -318,7 +324,7 @@ classDiagram
 
 ## Data Flow
 
-```
+```text
 MCAP or CSV log file(s)
   (aircraft state source + command source, same or separate files)
         ↓
@@ -619,7 +625,7 @@ is unresolved — see OQ-PP-19.
 
 The figure uses a single matplotlib window divided into two regions:
 
-```
+```text
 ┌───────────────────────────────────────────────────────────────┐
 │  3D trajectory axes (mpl_toolkits.mplot3d)       85% height  │
 │  Ribbon trail + aircraft marker + HUD overlay                 │
@@ -705,7 +711,7 @@ The ribbon encodes roll attitude as a 3D surface strip. At each trajectory index
 
 $$R_i = R_z(\psi_i)\, R_y(\theta_i)\, R_x(\phi_i)$$
 
-2. The wing half-span vector in world frame:
+1. The wing half-span vector in world frame:
 
 $$\mathbf{w}_i = R_i \begin{bmatrix} 0 \\ w/2 \\ 0 \end{bmatrix}$$
 
@@ -714,7 +720,7 @@ span)". This description is internally inconsistent: if $w$ is a half-width then
 by 2 produces a quarter-width; if $w$ is the full wing span then $w/2$ is the half-span.
 See OQ-PP-12 for resolution.
 
-3. Ribbon edge vertices:
+1. Ribbon edge vertices:
 
 $$\mathbf{v}_{i}^{+} = \mathbf{p}_i + \mathbf{w}_i, \qquad
 \mathbf{v}_{i}^{-} = \mathbf{p}_i - \mathbf{w}_i$$
@@ -940,26 +946,29 @@ operate on the returned figure or artist objects only. Matplotlib is configured 
 | OQ-PP-1 | **Resolved.** A separate `LiveTimeHistoryFigure` class is required. It does not share the function interface of `TimeHistoryFigure` but uses the same visual style and panel configuration. Nominal presentation is a rolling time window anchored at present time. Required user controls: zoom/scroll time, reset to present, per-panel y-limit set/reset. Three new OQs opened: OQ-PP-17 (display technology), OQ-PP-18 (data ingestion interface), OQ-PP-19 (rolling window duration). | `LiveTimeHistoryFigure` module added to design |
 | OQ-PP-2 | **Resolved.** Terrain geometry is rendered as a surface beneath the ribbon trail in all 3D trajectory views — both post-processing (`TrajectoryView`) and any future live 3D trajectory view. Two new OQs opened: OQ-PP-20 (terrain data access mechanism), OQ-PP-21 (LOD selection). | `TrajectoryView` terrain surface required; PP-F23 added |
 | OQ-PP-3 | **Resolved.** Mode IDs are embedded as an explicit channel in the log stream. Explicit annotation is preferred over post-hoc inference from command transitions because live presentation cannot afford the computation overhead of analyzing the stream to detect mode changes. Inference from command transitions is a documented fallback for logs that do not carry an explicit mode channel. The concrete channel name (e.g., `flight_control_mode_id`) is defined by the Logged Channel Registry (item 4). OQ-PP-15 is unblocked from its OQ-PP-3 dependency. | `ModeEventSeries.from_dataframe()` reads an explicit mode channel; fallback inference path to be documented; OQ-PP-15 dependency on OQ-PP-3 cleared |
-| OQ-PP-4 | **Criteria resolved; technology selection is a design task.** Deciding criteria: (a) portable to Linux and ARM processors, (b) responsive and reliable button interaction, (c) good visual quality. Camera mode controls (mode-switch buttons, zoom slider, north/track-up toggle) are also required in addition to playback controls. The technology selection (matplotlib widgets, Dash, Panel, or other) must be resolved as a dedicated design task before playback and camera controls can be implemented. | Affects `TrajectoryView` playback and camera-control architecture |
+| OQ-PP-4 | **Resolved.** PySide6 native widgets embedded in a Qt window alongside the Vispy canvas (OQ-PP-26). `QPushButton`, `QSlider`, and `QRadioButton` controls in a Qt layout provide play/pause/step/loop, camera mode selection, zoom, and north-up/track-up toggle. PySide6 is LGPL — license-acceptable with dynamic linking. Portable to Linux, Windows, and ARM. | `TrajectoryView` window becomes a `QMainWindow`; Vispy canvas embedded via `QWidget`; PySide6 added to `pyproject.toml` |
 | OQ-PP-5 | **Resolved.** Both JSON and protobuf message encodings are supported. Protobuf is preferred for live and streaming use cases for data compactness. `FlightLogReader` must handle both; `mcap-protobuf-support` is added as a required dependency. The concrete protobuf schema is defined by the C++ Logger — that definition is still pending. | Affects `FlightLogReader.load_mcap()`; `mcap-protobuf-support` added to dependency table; schema TBD from C++ Logger |
-| OQ-PP-6 | **Not resolvable at this time.** This question depends on the C++ Logger's MCAP channel registration design, which has not yet been specified. A dedicated use-case and design development task is required before the source-name mapping can be resolved. | Affects `load_mcap()` source-name mapping; blocked until C++ Logger MCAP channel design is defined |
+| OQ-PP-6 | **Resolved.** Option B: one MCAP topic per data field, using the same channel naming convention as the ring buffer (e.g., `"aircraft/altitude_m"`). The source name is the topic prefix before `/`. `FlightLogReader.load_mcap()` parses the prefix as the source name and merges per-field channels into per-source DataFrames on a common time index. Consistent with OQ-PP-24b (per-channel ring buffer) and PP-F35 (new channels without modifying existing consumers). The concrete naming convention is defined by the C++ Logger design task. | `FlightLogReader.load_mcap()` updated to parse topic prefix as source name and merge per-field channels; current `channel.topic`-as-key assumption replaced |
 | OQ-PP-7 | **Resolved.** The source name is embedded in the CSV header row, not derived from the filename. This decouples the source identity from how the file is named and is required because the log may contain sources other than the aircraft simulation. The concrete header field name is defined by the C++ Logger CSV export format. | Affects `load_csv()` source-name extraction; `test_load_mcap_matches_csv` fixture must embed the source name in the CSV header |
-| OQ-PP-8 | **Awaiting decision — see option analysis below.** Should `FlightLogReader` be stateful (internal DataFrame cache) or stateless (caller passes DataFrame to `channel_names`)? Three options are identified; implications are documented in the option analysis below this table. | Affects the class API and `channel_names()` signature |
+| OQ-PP-8 | **Resolved.** Option C: `FlightLogReader` is stateful with explicit invalidation. `load_*()` clears the internal cache, stores the new frames dict, and returns it as its value. `channel_names(source)` queries the cache and raises if called before any `load_*()`. A `frames()` getter exposes the cached dict. This gives the compact calling convention of Option A with a clear failure mode if misused and a direct return value for callers that want to capture the frames immediately. | `FlightLogReader.load_*()` returns `dict[str, DataFrame]`; `frames()` getter added; `channel_names()` raises before first load |
 | OQ-PP-9 | **Resolved.** `ModeEventSeries.from_dataframe()` emits the channel's initial value as a `ModeEvent` at the first sample time, before any transition has occurred. This ensures that time history and 3D overlays display the starting mode from the beginning of the log, not only from the first mode change. | Affects `from_dataframe()` implementation; initial-value test case required |
-| OQ-PP-10 | **Awaiting decision — see option analysis below.** Should the mode-name map be a parameter of `from_dataframe()`, a constructor argument, or a separate post-parse mapping step? Three options are identified; implications are documented in the option analysis below this table. | Affects `ModeEventSeries` and `from_dataframe()` signatures |
-| OQ-PP-11 | **Awaiting decision — see option analysis below.** Should `TimeHistoryFigure` expose `load()` + `build()` as public API (current), or should `build()` be internal and only `show()` / `export_html()` be public? Two options are identified; implications are documented in the option analysis below this table. | Affects the public API surface and test strategy |
+| OQ-PP-10 | **Resolved.** Option B: the name map is a constructor argument `ModeEventSeries(events, name_map=None)`. The map is stored on the object for its lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to the constructor. This is consistent with OQ-PP-8: objects retain their configuration; omission of the map is a visible constructor decision rather than a silent default. | `ModeEventSeries.__init__` gains `name_map` parameter; `from_dataframe()` passes map through to constructor; `name_map` removed from `from_dataframe()` signature as a top-level parameter |
+| OQ-PP-11 | **Resolved.** Option C: `build()` is internal; a `figure()` accessor triggers the build if needed and returns the rendered figure object. `show()` and `export_html()` are also public. This gives full testability without exposing a pipeline-stage method, and `figure()` can be part of a shared base class or protocol as the number of plot types grows. | `TimeHistoryFigure` gains `figure()` accessor; `build()` made internal; `figure()` to be defined on a shared base class or protocol for all future plot types |
 | OQ-PP-12 | **Resolved.** The `build()` parameter is the full aircraft wing span. The formula computes the half-span wing vector as $\mathbf{w}_i = R_i [0,\ \text{wing\_span\_m}/2,\ 0]$. The parameter is renamed `wing_span_m`; the current `half_width_m` usage in the code is incorrect and must be updated. | Affects `RibbonTrail.build()` parameter name and the wing vector calculation; all callers updated |
 | OQ-PP-13 | **Resolved.** Ribbon quads use counter-clockwise (CCW) vertex winding when viewed from the outward face normal (above the ribbon surface), consistent with OpenGL convention and standard game engine interfaces. Winding order: `v_lower[i] → v_lower[i+1] → v_upper[i+1] → v_upper[i]`. This places the front-face normal pointing away from the aircraft centerline. | Affects `RibbonTrail.build()` quad assembly; winding test required |
 | OQ-PP-14 | **Resolved.** Trail length is specified as a duration in seconds (`trail_duration_s`), not a segment count. For each quad, a normalized age $\tau_i \in [0, 1]$ is computed from the time midpoint of the quad: $\tau_i = (t_\text{current} - t_{\text{mid},i}) / \text{trail\_duration\_s}$, clamped to $[0, 1]$, where $t_{\text{mid},i} = (t_i + t_{i+1}) / 2$. Face color is mapped from the roll angle at $t_{\text{mid},i}$ (time-interpolated midpoint). Saturation decreases linearly with $\tau$ (full saturation at $\tau=0$, grayscale at $\tau=1$). Transparency follows the log-scale formula updated for $\tau$: $\alpha_i = \log(2 - \tau_i) / \log 2$ ($\tau=0 \to \alpha=1$; $\tau=1 \to \alpha=0$; $\tau=0.5 \to \alpha \approx 0.585$). The PP-F27 log-scale principle is preserved; its formula is updated to the time-domain form. | Affects `RibbonTrail.build()` (adds `timestamps` parameter), the animation loop (computes τ per frame), and PP-F27 |
 | OQ-PP-15 | **Resolved.** The ribbon optionally renders edge lines along its outer edges (both upper and lower wing-tip edges). The edge lines are optional — controlled per source by a flag on `load()`. Edge lines follow the same time-based transparency fade as the ribbon face color ($\alpha_i = \log(2 - \tau_i) / \log 2$). Edge line color is a darkened version of the ribbon face color for contrast. OQ-PP-3 dependency cleared. | Adds `show_edges` parameter to `RibbonTrail.build()` and `TrajectoryView.load()`; edge line color computation required |
 | OQ-PP-16 | **Resolved.** `matplotlib`, `pandas`, `plotly`, and `mcap` are declared in `[project] dependencies` in `python/pyproject.toml`. They are required for the primary use case of the package (post-processing visualization) and must be available to all consumers. | Affects `pyproject.toml` `[project] dependencies` section |
-| OQ-PP-17 | **Not resolvable at this time.** Technology selection is driven by the use cases, functional requirements (PP-F19–PP-F22), license requirements, and portability requirements (Linux and ARM — PP-F04 analog) for live visualization. These requirements must be formally documented and evaluated before a technology choice can be made. A dedicated design task is required. | Blocks `LiveTimeHistoryFigure` implementation; requires design task with use-case and requirements analysis |
-| OQ-PP-18 | **Awaiting decision — see option analysis below.** How does data reach `LiveTimeHistoryFigure` during a running simulation? Three options identified; implications documented in the option analysis section below this table. | Determines the data ingestion interface and whether `FlightLogReader` is involved in the live path |
+| OQ-PP-17 | **Resolved.** Option C: Panel (HoloViz) with Plotly panes. Panel wraps Plotly figures as `pn.pane.Plotly` components; `pn.state.add_periodic_callback()` drives rolling updates from the ring buffer poll (consistent with OQ-PP-24a). Visually consistent with `TimeHistoryFigure`. Browser-based display; portable to Linux and ARM. Apache 2.0 license. Panel added to `pyproject.toml`. | `LiveTimeHistoryFigure` implemented using Panel + Plotly; Panel added to `pyproject.toml`; dependency table updated |
+| OQ-PP-18 | **Resolved.** Live plot data is sourced from a shared ring buffer published by `SimRunner`, not from the log. Logging and live visualization are parallel, independent outputs of the simulation: the simulator writes to the log file and publishes to the ring buffer simultaneously. The live plot subscribes to the ring buffer; post-processing reads the log. The log is explicitly excluded from the live plotting loop because it may involve write queuing that adds latency and because the two use cases (durable record vs. real-time display) are disjoint. `FlightLogReader` is not involved in the live path; its scope remains batch post-processing only. A new OQ is opened: OQ-PP-24 (ring buffer interface and schema). | `LiveTimeHistoryFigure` subscribes to `SimRunner` ring buffer; `FlightLogReader` scope unchanged; OQ-PP-24 opened |
 | OQ-PP-19 | **Resolved.** The rolling time window is a single figure-level setting shared across all panels (not per-panel). Default duration is 30 seconds. The shared window is required for readability — all panels must show the same time span so the user can correlate events across panels. Configurable via `set_time_window(duration_s)`. | Affects `LiveTimeHistoryFigure.__init__` (adds `window_s: float = 30.0`) and `set_time_window()` |
 | OQ-PP-20 | **Not resolvable at this time.** The terrain data access mechanism must be determined by project requirements and use cases — the available options (pybind11 binding, pre-exported glTF, caller-supplied vertex/face array) impose different constraints on the simulation workflow, performance, and deployment. A dedicated requirements and use-case analysis is required before an approach can be selected. | Blocks terrain rendering implementation in `TrajectoryView`; requires use-case and requirements analysis task |
 | OQ-PP-21 | **Resolved.** Both adaptive LOD selection (based on current view bounds and zoom level) and user-configurable LOD override are required. The adaptive mode selects the coarsest LOD that maintains acceptable visual quality for the visible area; the user-configurable override allows forcing a specific LOD for performance tuning or reproducible presentation. The concrete LOD selection algorithm and the LOD scale of the terrain mesh are defined by item 9. | Affects `TrajectoryView` terrain rendering; LOD algorithm design deferred to item 9 |
 | OQ-PP-22 | **Resolved.** The proposed hex defaults in PP-F25 are accepted as initial defaults. All palette entries are configurable per source via `TrajectoryView.load()`. The default values must be verified against terrain colormaps and both light and dark backgrounds during visual testing; they may be revised as a result of that testing. No design block — implementation may proceed with the proposed defaults. | PP-F25 accepted; configurable palette per source required; visual verification required during testing |
 | OQ-PP-23 | **Resolved.** Terrain colormap saturation is runtime-adjustable via `set_terrain_saturation(value)` to support the live use case where the user may change saturation during playback. A constructor default is also accepted (defaults to 1.0 — full saturation). Both the method and a constructor keyword argument are part of the API. | `TrajectoryView.__init__` accepts `terrain_saturation: float = 1.0`; `set_terrain_saturation(value)` updates it at runtime |
+| OQ-PP-26 | **Resolved.** Vispy (OpenGL-based). Correct alpha-blended transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control via direct OpenGL with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. OQ-PP-4 is unblocked — Vispy supports Qt embedding, making PySide6 the natural control widget choice. | `TrajectoryView` rewritten using Vispy; matplotlib 3D dependency removed from `TrajectoryView`; Vispy added to `pyproject.toml`; OQ-PP-4 unblocked |
+| OQ-PP-25 | **Resolved.** Option B: custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The ring buffer and channel registry are implemented in-process; the Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone and does not require interoperability with external ROS2 systems. OQ-PP-24 must be resolved independently. | `SimRunner` architecture unchanged; ring buffer and channel registry design required; OQ-PP-24 unblocked |
+| OQ-PP-24 | **Resolved.** (a) Polling: Python subscribers call `read_available()` on a timer. (b) Per-channel scalar or array: each channel carries a single value or array; type and units declared at registration time. (c) Registry object passed by reference: `SimRunner` holds a `ChannelRegistry&`; Python accesses the same object via pybind11 to discover channels and subscribe. (d) Configurable depth in time: buffer depth specified in seconds at registration; converted to samples using the declared sample rate. (e) pybind11 binding to a C++ ring buffer object: in-process, no IPC overhead. | Ring buffer and channel registry design must be specified in a dedicated architecture document; pybind11 binding required; design blocks `LiveTimeHistoryFigure` implementation |
 
 ---
 
@@ -969,14 +978,19 @@ Detailed option analysis for questions requiring a user decision before implemen
 
 ### OQ-PP-8 — FlightLogReader Statefulness
 
-The question is whether `channel_names()` queries an internal cache or requires the caller to supply a DataFrame.
+**Decision: Option C selected.**
+
+`FlightLogReader` is stateful with explicit invalidation. `load_*()` clears the internal cache, stores the new frames dict, and returns it. `channel_names(source)` queries the cache and raises if called before any `load_*()`. A `frames()` getter exposes the cached dict.
+
+Note: thread safety is not a concern — OQ-PP-18 confirmed `FlightLogReader` is batch-only; no concurrent `load_*()` calls arise from the live path.
+
+The option analysis below is retained for context.
 
 **Option A — Stateful (current behavior):** `FlightLogReader` stores `_frames: dict[str, pd.DataFrame]` after each `load_*()` call. `channel_names(source)` queries this internal cache.
 
 - Pro: Compact calling convention — load once, then query freely.
 - Pro: Matches the expected post-processing workflow (load a file, then inspect what is in it).
 - Con: `channel_names()` is silently stale if called after a second `load_*()` on a different instance or after the loaded data changes. The caller cannot detect this.
-- Con: Not thread-safe if concurrent `load_*()` calls are possible.
 - Con: Cannot query channel names from an externally supplied DataFrame (e.g., one constructed in a notebook).
 
 **Option B — Stateless:** `channel_names(df)` takes a DataFrame directly. No internal cache. `load_*()` returns the frames dict; the caller stores it.
@@ -986,56 +1000,92 @@ The question is whether `channel_names()` queries an internal cache or requires 
 - Con: More verbose — the caller must keep the DataFrame in scope and pass it explicitly.
 - Con: `FlightLogReader` becomes a thin wrapper around `pandas` I/O; its value as a class is reduced.
 
-**Option C — Stateful with explicit invalidation:** Same as Option A, but `load_*()` clears the cache and returns the frames dict. An additional `frames()` method exposes the cached data. `channel_names()` raises if called without a prior `load_*()`.
+**Option C — Stateful with explicit invalidation (selected):** `load_*()` clears the cache and returns the frames dict. A `frames()` getter exposes the cached data. `channel_names()` raises if called without a prior `load_*()`.
 
-- Pro: Compact calling convention of A with explicit error if misused.
+- Pro: Compact calling convention of A with an explicit error if misused — no silent failures.
 - Pro: `frames()` exposes the cache for inspection without re-loading.
-- Con: Still not thread-safe; still prevents querying an externally supplied DataFrame.
+- Pro: `load_*()` return value lets callers capture frames directly without a separate `frames()` call.
+- Con: Cannot query channel names from an externally supplied DataFrame.
 
 ---
 
 ### OQ-PP-10 — Mode-Name Map Location in ModeEventSeries
 
-The question is where the integer-to-string name map is attached: at parse time, at construction, or as a post-parse step.
+**Decision: Option B selected.**
+
+The name map is a constructor argument: `ModeEventSeries(events, name_map=None)`. The map is stored on the object for its lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to the constructor. Consistent with OQ-PP-8: objects retain their configuration, and omission of the map is a visible constructor decision rather than a silent default.
+
+The option analysis below is retained for context.
 
 **Option A — Parameter of `from_dataframe()` (current behavior):** `from_dataframe(df, mode_channel, name_map=None)`.
 
 - Pro: The map is applied at parse time — events are created with names already set.
 - Pro: Minimal API surface — no additional method or constructor argument needed.
-- Con: The map is a one-time argument and is not stored on the `ModeEventSeries` object. If the same series is displayed in two contexts that need different name maps, a re-parse is required.
-- Con: `ModeEventSeries` objects created by other means (e.g., from a list of events) carry no name knowledge.
+- Con: The map is not stored on the `ModeEventSeries` object — inconsistent with OQ-PP-8 (objects retain their configuration).
+- Con: `ModeEventSeries` objects created by other means carry no name knowledge.
+- **Con (silent error risk): `name_map=None` is the default. A caller who omits the map receives integer mode IDs as display labels with no warning.**
 
-**Option B — Constructor argument:** `ModeEventSeries(events, name_map=None)`.
+**Option B — Constructor argument (selected):** `ModeEventSeries(events, name_map=None)`.
 
 - Pro: The map stays associated with the series for its lifetime — any display call can use it.
+- Pro: Consistent with OQ-PP-8: objects retain their configuration.
 - Pro: Supports lazy name resolution: parse the channel first, apply names later.
-- Con: The constructor's `events` argument is a list of raw `ModeEvent` objects, which is an implementation detail. Callers constructing a series from scratch must build the event list manually.
+- Con: The constructor's `events` argument is a list of raw `ModeEvent` objects. Callers constructing a series from scratch must build the event list manually.
 
-**Option C — Separate post-parse mapping step:** `events = ModeEventSeries.from_dataframe(df, mode_channel)`, then `events.apply_name_map(name_map)` (mutates) or `named = events.with_name_map(name_map)` (returns a new series).
+**Option C — Separate post-parse mapping step:** `events = ModeEventSeries.from_dataframe(df, mode_channel)`, then `events.apply_name_map(name_map)`.
 
 - Pro: Cleanest separation of concerns — parsing is independent of naming.
 - Pro: The map can be applied, changed, or stripped at any point.
 - Con: Larger API surface — an extra method on `ModeEventSeries`.
-- Con: A series without a map applied will produce events with integer mode IDs as display labels — this could silently produce unreadable output if the caller forgets the mapping step.
+- **Con (silent error risk): A series without the mapping step applied produces integer mode IDs as display labels with no warning. Highest silent-error exposure of the three options.**
 
 ---
 
 ### OQ-PP-11 — TimeHistoryFigure Load and Build API
 
-The question is whether `build()` is part of the public interface.
+**Decision: Option C selected.**
+
+`build()` is internal. A `figure()` accessor triggers the build if needed and returns the rendered figure object. `show()` and `export_html()` are public. `figure()` is to be defined on a shared base class or protocol so all future plot types implement a consistent interface.
+
+The option analysis below is retained for context.
+
+**Extensibility context:** The number of supported plot types is expected to grow substantially over time. The API design must accommodate new plot types without breaking changes to the base interface. This favors a small, stable set of public methods (`load()`, `add_panel()`, `show()`, `export_html()`, and a figure accessor) that all plot types can implement consistently. Any option that exposes rendering-library internals (e.g., `build()` returning a Plotly `Figure`) couples every future plot type to Plotly and makes the interface harder to stabilize. A type-agnostic accessor (Option C's `figure()`) is preferable because it can be part of a shared base class or protocol without committing to a specific return type in the interface contract.
 
 **Option A — `load()` + `build()` public (current behavior):** `fig.load(frames)` → `fig.add_panel(...)` → `fig.build()` → `fig.show()` / `fig.export_html()`.
 
 - Pro: `build()` can be called from tests without opening a window or writing a file, allowing the Plotly `Figure` object to be inspected directly.
 - Pro: Explicit pipeline — the caller can see each stage of data loading, panel configuration, and rendering.
-- Con: Callers who only want `show()` or `export_html()` must call `build()` explicitly (or `show()`/`export_html()` must call it internally if not already called).
-- Con: `build()` exposes a rendering-infrastructure concept in the public interface, coupling callers to the Plotly internals.
+- Con: Callers who only want `show()` or `export_html()` must call `build()` explicitly.
+- Con: `build()` exposes a rendering-infrastructure concept in the public interface, coupling callers to Plotly internals.
+- **Con (extensibility): Every future plot type must also expose `build()` with the same contract, or the interface becomes inconsistent across types.**
 
 **Option B — `build()` internal, only `show()` and `export_html()` public:** `fig.load(frames)` → `fig.add_panel(...)` → `fig.show()` / `fig.export_html()`.
 
 - Pro: Simpler public API — the caller cannot misuse the build lifecycle.
-- Con: Tests must call `show()` or `export_html()` to exercise rendering, which is heavier than calling `build()` directly. `export_html()` requires a filesystem path; `show()` opens a browser.
-- Con: Loses the ability to directly inspect the `Figure` object in tests without side effects.
+- Pro: `build()` is an implementation detail; future plot types are not required to expose it.
+- Con: Tests must call `show()` or `export_html()` to exercise rendering. `export_html()` requires a filesystem path; `show()` opens a browser.
+- Con: Loses the ability to directly inspect the rendered object in tests without side effects.
+
+**Option C — `build()` internal, `figure()` accessor public:** `fig.load(frames)` → `fig.add_panel(...)` → `fig.figure()` returns the rendered figure object (triggers build if not already built). `show()` and `export_html()` also available.
+
+- Pro: Tests can inspect the rendered object directly without side effects — same testability as Option A.
+- Pro: `build()` is not in the public interface; `figure()` describes what you get rather than naming an internal pipeline stage.
+- Pro: Resolves the tension between Options A and B without sacrificing either benefit.
+- **Pro (extensibility): `figure()` can be part of a shared base class or protocol for all plot types. Each type returns its own rendered object; callers that need type-specific inspection can use it while callers that only need `show()`/`export_html()` are unaffected.**
+- Con: Marginally larger API surface than Option B.
+
+**Option D — Builder pattern:** A `TimeHistoryFigureBuilder` configures via `load()` + `add_panel()`; `build()` returns an immutable `TimeHistoryFigure` that only exposes `show()` and `export_html()`.
+
+- Pro: Clean separation between configuration and rendered output; the built figure cannot be reconfigured.
+- Con: Two classes per plot type; more verbose.
+- **Con (extensibility): Adding a new plot type requires adding two classes. The builder proliferation grows linearly with plot type count.**
+
+**Option E — Frames passed to constructor:** `TimeHistoryFigure(frames, title="...")` — consistent with the OQ-PP-8/10 pattern of supplying configuration at construction time.
+
+- Pro: Consistent with the pattern established in OQ-PP-8 and OQ-PP-10.
+- Con: `frames` is data, not configuration — mixing the two in the constructor may be inappropriate.
+- Con: Makes incremental loading of multiple sources harder to express.
+- **Con (extensibility): Different plot types have different configuration needs; a constructor-based API does not generalize cleanly to a shared interface across types.**
 
 ---
 
@@ -1065,3 +1115,376 @@ The question is how data flows from the running simulation into the live time hi
 - Pro: Natural fit if `SimRunner` is already in Python (or exposed via pybind11 bindings).
 - Con: Tight coupling to `SimRunner`'s internal data model — `LiveTimeHistoryFigure` must know the ring buffer's schema and access API.
 - Con: Requires `SimRunner` to be defined and its Python interface to be specified before this can be implemented. Neither exists yet.
+- **Note (selected):** Option C is the resolved approach (OQ-PP-18). The ring buffer and channel registry design are the subject of OQ-PP-24 and OQ-PP-25.
+
+---
+
+### OQ-PP-24 — SimRunner Ring Buffer Interface
+
+**Decision: all sub-questions resolved.**
+
+| Sub-question | Decision |
+| --- | --- |
+| (a) Subscriber attachment | Polling — Python subscribers call `read_available()` on a timer |
+| (b) Per-channel schema | Per-channel scalar or array — type and units declared at registration time |
+| (c) Channel registry | Registry object passed by reference — `SimRunner` holds `ChannelRegistry&`; Python accesses same object via pybind11 |
+| (d) Buffer capacity | Configurable depth in time — depth in seconds declared at registration; converted to samples using declared sample rate |
+| (e) Access mechanism | pybind11 binding to a C++ ring buffer object — in-process, no IPC overhead |
+
+The option analysis below is retained for context.
+
+**Architectural constraints (from prior resolutions):**
+- Channel registration is producer-driven; buffer allocation is subscription-driven (PP-F34)
+- Late-joining subscribers start with an empty buffer — no backfill required (PP-F37)
+- `SimRunner` remains a plain C++ object; Python access is via pybind11 (OQ-PP-25)
+
+**Question (a) — Subscriber attachment API:**
+
+How does a Python subscriber attach to a channel and receive data?
+
+- **Callback:** subscriber registers a Python callable; the buffer calls it when new data arrives. Low latency; requires thread safety if the callback fires from a C++ thread.
+- **Iterator / generator:** subscriber pulls rows by iterating over a generator that blocks until new data is available. Natural fit for Python's `for row in channel:` idiom; still requires a background thread in the visualization loop.
+- **Polling (selected):** subscriber calls `read_available()` on a timer. Simplest to implement; latency bounded by poll interval; no threading complexity in the binding layer.
+
+**Question (b) — Per-channel row schema:**
+
+What data type does a published row use?
+
+- **Channel-keyed dict `dict[str, float]`:** maximally flexible; new fields require no schema change; no type safety.
+- **Per-channel scalar or array (selected):** each channel carries a single value (float, int, or numpy array); type declared at registration time. Requires the channel registry to store type metadata. Simpler per-row representation; type-safe at the channel level. Most consistent with PP-F34–PP-F39: each channel is independent, new channels are addable without modifying existing ones.
+- **Typed dataclass per source:** all channels from one source packed into one dataclass per timestep. Type-safe and efficient; poor extensibility — adding a channel requires modifying the dataclass.
+
+**Question (c) — Channel registry design:**
+
+How does `SimRunner` register a channel, and how do Python subscribers discover available channels?
+
+- **Registry object passed by reference (selected):** `SimRunner` holds a `ChannelRegistry&`; calls `registry.register(name, type, units, sample_rate_hz, depth_s)` at init. Python side holds a reference to the same registry object via pybind11; calls `registry.available_channels()` to discover and `registry.subscribe(name)` to attach.
+- **Global/singleton registry:** simpler; avoids passing the registry through the object graph. Risk: multiple simulation instances share state.
+
+**Question (d) — Buffer capacity:**
+
+How deep is the ring buffer per channel, and how does it relate to the rolling window duration?
+
+- **Fixed depth in samples:** e.g., 4096 samples per channel. Simple; depth must be large enough for the maximum expected sample rate × window duration.
+- **Configurable depth per channel:** declared at registration time alongside sample rate. Allows the registry to compute required depth as `ceil(sample_rate_hz × window_s)` automatically.
+- **Configurable depth in time (selected):** depth specified in seconds at registration; converted to samples using the declared sample rate as `ceil(sample_rate_hz × depth_s)`. Most natural fit for the rolling time-window display; depth is expressed in the same units as the visualization window.
+
+**Question (e) — Access mechanism:**
+
+- **pybind11 binding to a C++ ring buffer object (selected):** `SimRunner` owns the buffer in C++; Python accesses it via a bound reference. Consistent with OQ-PP-25; no IPC overhead; in-process.
+- **Shared-memory IPC:** buffer lives in shared memory; multiple processes can attach. Adds complexity; not required if Python and C++ run in the same process.
+
+---
+
+### OQ-PP-25 — ROS2 vs Custom Ring Buffer and Channel Registry
+
+**Decision: Option B selected.**
+
+Custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone. OQ-PP-24 is unblocked and must be designed independently.
+
+The option analysis below is retained for context.
+
+The question is whether to use ROS2 as the pub/sub transport layer (satisfying PP-F34–PP-F39 with existing infrastructure) or to implement a custom ring buffer and channel registry.
+
+**Option A — Adopt ROS2 as transport layer:**
+
+ROS2's DDS layer directly satisfies the requirements established in PP-F34–PP-F39:
+
+| PP-F requirement | ROS2 mechanism |
+| --- | --- |
+| Producer-driven channel registration (PP-F34) | Publisher declares topic and message type |
+| Subscription-driven buffering (PP-F34) | QoS `KEEP_LAST N` history policy — storage allocated per subscriber |
+| `SimRunner` writes only while subscribers exist (PP-F34) | Publishers can check subscriber count; DDS drops messages with no subscribers |
+| New channels without modifying subscribers (PP-F35) | New topic registered independently; existing subscribers unaffected |
+| Multiple simultaneous subscribers (PP-F36) | Native DDS pub/sub |
+| Empty buffer on late join (PP-F37) | QoS `VOLATILE` durability (default) |
+| Channel discoverability (PP-F38) | DDS topic discovery |
+| MCAP logging compatibility | `ros2bag` uses MCAP natively from ROS2 Humble onwards |
+
+- Pro: Eliminates the design and implementation of the ring buffer, channel registry, subscriber API, and backfill/no-backfill logic entirely.
+- Pro: Production-grade, well-tested infrastructure already used in UAV and robotics applications.
+- Pro: Apache 2.0 license — acceptable per project license policy.
+- Pro: Strong native portability to Linux and ARM (primary targets per PP-F04 analog).
+- Pro: Interoperability with external ROS2 systems (autopilots, ground stations) is available without additional work if needed in the future.
+- Con: Large framework dependency — adds a DDS daemon, executor model, and node lifecycle to a currently self-contained C++ simulation engine.
+- Con: `SimRunner` must become a ROS2 node — this is a significant architectural change to the C++ core. The component lifecycle (`initialize()` → `reset()` → `step()`) must coexist with the ROS2 executor and spin loop.
+- Con: Windows support is a second-class citizen in ROS2. The project currently builds on Windows with MSYS2/GCC; ROS2 on Windows requires a separate toolchain (MSVC). This may conflict with the existing build system.
+- Con: If the simulator does not need to interoperate with external ROS2 systems, the full framework overhead is disproportionate to the problem.
+- Con: The custom Python visualization requirements (ribbon trails, camera modes, HUD overlay, visual design spec) are not satisfied by rviz2 — custom Python visualization is required regardless.
+
+**Option B — Custom ring buffer and channel registry:**
+
+Design and implement a lightweight in-process pub/sub system that satisfies PP-F34–PP-F39 directly. `SimRunner` remains a plain C++ object; the Python visualization layer subscribes via a pybind11 binding.
+
+- Pro: `SimRunner` stays architecturally independent — no framework dependency, no node lifecycle, no DDS daemon.
+- Pro: Full control over the API design — can be tailored precisely to the project's requirements.
+- Pro: No Windows toolchain conflict — builds with the existing MSYS2/GCC stack.
+- Pro: Lighter dependency footprint — the implementation is scoped to what PP-F34–PP-F39 actually require.
+- Con: Design and implementation effort required — ring buffer, channel registry, subscriber API, and pybind11 bindings must all be built.
+- Con: No interoperability with external ROS2 systems unless a bridge is added later.
+- Con: Ongoing maintenance responsibility for infrastructure that ROS2 provides for free.
+
+**Option C — Lightweight pub/sub library (middle ground):**
+
+Use a focused pub/sub library (e.g., ZeroMQ, nanomsg, or a pure-Python option like `pypubsub`) for the transport layer without adopting the full ROS2 stack. `SimRunner` publishes over the library's interface; Python subscribers receive messages.
+
+- Pro: Much lighter than ROS2 — no DDS daemon, no node lifecycle, no framework.
+- Pro: Cross-platform including Windows with the existing toolchain.
+- Pro: Provides the pub/sub primitive without requiring a custom implementation.
+- Con: Does not provide topic discovery, message typing, or logging integration — these must still be designed.
+- Con: No ROS2 interoperability.
+- Con: Adds a dependency that is not already in the project's dependency registry.
+
+**Key deciding factor:** Whether the simulator needs to interoperate with external ROS2 systems (ROS2-based autopilots, ground control stations, or other robotics infrastructure) is the primary criterion. If yes, Option A is strongly preferred. If the simulator is standalone, Options B or C are more proportionate to the problem.
+
+---
+
+### OQ-PP-4 — Playback and Camera Control Technology
+
+**Decision: Option A selected — PySide6.**
+
+PySide6 native widgets (`QPushButton`, `QSlider`, `QRadioButton`) in a Qt layout alongside the Vispy canvas embedded as a `QWidget` in a `QMainWindow`. Portable to Linux, Windows, and ARM. LGPL license — acceptable with dynamic linking. PySide6 added to `pyproject.toml`.
+
+The option analysis below is retained for context.
+
+Required controls: play/pause/step/loop playback; camera mode selection (FPV, trailing, god's eye, local top); zoom slider; north-up/track-up toggle.
+
+Deciding criteria: portable to Linux and ARM; responsive and reliable; good visual quality.
+
+**Note on matplotlib:** matplotlib widgets are not a viable option for the 3D rendering window. Even setting aside widget responsiveness concerns, the rendering library selected for OQ-PP-26 will carry its own window and event loop. Control widgets must integrate with that loop, not with matplotlib's.
+
+**Option A — PySide6 native widgets in a Qt window:**
+
+The 3D rendering view (whatever library OQ-PP-26 selects) is embedded in a Qt window alongside `QPushButton`, `QSlider`, and `QRadioButton` controls in a Qt layout.
+
+- Pro: Native desktop UI — highly responsive, reliable, and visually polished on all platforms.
+- Pro: Full control over layout and widget behavior.
+- Pro: Portable to Linux, Windows, and ARM.
+- Pro: Most 3D rendering libraries (Vispy, PyVista, Open3D) have Qt embedding support.
+- Pro: PySide6 is LGPL — license-acceptable with dynamic linking.
+- Con: Requires structuring the application around a Qt event loop (`QApplication.exec()`), which must coexist with the 3D rendering library's loop.
+- Con: Adds PySide6 as a dependency.
+
+**Option B — Plotly Dash controls with WebGL rendering:**
+
+If OQ-PP-26 resolves to a WebGL-based renderer (e.g., Plotly 3D traces), controls are Dash `dcc` components in the same browser application.
+
+- Pro: Excellent visual quality and button responsiveness in the browser.
+- Pro: Portable — runs in any browser on Linux, Windows, and ARM.
+- Pro: No separate window or event loop to manage — everything runs in the browser.
+- Con: Only viable if OQ-PP-26 selects a WebGL/browser-based renderer.
+- Con: Requires a local Dash server; `show()` opens a browser rather than a native window.
+- Con: Adds Dash as a dependency (MIT license, acceptable).
+
+**Option C — Panel (HoloViz) widgets:**
+
+Panel provides high-quality browser-rendered widgets alongside the 3D rendering view. Compatible with several rendering backends.
+
+- Pro: Good widget quality and responsiveness.
+- Pro: Portable via browser rendering.
+- Pro: Apache 2.0 license.
+- Con: Only viable alongside a browser-compatible rendering backend from OQ-PP-26.
+- Con: Adds Panel as a dependency.
+
+**Summary:** Option A (PySide6) is the most broadly applicable — it works with any 3D rendering library that supports Qt embedding and provides the best native interactivity. Options B and C are viable only if OQ-PP-26 selects a browser-based renderer. Final decision deferred until OQ-PP-26 is resolved.
+
+---
+
+### OQ-PP-26 — 3D Rendering Library for TrajectoryView
+
+**Decision: Option A selected — Vispy.**
+
+Vispy provides correct OpenGL transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. Supports Qt embedding, making PySide6 the natural choice for OQ-PP-4 controls. `TrajectoryView` must be rewritten using Vispy; the matplotlib 3D dependency is removed from `TrajectoryView`. Vispy is added to `pyproject.toml`.
+
+The option analysis below is retained for context.
+
+The current matplotlib 3D implementation is a known first-pass limitation. matplotlib uses a painter's algorithm without per-fragment depth testing: transparency on overlapping ribbon quads is incorrect, geometry z-fights at intersections, and there is no support for lighting, shadows, or anti-aliasing. A replacement is required.
+
+**Rendering requirements:**
+- Correct alpha-blended transparency for ribbon trail fade (PP-F26, PP-F27)
+- Per-face color mapping for roll attitude colormap (OQ-PP-14)
+- Terrain surface mesh rendering (PP-F23)
+- Four camera modes with programmatic camera control (PP-F29–PP-F32)
+- Smooth animation at simulation frame rate
+- Portable to Linux, Windows, and ARM
+
+**Option A — Vispy (OpenGL-based scientific visualization):**
+
+Vispy is a high-performance interactive 2D/3D visualization library built on OpenGL. It provides `visuals` for points, lines, meshes, and surfaces with correct depth testing and transparency.
+
+- Pro: Designed for scientific data visualization — natural fit for trajectory and terrain rendering.
+- Pro: Correct OpenGL transparency and depth testing — ribbon fade works correctly.
+- Pro: High performance — GPU-accelerated; handles large mesh geometry efficiently.
+- Pro: Portable to Linux, Windows, and ARM; supports Qt, GLFW, and other backends.
+- Pro: BSD license.
+- Con: Lower-level than PyVista — ribbon and terrain geometry must be expressed as Vispy `Mesh` or `Surface` visuals; more rendering code required than a higher-level library.
+- Con: Camera control API is lower-level; the four required camera modes must be implemented explicitly.
+
+**Option B — PyVista (VTK-based):**
+
+PyVista is a high-level 3D visualization library wrapping VTK. It provides mesh, surface, and volume rendering with correct transparency, lighting, and depth sorting via VTK's rendering pipeline.
+
+- Pro: High-level API — terrain and ribbon geometry expressed as `pv.PolyData` meshes; less rendering code than Vispy.
+- Pro: Correct transparency via VTK's depth-peeling algorithm.
+- Pro: Lighting and shadow support built in.
+- Pro: Portable to Linux, Windows, and ARM.
+- Pro: MIT license.
+- Con: VTK is a large dependency — adds significant package weight.
+- Con: PyVista's interactive window uses VTK's own event loop; Qt embedding requires `pyvista.BackgroundPlotter` or similar.
+- **Con (performance):** VTK uses OpenGL for the final draw call (GPU-accelerated), but VTK's data pipeline — the mapper and filter chain that converts `PolyData` to GPU buffers — runs on the CPU. Every frame where ribbon geometry changes requires a CPU-side VTK pipeline update before the data reaches the GPU. This per-frame CPU overhead is substantially higher than a direct OpenGL library and is a concern for smooth high-frame-rate animation.
+
+**Option C — Plotly 3D traces (WebGL via Three.js):**
+
+Plotly's 3D scatter, mesh, and surface traces render via WebGL in the browser. Transparency is handled correctly by the WebGL pipeline.
+
+- Pro: Already a project dependency — no new library required.
+- Pro: Correct WebGL transparency and depth sorting.
+- Pro: Browser-based — portable to any platform with a browser.
+- Pro: Consistent toolkit with `TimeHistoryFigure` — unified browser-based visualization stack.
+- Pro: Camera control is available via Plotly's built-in scene camera API.
+- Con: Ribbon trail geometry (per-quad face color, log-scale alpha fade) must be expressed as a Plotly `Mesh3d` trace — requires pre-computing vertex/face arrays and color arrays; no `Poly3DCollection` equivalent.
+- Con: Browser-based display; `show()` opens a browser rather than a native window. Requires Dash or similar for playback controls (ties OQ-PP-4 to Option B).
+- Con: Plotly 3D performance for animated large meshes is lower than native OpenGL options.
+
+**Option D — Panda3D:**
+
+Panda3D is a full 3D game engine with a Python API. It provides a complete scene graph, correct transparency sorting, lighting, shadows, and camera control.
+
+- Pro: Best rendering quality of all options — full game engine rendering pipeline.
+- Pro: Camera control API directly supports the four required modes via `NodePath` transforms.
+- Pro: Correct transparency and depth sorting.
+- Pro: Portable to Linux, Windows, and ARM.
+- Pro: BSD license.
+- Con: Heaviest dependency — a full game engine for a visualization use case may be disproportionate.
+- Con: Panda3D owns the window and event loop; Qt embedding is possible but non-trivial.
+
+**Summary against requirements:**
+
+| Option | Correct transparency | Terrain mesh | Camera control | Portable | License | Dependency weight |
+| --- | --- | --- | --- | --- | --- | --- |
+| A — Vispy | Yes (OpenGL) | Yes (Mesh visual) | Manual (lower-level) | Yes | BSD | Light |
+| B — PyVista | Yes (depth-peeling) | Yes (PolyData) | Manual (VTK camera) | Yes | MIT | Heavy (VTK); CPU pipeline overhead per frame |
+| C — Plotly WebGL | Yes (WebGL) | Yes (Mesh3d) | Via scene camera API | Yes (browser) | MIT | None (existing) |
+| D — Panda3D | Yes (scene graph) | Yes (geometry node) | Native scene graph | Yes | BSD | Heavy (game engine) |
+
+Options A (Vispy) and C (Plotly WebGL) are the strongest candidates. Vispy provides native OpenGL rendering in a desktop window; Plotly WebGL is already a dependency and provides a consistent browser-based stack with `TimeHistoryFigure`. The choice between them depends on whether a native desktop window or a browser-based display is preferred for `TrajectoryView`.
+
+---
+
+### OQ-PP-6 — C++ Logger MCAP Channel Registration Design
+
+**Decision: Option B selected.**
+
+One MCAP topic per data field using the same channel naming convention as the ring buffer (e.g., `"aircraft/altitude_m"`). Source name is the topic prefix before `/`. `FlightLogReader.load_mcap()` parses the prefix as the source name and merges per-field channels into per-source DataFrames on a common time index. The concrete naming convention is defined by the C++ Logger design task.
+
+The option analysis below is retained for context.
+
+**Implications from resolved OQs:**
+
+- **OQ-PP-24b (per-channel scalar/array ring buffer):** The ring buffer registers individual named channels (`ChannelRegistry`) — not per-source aggregate rows. Channels are identified by name strings such as `"aircraft/altitude_m"`. If the Logger uses the same per-channel naming convention in MCAP, the channel names in log files match those in the ring buffer, giving a single consistent channel vocabulary across both the live and post-processing paths. `FlightLogReader` can re-use the same channel name strings that live subscribers use.
+- **OQ-PP-5 (protobuf preferred for streaming):** Per-channel individual messages have trivial protobuf schemas (e.g., a `TimestampedScalar` or `TimestampedArray` message). Per-source aggregate schemas (Option A) are more complex and must be updated whenever a field is added.
+- **PP-F35 (new channels without modifying existing consumers):** Option A violates this requirement in the log domain — adding a field to a source message requires updating the schema and all consumers of that message. Option B satisfies it — a new field is a new MCAP topic; existing consumers are unaffected.
+
+These constraints together strongly favor **Option B**.
+
+**Option A — One topic per logical source, one message type per topic:**
+
+The Logger registers one MCAP channel per logical data source (e.g., topic `"aircraft_state"`). Each message contains all fields for that source at one timestep.
+
+- Pro: Simple DataFrame reconstruction — one topic maps directly to one DataFrame.
+- Pro: All fields for a source arrive in one message; no timestamp alignment required.
+- Con: Adding a new field requires updating the protobuf schema and all consumers — inconsistent with PP-F35.
+- Con: All fields delivered together even if a consumer needs only a subset — inconsistent with OQ-PP-24b's per-channel model.
+- **Con (consistency): Channel granularity is per-source in MCAP but per-field in the ring buffer — two different channel naming vocabularies for the same data.**
+
+**Option B — One topic per data field (preferred):**
+
+Each MCAP channel corresponds to a single named data field using the same naming convention as the ring buffer (e.g., `"aircraft/altitude_m"`). The source name is the topic prefix before `/`.
+
+- Pro: Consistent with OQ-PP-24b — the same channel names used in the ring buffer are used in MCAP. A single channel vocabulary spans both live and post-processing paths.
+- Pro: Adding a new field is a new MCAP topic — consistent with PP-F35; no schema update required.
+- Pro: Trivial per-channel protobuf schema (e.g., `TimestampedScalar { double timestamp_s = 1; double value = 2; }`) — consistent with OQ-PP-5.
+- Pro: Consumers subscribe only to the fields they need.
+- Con: Reconstructing a per-source DataFrame in `FlightLogReader` requires merging many per-field channels on timestamp. This is a real implementation cost but is well-handled by `pandas.merge` or `concat` on a common time index.
+- Con: Large number of MCAP channels for a high-channel-count simulation — channel metadata overhead grows linearly with field count.
+
+**Option C — One topic per source with metadata carrying source name:**
+
+Multiple MCAP channels share the same `channel.topic`, distinguished by a `source` key in `channel.metadata`.
+
+- Con: Does not resolve the per-field vs. per-source granularity question — still requires a choice from A or B.
+- Con: Metadata field naming convention must be standardized separately.
+- Con: `channel.topic` is not the channel name — inconsistent with the ring buffer's direct channel-name model.
+
+**Recommendation:** Option B is strongly preferred given the OQ-PP-24b and PP-F35 constraints. The Logger design task should adopt Option B. `FlightLogReader.load_mcap()` must be updated to parse the topic prefix as the source name and merge per-field channels into per-source DataFrames.
+
+---
+
+### OQ-PP-17 — LiveTimeHistoryFigure Display Technology
+
+**Decision: Option C selected — Panel (HoloViz) with Plotly panes.**
+
+Panel wraps Plotly figures as `pn.pane.Plotly` components. `pn.state.add_periodic_callback()` drives rolling updates polled from the ring buffer (consistent with OQ-PP-24a). Visually consistent with `TimeHistoryFigure`. Browser-based; portable to Linux and ARM. Apache 2.0 license. Panel added to `pyproject.toml`.
+
+The option analysis below is retained for context.
+
+**Known requirements from prior resolutions:**
+- Rolling time window anchored at present time, shared across all panels (OQ-PP-19, PP-F20)
+- User controls: zoom/scroll time, reset to present, per-panel y-limit set/reset (OQ-PP-1, PP-F21–PP-F22)
+- Same visual style as `TimeHistoryFigure` (OQ-PP-1) — `TimeHistoryFigure` uses Plotly
+- Portable to Linux and ARM (PP-F04 analog)
+- Technology must also satisfy OQ-PP-4 criteria (responsive, reliable, good-looking) if controls are shared
+
+**Option A — matplotlib `FuncAnimation` + widgets:**
+
+Consistent with `TrajectoryView`. A `FuncAnimation` drives the rolling update; matplotlib `Button` and `Slider` widgets provide time zoom/scroll controls.
+
+- Pro: No new dependency beyond what `TrajectoryView` already uses.
+- Pro: Single toolkit for all live visualization.
+- Con: matplotlib's time history plots are visually inferior to Plotly — violates the "same visual style as `TimeHistoryFigure`" requirement (OQ-PP-1).
+- Con: Widget responsiveness concerns apply (same as OQ-PP-4 Option A).
+- Con: Updating many subplot traces efficiently in a `FuncAnimation` loop requires careful artist management to avoid redraw overhead.
+
+**Option B — Plotly Dash with `dcc.Interval`:**
+
+A Dash app renders Plotly figures (visually consistent with `TimeHistoryFigure`) and polls for new data via a `dcc.Interval` callback. Controls are Dash `dcc` components.
+
+- Pro: Visual consistency with `TimeHistoryFigure` — same Plotly rendering engine.
+- Pro: Excellent control responsiveness and visual quality in the browser.
+- Pro: Portable to Linux and ARM via any browser.
+- Pro: `dcc.Interval` provides a natural polling mechanism compatible with the ring buffer polling model (OQ-PP-24a).
+- Con: Requires a local Dash server process; display opens in a browser rather than a native window.
+- Con: Adds Dash as a dependency (MIT license, acceptable).
+- Con: Server-client architecture introduces slight latency between data availability and display update.
+
+**Option C — Panel (HoloViz) with Plotly panes:**
+
+Panel wraps Plotly figures as `pn.pane.Plotly` components and adds Panel widgets for time controls. Periodic callbacks drive rolling updates.
+
+- Pro: Visual consistency with `TimeHistoryFigure` — Plotly rendering.
+- Pro: Responsive browser-based controls.
+- Pro: `pn.state.add_periodic_callback()` is a natural fit for the polling model.
+- Pro: Apache 2.0 license.
+- Con: Panel adds a dependency; Panel+Plotly embedding is functional but the combination is less commonly used than Panel+Bokeh.
+- Con: Display opens in a browser or Jupyter — not a native window.
+
+**Option D — Bokeh server:**
+
+Bokeh's `ColumnDataSource` supports efficient live data streaming; a Bokeh server drives updates via periodic callbacks. Controls are Bokeh widgets.
+
+- Pro: Designed for live streaming visualization — `ColumnDataSource.stream()` appends new data efficiently.
+- Pro: Browser-based; portable to Linux and ARM.
+- Pro: BSD license.
+- Con: Visual style differs from Plotly — violates the "same visual style as `TimeHistoryFigure`" requirement unless `TimeHistoryFigure` is also migrated to Bokeh.
+- Con: Adds Bokeh as a dependency; Bokeh and Plotly serve overlapping roles — having both is redundant.
+
+**Summary against known criteria:**
+
+| Option | Linux/ARM portable | Responsive controls | Visual consistency with `TimeHistoryFigure` | Dependency |
+| --- | --- | --- | --- | --- |
+| A — matplotlib | Yes | Poor | No (different renderer) | None |
+| B — Plotly Dash | Yes (browser) | Excellent | Yes | Dash (MIT) |
+| C — Panel + Plotly | Yes (browser) | Good | Yes | Panel (Apache 2.0) |
+| D — Bokeh | Yes (browser) | Good | No (different renderer) | Bokeh (BSD) |
+
+Options B and C are the strongest candidates given the visual consistency requirement. The formal use-case analysis must confirm whether browser-based display is acceptable for the live use case before a final decision can be made.
