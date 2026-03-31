@@ -112,7 +112,7 @@ flowchart TD
 | PP-F22 | `LiveTimeHistoryFigure` exposes per-panel vertical axis controls: set explicit y-limits, and reset y-limits to the maximum extents of the data currently buffered in the rolling window. |
 | PP-F23 | `TrajectoryView` and all 3D trajectory visualizations render terrain geometry as a surface beneath the aircraft ribbon trail. The terrain surface is rendered in both post-processing and live trajectory views. |
 | PP-F24 | Terrain colormap saturation is adjustable from 0.0 (greyscale) to 1.0 (full saturation). Desaturating the terrain increases visual contrast against aircraft markers and ribbon trails. |
-| PP-F25 | The default ownship trajectory color is medium blue (`#4A7FC1`); the default exogenous platform color is medium red (`#C14A4A`). Both are drawn from a compatible palette at consistent medium saturation: green (`#4CA64C`), orange (`#C1894A`), purple (`#8A4AC1`), teal (`#4AA6A6`). Exact hex values are proposed defaults subject to visual review — see OQ-PP-22. |
+| PP-F25 | The default ownship trajectory color is medium blue (`#4A7FC1`); the default exogenous platform color is medium red (`#C14A4A`). Both are drawn from a compatible palette at consistent medium saturation: green (`#4CA64C`), orange (`#C1894A`), purple (`#8A4AC1`), teal (`#4AA6A6`). Exact hex values are proposed defaults subject to visual verification against terrain colormaps and both light and dark backgrounds during visual testing; they may be revised as a result. |
 | PP-F26 | Aircraft marker alpha and ribbon trail base alpha are individually configurable per loaded source. |
 | PP-F27 | The live ribbon trail alpha fades on a logarithmic scale from fully opaque at the aircraft's current position to fully transparent at the oldest visible segment: $\alpha_i = \log(i+1) / \log(N_\text{trail})$ where $i = 0$ is the tail and $i = N_\text{trail} - 1$ is the head. The log scale ensures the ribbon appears solid for most of its visible length (at $i = N_\text{trail}/2$, $\alpha \approx 0.87$ for $N_\text{trail} = 200$) and fades smoothly to transparent only near the tail. |
 | PP-F28 | `TrajectoryView` supports four selectable camera modes: body-axis FPV, 3rd-person trailing, orthographic god's eye, and orthographic local top view. The active camera mode is selectable via a control during playback. |
@@ -153,13 +153,13 @@ simulation design item that is not yet complete.
 
 | Module | External dependencies | Blocking sim design gaps |
 | --- | --- | --- |
-| `FlightLogReader` | `mcap`, `mcap-protobuf-support`, `pandas` | Concrete channel naming convention from C++ Logger design task (architectural decision made in OQ-PP-6; naming convention still pending) |
+| `FlightLogReader` | `mcap`, `mcap-protobuf-support`, `pandas` | Concrete channel naming convention from C++ Logger design task (one-topic-per-field convention settled; naming convention still pending) |
 | `ModeEventSeries` | `pandas` | None |
 | `TimeHistoryFigure` | `plotly` | None |
-| `LiveTimeHistoryFigure` | `panel`, `plotly` | Ring buffer and channel registry architecture document (OQ-PP-24) |
+| `LiveTimeHistoryFigure` | `panel`, `plotly` | Ring buffer and channel registry architecture document |
 | `RibbonTrail` | `numpy`, `vispy`, `matplotlib` (colormap utilities) | None |
 | `HudOverlay` | `vispy` | None |
-| `TrajectoryView` | `vispy`, `pyside6`, `pygltflib` | None; terrain LOD algorithm deferred to item 9 (OQ-PP-21) |
+| `TrajectoryView` | `vispy`, `pyside6`, `pygltflib` | None; terrain LOD algorithm deferred to item 9 |
 
 These modules may be implemented as soon as this item is authorized.
 
@@ -362,17 +362,17 @@ SI unit suffixes matching the Logger schema (e.g., `altitude_m`, `roll_rate_rad_
 
 **MCAP reading:** Uses the `mcap` Python SDK (`mcap.reader.make_reader`). Both JSON
 and protobuf message encodings are supported; `mcap-protobuf-support` is required for
-protobuf decoding (OQ-PP-5). Each MCAP topic has the form `"source/field_name"`;
+protobuf decoding. Each MCAP topic has the form `"source/field_name"`;
 `load_mcap()` parses the prefix before `/` as the source name and merges all per-field
-channels for each source into one DataFrame on a common time index (OQ-PP-6). The
+channels for each source into one DataFrame on a common time index. The
 concrete naming convention is defined by the C++ Logger design task.
 
 **CSV reading:** Reads the CSV produced by `Logger::exportCsv()` directly with
 `pandas.read_csv`. The source name is embedded in the CSV header row, not derived from
-the filename (OQ-PP-7). The concrete header field name is defined by the C++ Logger
+the filename. The concrete header field name is defined by the C++ Logger
 CSV export format.
 
-**State:** `FlightLogReader` is stateful with explicit invalidation (OQ-PP-8). `load_*()`
+**State:** `FlightLogReader` is stateful with explicit invalidation. `load_*()`
 clears the internal cache, stores the new frames dict, and returns it. A `frames()`
 getter exposes the cached dict. `channel_names(source)` raises if called before any
 `load_*()` call.
@@ -509,7 +509,7 @@ Mode names are mapped from a configurable `{int: str}` dictionary. `ModeEventSer
 consumed by `TimeHistoryFigure`, `LiveTimeHistoryFigure`, and `TrajectoryView` to ensure
 consistent labeling across all views.
 
-**Mode source (OQ-PP-3 resolved):** Mode IDs are read from an explicit channel logged by
+**Mode source:** Mode IDs are read from an explicit channel logged by
 the simulation — not inferred post-hoc from command transitions. Explicit logging is
 preferred because live streaming cannot afford the computation overhead of detecting mode
 changes through analysis. Inference from command transitions is supported as a fallback
@@ -517,13 +517,13 @@ for logs that do not carry an explicit mode channel. The channel name is defined
 Logged Channel Registry (item 4).
 
 **Initial value:** `from_dataframe()` emits the channel's initial value as a `ModeEvent`
-at the first sample time, before any transition has occurred (OQ-PP-9). This ensures
+at the first sample time, before any transition has occurred. This ensures
 time history and 3D overlays display the starting mode from the beginning of the log.
 
 **Name map location:** The name map is a constructor argument:
 `ModeEventSeries(events, name_map=None)`. The map is stored on the object for its
 lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to
-the constructor (OQ-PP-10).
+the constructor.
 
 ---
 
@@ -539,7 +539,7 @@ via Plotly's `shared_xaxes=True` layout option — no custom JavaScript is requi
 
 ```python
 fig = TimeHistoryFigure(title="Landing Scenario — Channel Review")
-fig.load(frames)   # dict[str, DataFrame] from FlightLogReader — see OQ-PP-11
+fig.load(frames)   # dict[str, DataFrame] from FlightLogReader
 fig.add_panel(
     channels=["altitude_m", "altitude_agl_m"],
     title="Altitude",
@@ -558,7 +558,7 @@ fig.export_html("output/landing_review.html")
 
 **`load()` and `figure()`:** A `load(frames)` method supplies source DataFrames. A
 `figure()` accessor triggers the internal build if needed and returns the Plotly `Figure`
-object without opening a browser (OQ-PP-11). `show()` and `export_html()` are also
+object without opening a browser. `show()` and `export_html()` are also
 public. `figure()` is defined on a shared base class or protocol so all future plot types
 implement a consistent interface.
 
@@ -615,15 +615,14 @@ control re-anchors the window at the live edge.
 `ModeEventSeries` is accepted via `set_mode_events()`.
 
 **Display technology:** Panel (HoloViz) with Plotly panes (`pn.pane.Plotly`).
-`pn.state.add_periodic_callback()` drives rolling updates polled from the ring buffer
-(OQ-PP-17).
+`pn.state.add_periodic_callback()` drives rolling updates polled from the ring buffer.
 
 **Data ingestion:** Live plot data is sourced from a shared ring buffer published by
 `SimRunner` via pybind11, polled on a timer. `FlightLogReader` is not involved in the
-live path (OQ-PP-18, OQ-PP-24).
+live path.
 
 **Rolling window:** A single figure-level setting shared across all panels; default
-30 seconds. Configurable via `set_time_window(duration_s)` (OQ-PP-19).
+30 seconds. Configurable via `set_time_window(duration_s)`.
 
 ---
 
@@ -659,9 +658,9 @@ path relative to ridgelines, etc. The terrain surface is required in both post-p
 
 Terrain geometry is delivered to `TrajectoryView` as a pre-generated glTF/GLB file via
 `TrajectoryView.load_terrain(path)`, where the path is resolved by `gltf_path(dataset_name)`
-in `python/tools/terrain/terrain_paths.py` (OQ-PP-20, OQ-PP-27, OQ-PP-28 resolved). The LOD
+in `python/tools/terrain/terrain_paths.py`. The LOD
 to use for rendering is selected adaptively at load time with a user-configurable override;
-the concrete LOD selection algorithm is defined by item 9 (OQ-PP-21 resolved).
+the concrete LOD selection algorithm is defined by item 9.
 
 #### Visual Design
 
@@ -684,14 +683,14 @@ lightness. They remain visually compatible when multiple sources are overlaid. A
 CSS hex colors are accepted when the standard palette is insufficient.
 
 The exact hex values are proposed defaults subject to visual verification against terrain
-colormap and both light and dark backgrounds — see OQ-PP-22.
+colormap and both light and dark backgrounds during visual testing; they may be revised as a result.
 
 ##### Terrain Saturation
 
 Terrain colormap saturation is controlled via `set_terrain_saturation(value)` where
 `value` is in the range 0.0 (greyscale) to 1.0 (full saturation, default). Reducing
 saturation increases visual contrast between terrain and the aircraft marker and ribbon
-trail. The API form (method call vs. constructor argument) is unresolved — see OQ-PP-23.
+trail. Both `set_terrain_saturation(value)` and a constructor keyword argument `terrain_saturation: float = 1.0` are part of the API.
 
 ##### Aircraft Alpha
 
@@ -723,7 +722,7 @@ The ribbon encodes roll attitude as a 3D surface strip. At each trajectory index
 
 $$R_i = R_z(\psi_i)\, R_y(\theta_i)\, R_x(\phi_i)$$
 
-1. The wing half-span vector in world frame (OQ-PP-12):
+1. The wing half-span vector in world frame:
 
 $$\mathbf{w}_i = R_i \begin{bmatrix} 0 \\ \text{wing\_span\_m}/2 \\ 0 \end{bmatrix}$$
 
@@ -736,7 +735,7 @@ $$\mathbf{v}_{i}^{+} = \mathbf{p}_i + \mathbf{w}_i, \qquad
 \mathbf{v}_{i}^{-} = \mathbf{p}_i - \mathbf{w}_i$$
 
 4. Each ribbon quad uses CCW vertex winding when viewed from the outward face normal,
-   consistent with OpenGL convention (OQ-PP-13):
+   consistent with OpenGL convention:
    $(\mathbf{v}_i^-, \mathbf{v}_{i+1}^-, \mathbf{v}_{i+1}^+, \mathbf{v}_i^+)$.
    The front-face normal points away from the aircraft centerline.
 
@@ -744,10 +743,10 @@ $$\mathbf{v}_{i}^{+} = \mathbf{p}_i + \mathbf{w}_i, \qquad
    diverging colormap (RdBu\_r, centered at $\phi = 0$, saturated at $\pm 60°$).
    Normalized age $\tau_i = (t_\text{current} - t_{\text{mid},i}) / \text{trail\_duration\_s}$,
    clamped to $[0, 1]$. Saturation decreases linearly with $\tau$; transparency follows
-   $\alpha_i = \log(2 - \tau_i) / \log 2$ (OQ-PP-14). A colorbar is placed at the right
+   $\alpha_i = \log(2 - \tau_i) / \log 2$. A colorbar is placed at the right
    edge of the 3D axes.
 
-6. Edge lines along the upper and lower wing-tip edges are optional (OQ-PP-15), enabled
+6. Edge lines along the upper and lower wing-tip edges are optional, enabled
    per source via the `show_edges` flag on `load()`. Edge lines follow the same $\tau$-based
    fade as the face color and are rendered in a darkened version of the face color.
 
@@ -757,9 +756,8 @@ quads) is redrawn as the live trail with the time-based fade applied.
 
 **Mode segment coloring:** The trajectory path is broken into per-mode segments, each
 drawn in a distinct color from the `tab10` palette. A legend identifies each mode by
-name. This feature is not yet implemented; it depends on OQ-PP-3 (explicit mode channel
-in the log — resolved) and requires the concrete channel name from the Logged Channel
-Registry (item 4).
+name. This feature is not yet implemented; it requires an explicit mode channel in the log and also requires
+the concrete channel name from the Logged Channel Registry (item 4).
 
 #### Pre-computation
 
@@ -771,10 +769,10 @@ Pre-computation (runs once on load)
   ↓
   for i in 0..N:
       R_i = rotation_matrix(heading[i], pitch[i], roll[i])
-      w_i = R_i @ [0, wing_span_m / 2, 0]   ← half-span vector (OQ-PP-12)
+      w_i = R_i @ [0, wing_span_m / 2, 0]   ← half-span vector
       v_upper[i] = position[i] + w_i
       v_lower[i] = position[i] - w_i
-      ← quad color and alpha computed per-quad from time midpoint (OQ-PP-14)
+      ← quad color and alpha computed per-quad from time midpoint
 
 Animation loop (Vispy, ≥ 20 fps)
   ↓
@@ -803,7 +801,7 @@ The active mode is stored in `_camera_mode : CameraMode` and applied each animat
 
 Camera controls (mode-switch buttons, zoom slider, north/track-up toggle) are implemented
 as PySide6 native widgets (`QPushButton`, `QSlider`, `QRadioButton`) in the Qt layout
-alongside the Vispy canvas (OQ-PP-4).
+alongside the Vispy canvas.
 
 ---
 
@@ -863,17 +861,17 @@ match their respective trajectory colors.
 | `numpy` | ≥ 1.26 | BSD-3-Clause | Rotation matrices, ribbon geometry, colormap computation |
 | `plotly` | ≥ 5.18 | MIT | Interactive linked time history, HTML export |
 | `mcap` | ≥ 1.1 | MIT | MCAP file reading (Python SDK from mcap.dev) |
-| `mcap-protobuf-support` | ≥ 1.0 | MIT | Protobuf message decoding from MCAP files (OQ-PP-5) |
-| `vispy` | ≥ 0.14 | BSD-3-Clause | 3D trajectory canvas, ribbon trail, terrain mesh, HUD overlay (OQ-PP-26) |
-| `pyside6` | ≥ 6.6 | LGPL-3.0 | Playback and camera control widgets embedded alongside Vispy canvas (OQ-PP-4) |
-| `panel` | ≥ 1.3 | Apache-2.0 | Live time history display — wraps Plotly panes with periodic callbacks (OQ-PP-17) |
+| `mcap-protobuf-support` | ≥ 1.0 | MIT | Protobuf message decoding from MCAP files |
+| `vispy` | ≥ 0.14 | BSD-3-Clause | 3D trajectory canvas, ribbon trail, terrain mesh, HUD overlay |
+| `pyside6` | ≥ 6.6 | LGPL-3.0 | Playback and camera control widgets embedded alongside Vispy canvas |
+| `panel` | ≥ 1.3 | Apache-2.0 | Live time history display — wraps Plotly panes with periodic callbacks |
 | `matplotlib` | ≥ 3.8 | PSF | 2D colormaps and color utilities used in ribbon geometry |
 
 All licenses are compatible with the project license preference (MIT → BSD → Apache).
 PySide6 is LGPL and must be dynamically linked.
 
-All listed libraries are declared in `[project] dependencies` in `python/pyproject.toml`
-(OQ-PP-16). The minimum versions below reflect the versions verified during initial
+All listed libraries are declared in `[project] dependencies` in `python/pyproject.toml`.
+The minimum versions below reflect the versions verified during initial
 implementation:
 
 ```toml
@@ -973,54 +971,19 @@ run with an offscreen backend (e.g., `vispy.use("offscreen")`) to avoid opening 
 
 ---
 
-## Open Questions
+## Decision Records
 
-| # | Question | Impact |
-| --- | --- | --- |
-| OQ-PP-1 | **Resolved.** A separate `LiveTimeHistoryFigure` class is required. It does not share the function interface of `TimeHistoryFigure` but uses the same visual style and panel configuration. Nominal presentation is a rolling time window anchored at present time. Required user controls: zoom/scroll time, reset to present, per-panel y-limit set/reset. Three new OQs opened: OQ-PP-17 (display technology), OQ-PP-18 (data ingestion interface), OQ-PP-19 (rolling window duration). | `LiveTimeHistoryFigure` module added to design |
-| OQ-PP-2 | **Resolved.** Terrain geometry is rendered as a surface beneath the ribbon trail in all 3D trajectory views — both post-processing (`TrajectoryView`) and any future live 3D trajectory view. Two new OQs opened: OQ-PP-20 (terrain data access mechanism), OQ-PP-21 (LOD selection). | `TrajectoryView` terrain surface required; PP-F23 added |
-| OQ-PP-3 | **Resolved.** Mode IDs are embedded as an explicit channel in the log stream. Explicit annotation is preferred over post-hoc inference from command transitions because live presentation cannot afford the computation overhead of analyzing the stream to detect mode changes. Inference from command transitions is a documented fallback for logs that do not carry an explicit mode channel. The concrete channel name (e.g., `flight_control_mode_id`) is defined by the Logged Channel Registry (item 4). OQ-PP-15 is unblocked from its OQ-PP-3 dependency. | `ModeEventSeries.from_dataframe()` reads an explicit mode channel; fallback inference path to be documented; OQ-PP-15 dependency on OQ-PP-3 cleared |
-| OQ-PP-4 | **Resolved.** PySide6 native widgets embedded in a Qt window alongside the Vispy canvas (OQ-PP-26). `QPushButton`, `QSlider`, and `QRadioButton` controls in a Qt layout provide play/pause/step/loop, camera mode selection, zoom, and north-up/track-up toggle. PySide6 is LGPL — license-acceptable with dynamic linking. Portable to Linux, Windows, and ARM. | `TrajectoryView` window becomes a `QMainWindow`; Vispy canvas embedded via `QWidget`; PySide6 added to `pyproject.toml` |
-| OQ-PP-5 | **Resolved.** Both JSON and protobuf message encodings are supported. Protobuf is preferred for live and streaming use cases for data compactness. `FlightLogReader` must handle both; `mcap-protobuf-support` is added as a required dependency. The concrete protobuf schema is defined by the C++ Logger — that definition is still pending. | Affects `FlightLogReader.load_mcap()`; `mcap-protobuf-support` added to dependency table; schema TBD from C++ Logger |
-| OQ-PP-6 | **Resolved.** Option B: one MCAP topic per data field, using the same channel naming convention as the ring buffer (e.g., `"aircraft/altitude_m"`). The source name is the topic prefix before `/`. `FlightLogReader.load_mcap()` parses the prefix as the source name and merges per-field channels into per-source DataFrames on a common time index. Consistent with OQ-PP-24b (per-channel ring buffer) and PP-F35 (new channels without modifying existing consumers). The concrete naming convention is defined by the C++ Logger design task. | `FlightLogReader.load_mcap()` updated to parse topic prefix as source name and merge per-field channels; current `channel.topic`-as-key assumption replaced |
-| OQ-PP-7 | **Resolved.** The source name is embedded in the CSV header row, not derived from the filename. This decouples the source identity from how the file is named and is required because the log may contain sources other than the aircraft simulation. The concrete header field name is defined by the C++ Logger CSV export format. | Affects `load_csv()` source-name extraction; `test_load_mcap_matches_csv` fixture must embed the source name in the CSV header |
-| OQ-PP-8 | **Resolved.** Option C: `FlightLogReader` is stateful with explicit invalidation. `load_*()` clears the internal cache, stores the new frames dict, and returns it as its value. `channel_names(source)` queries the cache and raises if called before any `load_*()`. A `frames()` getter exposes the cached dict. This gives the compact calling convention of Option A with a clear failure mode if misused and a direct return value for callers that want to capture the frames immediately. | `FlightLogReader.load_*()` returns `dict[str, DataFrame]`; `frames()` getter added; `channel_names()` raises before first load |
-| OQ-PP-9 | **Resolved.** `ModeEventSeries.from_dataframe()` emits the channel's initial value as a `ModeEvent` at the first sample time, before any transition has occurred. This ensures that time history and 3D overlays display the starting mode from the beginning of the log, not only from the first mode change. | Affects `from_dataframe()` implementation; initial-value test case required |
-| OQ-PP-10 | **Resolved.** Option B: the name map is a constructor argument `ModeEventSeries(events, name_map=None)`. The map is stored on the object for its lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to the constructor. This is consistent with OQ-PP-8: objects retain their configuration; omission of the map is a visible constructor decision rather than a silent default. | `ModeEventSeries.__init__` gains `name_map` parameter; `from_dataframe()` passes map through to constructor; `name_map` removed from `from_dataframe()` signature as a top-level parameter |
-| OQ-PP-11 | **Resolved.** Option C: `build()` is internal; a `figure()` accessor triggers the build if needed and returns the rendered figure object. `show()` and `export_html()` are also public. This gives full testability without exposing a pipeline-stage method, and `figure()` can be part of a shared base class or protocol as the number of plot types grows. | `TimeHistoryFigure` gains `figure()` accessor; `build()` made internal; `figure()` to be defined on a shared base class or protocol for all future plot types |
-| OQ-PP-12 | **Resolved.** The `build()` parameter is the full aircraft wing span. The formula computes the half-span wing vector as $\mathbf{w}_i = R_i [0,\ \text{wing\_span\_m}/2,\ 0]$. The parameter is renamed `wing_span_m`; the current `half_width_m` usage in the code is incorrect and must be updated. | Affects `RibbonTrail.build()` parameter name and the wing vector calculation; all callers updated |
-| OQ-PP-13 | **Resolved.** Ribbon quads use counter-clockwise (CCW) vertex winding when viewed from the outward face normal (above the ribbon surface), consistent with OpenGL convention and standard game engine interfaces. Winding order: `v_lower[i] → v_lower[i+1] → v_upper[i+1] → v_upper[i]`. This places the front-face normal pointing away from the aircraft centerline. | Affects `RibbonTrail.build()` quad assembly; winding test required |
-| OQ-PP-14 | **Resolved.** Trail length is specified as a duration in seconds (`trail_duration_s`), not a segment count. For each quad, a normalized age $\tau_i \in [0, 1]$ is computed from the time midpoint of the quad: $\tau_i = (t_\text{current} - t_{\text{mid},i}) / \text{trail\_duration\_s}$, clamped to $[0, 1]$, where $t_{\text{mid},i} = (t_i + t_{i+1}) / 2$. Face color is mapped from the roll angle at $t_{\text{mid},i}$ (time-interpolated midpoint). Saturation decreases linearly with $\tau$ (full saturation at $\tau=0$, grayscale at $\tau=1$). Transparency follows the log-scale formula updated for $\tau$: $\alpha_i = \log(2 - \tau_i) / \log 2$ ($\tau=0 \to \alpha=1$; $\tau=1 \to \alpha=0$; $\tau=0.5 \to \alpha \approx 0.585$). The PP-F27 log-scale principle is preserved; its formula is updated to the time-domain form. | Affects `RibbonTrail.build()` (adds `timestamps` parameter), the animation loop (computes τ per frame), and PP-F27 |
-| OQ-PP-15 | **Resolved.** The ribbon optionally renders edge lines along its outer edges (both upper and lower wing-tip edges). The edge lines are optional — controlled per source by a flag on `load()`. Edge lines follow the same time-based transparency fade as the ribbon face color ($\alpha_i = \log(2 - \tau_i) / \log 2$). Edge line color is a darkened version of the ribbon face color for contrast. OQ-PP-3 dependency cleared. | Adds `show_edges` parameter to `RibbonTrail.build()` and `TrajectoryView.load()`; edge line color computation required |
-| OQ-PP-16 | **Resolved.** `matplotlib`, `pandas`, `plotly`, and `mcap` are declared in `[project] dependencies` in `python/pyproject.toml`. They are required for the primary use case of the package (post-processing visualization) and must be available to all consumers. | Affects `pyproject.toml` `[project] dependencies` section |
-| OQ-PP-17 | **Resolved.** Option C: Panel (HoloViz) with Plotly panes. Panel wraps Plotly figures as `pn.pane.Plotly` components; `pn.state.add_periodic_callback()` drives rolling updates from the ring buffer poll (consistent with OQ-PP-24a). Visually consistent with `TimeHistoryFigure`. Browser-based display; portable to Linux and ARM. Apache 2.0 license. Panel added to `pyproject.toml`. | `LiveTimeHistoryFigure` implemented using Panel + Plotly; Panel added to `pyproject.toml`; dependency table updated |
-| OQ-PP-18 | **Resolved.** Live plot data is sourced from a shared ring buffer published by `SimRunner`, not from the log. Logging and live visualization are parallel, independent outputs of the simulation: the simulator writes to the log file and publishes to the ring buffer simultaneously. The live plot subscribes to the ring buffer; post-processing reads the log. The log is explicitly excluded from the live plotting loop because it may involve write queuing that adds latency and because the two use cases (durable record vs. real-time display) are disjoint. `FlightLogReader` is not involved in the live path; its scope remains batch post-processing only. A new OQ is opened: OQ-PP-24 (ring buffer interface and schema). | `LiveTimeHistoryFigure` subscribes to `SimRunner` ring buffer; `FlightLogReader` scope unchanged; OQ-PP-24 opened |
-| OQ-PP-19 | **Resolved.** The rolling time window is a single figure-level setting shared across all panels (not per-panel). Default duration is 30 seconds. The shared window is required for readability — all panels must show the same time span so the user can correlate events across panels. Configurable via `set_time_window(duration_s)`. | Affects `LiveTimeHistoryFigure.__init__` (adds `window_s: float = 30.0`) and `set_time_window()` |
-| OQ-PP-20 | **Resolved.** Option B selected: terrain delivered to `TrajectoryView` as a pre-generated glTF/GLB file produced by `TerrainMesh::exportGltf()`. Export trigger resolved by OQ-PP-27 (offline ingestion pipeline). Storage path and naming convention for the glTF file are the subject of OQ-PP-28. | `TrajectoryView.load_terrain(path)` reads a pre-generated glTF/GLB; `pygltflib` added as dependency; terrain rendering unblocked pending OQ-PP-28 |
-| OQ-PP-21 | **Resolved.** Both adaptive LOD selection (based on current view bounds and zoom level) and user-configurable LOD override are required. The adaptive mode selects the coarsest LOD that maintains acceptable visual quality for the visible area; the user-configurable override allows forcing a specific LOD for performance tuning or reproducible presentation. The concrete LOD selection algorithm and the LOD scale of the terrain mesh are defined by item 9. | Affects `TrajectoryView` terrain rendering; LOD algorithm design deferred to item 9 |
-| OQ-PP-22 | **Resolved.** The proposed hex defaults in PP-F25 are accepted as initial defaults. All palette entries are configurable per source via `TrajectoryView.load()`. The default values must be verified against terrain colormaps and both light and dark backgrounds during visual testing; they may be revised as a result of that testing. No design block — implementation may proceed with the proposed defaults. | PP-F25 accepted; configurable palette per source required; visual verification required during testing |
-| OQ-PP-23 | **Resolved.** Terrain colormap saturation is runtime-adjustable via `set_terrain_saturation(value)` to support the live use case where the user may change saturation during playback. A constructor default is also accepted (defaults to 1.0 — full saturation). Both the method and a constructor keyword argument are part of the API. | `TrajectoryView.__init__` accepts `terrain_saturation: float = 1.0`; `set_terrain_saturation(value)` updates it at runtime |
-| OQ-PP-24 | **Resolved.** (a) Polling: Python subscribers call `read_available()` on a timer. (b) Per-channel scalar or array: each channel carries a single value or array; type and units declared at registration time. (c) Registry object passed by reference: `SimRunner` holds a `ChannelRegistry&`; Python accesses the same object via pybind11 to discover channels and subscribe. (d) Configurable depth in time: buffer depth specified in seconds at registration; converted to samples using the declared sample rate. (e) pybind11 binding to a C++ ring buffer object: in-process, no IPC overhead. | Ring buffer and channel registry design must be specified in a dedicated architecture document; pybind11 binding required; design blocks `LiveTimeHistoryFigure` implementation |
-| OQ-PP-25 | **Resolved.** Option B: custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The ring buffer and channel registry are implemented in-process; the Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone and does not require interoperability with external ROS2 systems. OQ-PP-24 must be resolved independently. | `SimRunner` architecture unchanged; ring buffer and channel registry design required; OQ-PP-24 unblocked |
-| OQ-PP-26 | **Resolved.** Vispy (OpenGL-based). Correct alpha-blended transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control via direct OpenGL with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. OQ-PP-4 is unblocked — Vispy supports Qt embedding, making PySide6 the natural control widget choice. | `TrajectoryView` rewritten using Vispy; matplotlib 3D dependency removed from `TrajectoryView`; Vispy added to `pyproject.toml`; OQ-PP-4 unblocked |
-| OQ-PP-27 | **Resolved.** Option A selected: `TerrainMesh::exportGltf()` is called from the terrain ingestion Python script, run offline prior to simulation or visualization tasks. The glTF is produced once per terrain dataset and stored alongside the `.las_terrain` files. Option B (sim initialization) is eliminated — the simulation does not generate visualization artifacts at startup. Opens OQ-PP-28 (glTF storage path and naming convention). | Terrain ingestion pipeline extended to include glTF export step; OQ-PP-20 unblocked; OQ-PP-28 opened |
-| OQ-PP-28 | **Resolved.** Terrain data lives under `data/terrain/<dataset_name>/` relative to the project root. `source/` holds immutable raw inputs; `derived/` holds all pipeline outputs and is safe to delete and regenerate. `TERRAIN_DATA_ROOT` is defined once in `python/tools/terrain/terrain_paths.py` and imported by all terrain-accessing functions. Dataset referenced by name string; all artifact paths resolved from the root constant. Single `terrain.glb` per dataset in `derived/gltf/`, containing all available LODs as separate mesh primitives. | `terrain_paths.py` module added; terrain path resolution adopted by `TrajectoryView`, ingestion pipeline, and all future terrain-accessing components |
+Detailed rationale for key design decisions made during the architecture phase. Each record states the decision, summarizes the alternatives considered, and explains why the chosen approach was selected.
 
----
+### DR-1 — FlightLogReader Statefulness
 
-## Open Question Option Analysis
-
-Detailed option analysis for questions requiring a user decision before implementation can proceed.
-
-### OQ-PP-8 — FlightLogReader Statefulness
-
-**Decision: Option C selected.**
+**Decision:** Option C — stateful with explicit invalidation.
 
 `FlightLogReader` is stateful with explicit invalidation. `load_*()` clears the internal cache, stores the new frames dict, and returns it. `channel_names(source)` queries the cache and raises if called before any `load_*()`. A `frames()` getter exposes the cached dict.
 
-Note: thread safety is not a concern — OQ-PP-18 confirmed `FlightLogReader` is batch-only; no concurrent `load_*()` calls arise from the live path.
+Note: thread safety is not a concern — `FlightLogReader` is batch-only; no concurrent `load_*()` calls arise from the live path.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 **Option A — Stateful (current behavior):** `FlightLogReader` stores `_frames: dict[str, pd.DataFrame]` after each `load_*()` call. `channel_names(source)` queries this internal cache.
 
@@ -1045,26 +1008,26 @@ The option analysis below is retained for context.
 
 ---
 
-### OQ-PP-10 — Mode-Name Map Location in ModeEventSeries
+### DR-2 — Mode-Name Map Location in ModeEventSeries
 
-**Decision: Option B selected.**
+**Decision:** Option B — constructor argument.
 
-The name map is a constructor argument: `ModeEventSeries(events, name_map=None)`. The map is stored on the object for its lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to the constructor. Consistent with OQ-PP-8: objects retain their configuration, and omission of the map is a visible constructor decision rather than a silent default.
+The name map is a constructor argument: `ModeEventSeries(events, name_map=None)`. The map is stored on the object for its lifetime. `from_dataframe()` accepts a `name_map` parameter and passes it through to the constructor. Consistent with DR-1: objects retain their configuration, and omission of the map is a visible constructor decision rather than a silent default.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 **Option A — Parameter of `from_dataframe()` (current behavior):** `from_dataframe(df, mode_channel, name_map=None)`.
 
 - Pro: The map is applied at parse time — events are created with names already set.
 - Pro: Minimal API surface — no additional method or constructor argument needed.
-- Con: The map is not stored on the `ModeEventSeries` object — inconsistent with OQ-PP-8 (objects retain their configuration).
+- Con: The map is not stored on the `ModeEventSeries` object — inconsistent with DR-1 (objects retain their configuration).
 - Con: `ModeEventSeries` objects created by other means carry no name knowledge.
 - **Con (silent error risk): `name_map=None` is the default. A caller who omits the map receives integer mode IDs as display labels with no warning.**
 
 **Option B — Constructor argument (selected):** `ModeEventSeries(events, name_map=None)`.
 
 - Pro: The map stays associated with the series for its lifetime — any display call can use it.
-- Pro: Consistent with OQ-PP-8: objects retain their configuration.
+- Pro: Consistent with DR-1: objects retain their configuration.
 - Pro: Supports lazy name resolution: parse the channel first, apply names later.
 - Con: The constructor's `events` argument is a list of raw `ModeEvent` objects. Callers constructing a series from scratch must build the event list manually.
 
@@ -1077,13 +1040,13 @@ The option analysis below is retained for context.
 
 ---
 
-### OQ-PP-11 — TimeHistoryFigure Load and Build API
+### DR-3 — TimeHistoryFigure Build and Figure Access API
 
-**Decision: Option C selected.**
+**Decision:** Option C — internal build, public `figure()` accessor.
 
 `build()` is internal. A `figure()` accessor triggers the build if needed and returns the rendered figure object. `show()` and `export_html()` are public. `figure()` is to be defined on a shared base class or protocol so all future plot types implement a consistent interface.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 **Extensibility context:** The number of supported plot types is expected to grow substantially over time. The API design must accommodate new plot types without breaking changes to the base interface. This favors a small, stable set of public methods (`load()`, `add_panel()`, `show()`, `export_html()`, and a figure accessor) that all plot types can implement consistently. Any option that exposes rendering-library internals (e.g., `build()` returning a Plotly `Figure`) couples every future plot type to Plotly and makes the interface harder to stabilize. A type-agnostic accessor (Option C's `figure()`) is preferable because it can be part of a shared base class or protocol without committing to a specific return type in the interface contract.
 
@@ -1116,16 +1079,16 @@ The option analysis below is retained for context.
 - Con: Two classes per plot type; more verbose.
 - **Con (extensibility): Adding a new plot type requires adding two classes. The builder proliferation grows linearly with plot type count.**
 
-**Option E — Frames passed to constructor:** `TimeHistoryFigure(frames, title="...")` — consistent with the OQ-PP-8/10 pattern of supplying configuration at construction time.
+**Option E — Frames passed to constructor:** `TimeHistoryFigure(frames, title="...")` — consistent with the DR-1/DR-2 pattern of supplying configuration at construction time.
 
-- Pro: Consistent with the pattern established in OQ-PP-8 and OQ-PP-10.
+- Pro: Consistent with the pattern established in DR-1 and DR-2.
 - Con: `frames` is data, not configuration — mixing the two in the constructor may be inappropriate.
 - Con: Makes incremental loading of multiple sources harder to express.
 - **Con (extensibility): Different plot types have different configuration needs; a constructor-based API does not generalize cleanly to a shared interface across types.**
 
 ---
 
-### OQ-PP-18 — Live Data Ingestion for LiveTimeHistoryFigure
+### DR-4 — Live Data Ingestion Interface
 
 The question is how data flows from the running simulation into the live time history display.
 
@@ -1140,7 +1103,7 @@ The question is how data flows from the running simulation into the live time hi
 **Option B — Poll a partial MCAP file:** The simulation writes MCAP to disk as it runs. `LiveTimeHistoryFigure` polls the file on a timer, reads any new messages appended since the last poll, and updates the display.
 
 - Pro: No C++/Python bridge needed — the log file is the interface.
-- Pro: Re-uses `FlightLogReader` for decoding once OQ-PP-5/6 are resolved.
+- Pro: Re-uses `FlightLogReader` for decoding.
 - Con: Latency is bounded below by the poll interval (typically 100–500 ms).
 - Con: Requires the simulation to flush MCAP writes in a way that partial reads are safe (i.e., the reader must handle truncated messages at the end of the file).
 - Con: The poll mechanism must handle file growth, file rotation, and the simulation stopping mid-flight.
@@ -1151,13 +1114,13 @@ The question is how data flows from the running simulation into the live time hi
 - Pro: Natural fit if `SimRunner` is already in Python (or exposed via pybind11 bindings).
 - Con: Tight coupling to `SimRunner`'s internal data model — `LiveTimeHistoryFigure` must know the ring buffer's schema and access API.
 - Con: Requires `SimRunner` to be defined and its Python interface to be specified before this can be implemented. Neither exists yet.
-- **Note (selected):** Option C is the resolved approach (OQ-PP-18). The ring buffer and channel registry design are the subject of OQ-PP-24 and OQ-PP-25.
+- **Decision:** Option C — subscribe to the SimRunner ring buffer via pybind11. The ring buffer and channel registry design are detailed in DR-5 and DR-6.
 
 ---
 
-### OQ-PP-24 — SimRunner Ring Buffer Interface
+### DR-5 — SimRunner Ring Buffer Interface
 
-**Decision: all sub-questions resolved.**
+**Decision:** All interface sub-questions settled; decisions summarized in the table below.
 
 | Sub-question | Decision |
 | --- | --- |
@@ -1167,12 +1130,12 @@ The question is how data flows from the running simulation into the live time hi
 | (d) Buffer capacity | Configurable depth in time — depth in seconds declared at registration; converted to samples using declared sample rate |
 | (e) Access mechanism | pybind11 binding to a C++ ring buffer object — in-process, no IPC overhead |
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 **Architectural constraints (from prior resolutions):**
 - Channel registration is producer-driven; buffer allocation is subscription-driven (PP-F34)
 - Late-joining subscribers start with an empty buffer — no backfill required (PP-F37)
-- `SimRunner` remains a plain C++ object; Python access is via pybind11 (OQ-PP-25)
+- `SimRunner` remains a plain C++ object; Python access is via pybind11 (see DR-6)
 
 **Question (a) — Subscriber attachment API:**
 
@@ -1207,18 +1170,18 @@ How deep is the ring buffer per channel, and how does it relate to the rolling w
 
 **Question (e) — Access mechanism:**
 
-- **pybind11 binding to a C++ ring buffer object (selected):** `SimRunner` owns the buffer in C++; Python accesses it via a bound reference. Consistent with OQ-PP-25; no IPC overhead; in-process.
+- **pybind11 binding to a C++ ring buffer object (selected):** `SimRunner` owns the buffer in C++; Python accesses it via a bound reference. Consistent with DR-6; no IPC overhead; in-process.
 - **Shared-memory IPC:** buffer lives in shared memory; multiple processes can attach. Adds complexity; not required if Python and C++ run in the same process.
 
 ---
 
-### OQ-PP-25 — ROS2 vs Custom Ring Buffer and Channel Registry
+### DR-6 — Custom vs. Framework Ring Buffer
 
-**Decision: Option B selected.**
+**Decision:** Option B — custom ring buffer and channel registry.
 
-Custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone. OQ-PP-24 is unblocked and must be designed independently.
+Custom ring buffer and channel registry. `SimRunner` remains a plain C++ object with no framework dependency. The Python visualization layer subscribes via a pybind11 binding. ROS2 is not adopted — the simulator is standalone. The ring buffer interface is specified in DR-5.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 The question is whether to use ROS2 as the pub/sub transport layer (satisfying PP-F34–PP-F39 with existing infrastructure) or to implement a custom ring buffer and channel registry.
 
@@ -1275,23 +1238,23 @@ Use a focused pub/sub library (e.g., ZeroMQ, nanomsg, or a pure-Python option li
 
 ---
 
-### OQ-PP-4 — Playback and Camera Control Technology
+### DR-7 — Playback and Camera Control Technology
 
-**Decision: Option A selected — PySide6.**
+**Decision:** Option A — PySide6 native widgets.
 
 PySide6 native widgets (`QPushButton`, `QSlider`, `QRadioButton`) in a Qt layout alongside the Vispy canvas embedded as a `QWidget` in a `QMainWindow`. Portable to Linux, Windows, and ARM. LGPL license — acceptable with dynamic linking. PySide6 added to `pyproject.toml`.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 Required controls: play/pause/step/loop playback; camera mode selection (FPV, trailing, god's eye, local top); zoom slider; north-up/track-up toggle.
 
 Deciding criteria: portable to Linux and ARM; responsive and reliable; good visual quality.
 
-**Note on matplotlib:** matplotlib widgets are not a viable option for the 3D rendering window. Even setting aside widget responsiveness concerns, the rendering library selected for OQ-PP-26 will carry its own window and event loop. Control widgets must integrate with that loop, not with matplotlib's.
+**Note on matplotlib:** matplotlib widgets are not a viable option for the 3D rendering window. Even setting aside widget responsiveness concerns, the rendering library selected for 3D rendering (Vispy, DR-8) carries its own window and event loop. Control widgets must integrate with that loop, not with matplotlib's.
 
 **Option A — PySide6 native widgets in a Qt window:**
 
-The 3D rendering view (whatever library OQ-PP-26 selects) is embedded in a Qt window alongside `QPushButton`, `QSlider`, and `QRadioButton` controls in a Qt layout.
+The 3D rendering view (Vispy) is embedded in a Qt window alongside `QPushButton`, `QSlider`, and `QRadioButton` controls in a Qt layout.
 
 - Pro: Native desktop UI — highly responsive, reliable, and visually polished on all platforms.
 - Pro: Full control over layout and widget behavior.
@@ -1303,12 +1266,12 @@ The 3D rendering view (whatever library OQ-PP-26 selects) is embedded in a Qt wi
 
 **Option B — Plotly Dash controls with WebGL rendering:**
 
-If OQ-PP-26 resolves to a WebGL-based renderer (e.g., Plotly 3D traces), controls are Dash `dcc` components in the same browser application.
+If a WebGL-based renderer had been selected (e.g., Plotly 3D traces), controls are Dash `dcc` components in the same browser application.
 
 - Pro: Excellent visual quality and button responsiveness in the browser.
 - Pro: Portable — runs in any browser on Linux, Windows, and ARM.
 - Pro: No separate window or event loop to manage — everything runs in the browser.
-- Con: Only viable if OQ-PP-26 selects a WebGL/browser-based renderer.
+- Con: Only viable with a WebGL/browser-based 3D renderer.
 - Con: Requires a local Dash server; `show()` opens a browser rather than a native window.
 - Con: Adds Dash as a dependency (MIT license, acceptable).
 
@@ -1319,26 +1282,26 @@ Panel provides high-quality browser-rendered widgets alongside the 3D rendering 
 - Pro: Good widget quality and responsiveness.
 - Pro: Portable via browser rendering.
 - Pro: Apache 2.0 license.
-- Con: Only viable alongside a browser-compatible rendering backend from OQ-PP-26.
+- Con: Only viable alongside a browser-compatible 3D rendering backend.
 - Con: Adds Panel as a dependency.
 
-**Summary:** Option A (PySide6) is the most broadly applicable — it works with any 3D rendering library that supports Qt embedding and provides the best native interactivity. Options B and C are viable only if OQ-PP-26 selects a browser-based renderer. Final decision deferred until OQ-PP-26 is resolved.
+**Summary:** Option A (PySide6) is the most broadly applicable — it works with any 3D rendering library that supports Qt embedding and provides the best native interactivity. Options B and C are viable only with a browser-based renderer. PySide6 was confirmed as the correct choice once Vispy (DR-8) was selected for 3D rendering.
 
 ---
 
-### OQ-PP-26 — 3D Rendering Library for TrajectoryView
+### DR-8 — 3D Rendering Library
 
-**Decision: Option A selected — Vispy.**
+**Decision:** Option A — Vispy.
 
-Vispy provides correct OpenGL transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. Supports Qt embedding, making PySide6 the natural choice for OQ-PP-4 controls. `TrajectoryView` must be rewritten using Vispy; the matplotlib 3D dependency is removed from `TrajectoryView`. Vispy is added to `pyproject.toml`.
+Vispy provides correct OpenGL transparency, per-face color mapping, terrain mesh rendering, and programmatic camera control with minimal CPU overhead per frame. BSD license. Portable to Linux, Windows, and ARM. Supports Qt embedding, making PySide6 the natural choice for playback controls (DR-7). `TrajectoryView` must be rewritten using Vispy; the matplotlib 3D dependency is removed from `TrajectoryView`. Vispy is added to `pyproject.toml`.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 The current matplotlib 3D implementation is a known first-pass limitation. matplotlib uses a painter's algorithm without per-fragment depth testing: transparency on overlapping ribbon quads is incorrect, geometry z-fights at intersections, and there is no support for lighting, shadows, or anti-aliasing. A replacement is required.
 
 **Rendering requirements:**
 - Correct alpha-blended transparency for ribbon trail fade (PP-F26, PP-F27)
-- Per-face color mapping for roll attitude colormap (OQ-PP-14)
+- Per-face color mapping for roll attitude colormap
 - Terrain surface mesh rendering (PP-F23)
 - Four camera modes with programmatic camera control (PP-F29–PP-F32)
 - Smooth animation at simulation frame rate
@@ -1379,7 +1342,7 @@ Plotly's 3D scatter, mesh, and surface traces render via WebGL in the browser. T
 - Pro: Consistent toolkit with `TimeHistoryFigure` — unified browser-based visualization stack.
 - Pro: Camera control is available via Plotly's built-in scene camera API.
 - Con: Ribbon trail geometry (per-quad face color, log-scale alpha fade) must be expressed as a Plotly `Mesh3d` trace — requires pre-computing vertex/face arrays and color arrays; no `Poly3DCollection` equivalent.
-- Con: Browser-based display; `show()` opens a browser rather than a native window. Requires Dash or similar for playback controls (ties OQ-PP-4 to Option B).
+- Con: Browser-based display; `show()` opens a browser rather than a native window. Requires Dash or similar for playback controls (ties DR-7 to Option B).
 - Con: Plotly 3D performance for animated large meshes is lower than native OpenGL options.
 
 **Option D — Panda3D:**
@@ -1407,18 +1370,18 @@ Options A (Vispy) and C (Plotly WebGL) are the strongest candidates. Vispy provi
 
 ---
 
-### OQ-PP-6 — C++ Logger MCAP Channel Registration Design
+### DR-9 — MCAP Channel Registration Granularity
 
-**Decision: Option B selected.**
+**Decision:** Option B — one MCAP topic per data field.
 
 One MCAP topic per data field using the same channel naming convention as the ring buffer (e.g., `"aircraft/altitude_m"`). Source name is the topic prefix before `/`. `FlightLogReader.load_mcap()` parses the prefix as the source name and merges per-field channels into per-source DataFrames on a common time index. The concrete naming convention is defined by the C++ Logger design task.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
-**Implications from resolved OQs:**
+**Implications from prior decisions:**
 
-- **OQ-PP-24b (per-channel scalar/array ring buffer):** The ring buffer registers individual named channels (`ChannelRegistry`) — not per-source aggregate rows. Channels are identified by name strings such as `"aircraft/altitude_m"`. If the Logger uses the same per-channel naming convention in MCAP, the channel names in log files match those in the ring buffer, giving a single consistent channel vocabulary across both the live and post-processing paths. `FlightLogReader` can re-use the same channel name strings that live subscribers use.
-- **OQ-PP-5 (protobuf preferred for streaming):** Per-channel individual messages have trivial protobuf schemas (e.g., a `TimestampedScalar` or `TimestampedArray` message). Per-source aggregate schemas (Option A) are more complex and must be updated whenever a field is added.
+- **Ring buffer design (DR-5, per-channel scalar/array):** The ring buffer registers individual named channels (`ChannelRegistry`) — not per-source aggregate rows. Channels are identified by name strings such as `"aircraft/altitude_m"`. If the Logger uses the same per-channel naming convention in MCAP, the channel names in log files match those in the ring buffer, giving a single consistent channel vocabulary across both the live and post-processing paths. `FlightLogReader` can re-use the same channel name strings that live subscribers use.
+- **Protobuf encoding preference:** Per-channel individual messages have trivial protobuf schemas (e.g., a `TimestampedScalar` or `TimestampedArray` message). Per-source aggregate schemas (Option A) are more complex and must be updated whenever a field is added.
 - **PP-F35 (new channels without modifying existing consumers):** Option A violates this requirement in the log domain — adding a field to a source message requires updating the schema and all consumers of that message. Option B satisfies it — a new field is a new MCAP topic; existing consumers are unaffected.
 
 These constraints together strongly favor **Option B**.
@@ -1430,16 +1393,16 @@ The Logger registers one MCAP channel per logical data source (e.g., topic `"air
 - Pro: Simple DataFrame reconstruction — one topic maps directly to one DataFrame.
 - Pro: All fields for a source arrive in one message; no timestamp alignment required.
 - Con: Adding a new field requires updating the protobuf schema and all consumers — inconsistent with PP-F35.
-- Con: All fields delivered together even if a consumer needs only a subset — inconsistent with OQ-PP-24b's per-channel model.
-- **Con (consistency): Channel granularity is per-source in MCAP but per-field in the ring buffer — two different channel naming vocabularies for the same data.**
+- Con: All fields delivered together even if a consumer needs only a subset — inconsistent with DR-5's per-channel model.
+- **Con (consistency): Channel granularity is per-source in MCAP but per-field in the ring buffer (DR-5) — two different channel naming vocabularies for the same data.**
 
 **Option B — One topic per data field (preferred):**
 
 Each MCAP channel corresponds to a single named data field using the same naming convention as the ring buffer (e.g., `"aircraft/altitude_m"`). The source name is the topic prefix before `/`.
 
-- Pro: Consistent with OQ-PP-24b — the same channel names used in the ring buffer are used in MCAP. A single channel vocabulary spans both live and post-processing paths.
+- Pro: Consistent with DR-5 — the same channel names used in the ring buffer are used in MCAP. A single channel vocabulary spans both live and post-processing paths.
 - Pro: Adding a new field is a new MCAP topic — consistent with PP-F35; no schema update required.
-- Pro: Trivial per-channel protobuf schema (e.g., `TimestampedScalar { double timestamp_s = 1; double value = 2; }`) — consistent with OQ-PP-5.
+- Pro: Trivial per-channel protobuf schema (e.g., `TimestampedScalar { double timestamp_s = 1; double value = 2; }`).
 - Pro: Consumers subscribe only to the fields they need.
 - Con: Reconstructing a per-source DataFrame in `FlightLogReader` requires merging many per-field channels on timestamp. This is a real implementation cost but is well-handled by `pandas.merge` or `concat` on a common time index.
 - Con: Large number of MCAP channels for a high-channel-count simulation — channel metadata overhead grows linearly with field count.
@@ -1452,24 +1415,24 @@ Multiple MCAP channels share the same `channel.topic`, distinguished by a `sourc
 - Con: Metadata field naming convention must be standardized separately.
 - Con: `channel.topic` is not the channel name — inconsistent with the ring buffer's direct channel-name model.
 
-**Recommendation:** Option B is strongly preferred given the OQ-PP-24b and PP-F35 constraints. The Logger design task should adopt Option B. `FlightLogReader.load_mcap()` must be updated to parse the topic prefix as the source name and merge per-field channels into per-source DataFrames.
+**Recommendation:** Option B is strongly preferred given the DR-5 per-channel model and PP-F35 constraints. The Logger design task should adopt Option B. `FlightLogReader.load_mcap()` must be updated to parse the topic prefix as the source name and merge per-field channels into per-source DataFrames.
 
 ---
 
-### OQ-PP-17 — LiveTimeHistoryFigure Display Technology
+### DR-10 — Live Time History Display Technology
 
-**Decision: Option C selected — Panel (HoloViz) with Plotly panes.**
+**Decision:** Option C — Panel (HoloViz) with Plotly panes.
 
-Panel wraps Plotly figures as `pn.pane.Plotly` components. `pn.state.add_periodic_callback()` drives rolling updates polled from the ring buffer (consistent with OQ-PP-24a). Visually consistent with `TimeHistoryFigure`. Browser-based; portable to Linux and ARM. Apache 2.0 license. Panel added to `pyproject.toml`.
+Panel wraps Plotly figures as `pn.pane.Plotly` components. `pn.state.add_periodic_callback()` drives rolling updates polled from the ring buffer. Visually consistent with `TimeHistoryFigure`. Browser-based; portable to Linux and ARM. Apache 2.0 license. Panel added to `pyproject.toml`.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
-**Known requirements from prior resolutions:**
-- Rolling time window anchored at present time, shared across all panels (OQ-PP-19, PP-F20)
-- User controls: zoom/scroll time, reset to present, per-panel y-limit set/reset (OQ-PP-1, PP-F21–PP-F22)
-- Same visual style as `TimeHistoryFigure` (OQ-PP-1) — `TimeHistoryFigure` uses Plotly
+**Known requirements:**
+- Rolling time window anchored at present time, shared across all panels (PP-F20)
+- User controls: zoom/scroll time, reset to present, per-panel y-limit set/reset (PP-F21–PP-F22)
+- Same visual style as `TimeHistoryFigure` — `TimeHistoryFigure` uses Plotly
 - Portable to Linux and ARM (PP-F04 analog)
-- Technology must also satisfy OQ-PP-4 criteria (responsive, reliable, good-looking) if controls are shared
+- Technology must be responsive, reliable, and visually consistent
 
 **Option A — matplotlib `FuncAnimation` + widgets:**
 
@@ -1477,8 +1440,8 @@ Consistent with `TrajectoryView`. A `FuncAnimation` drives the rolling update; m
 
 - Pro: No new dependency beyond what `TrajectoryView` already uses.
 - Pro: Single toolkit for all live visualization.
-- Con: matplotlib's time history plots are visually inferior to Plotly — violates the "same visual style as `TimeHistoryFigure`" requirement (OQ-PP-1).
-- Con: Widget responsiveness concerns apply (same as OQ-PP-4 Option A).
+- Con: matplotlib's time history plots are visually inferior to Plotly — violates the visual style consistency requirement.
+- Con: Widget responsiveness is poor.
 - Con: Updating many subplot traces efficiently in a `FuncAnimation` loop requires careful artist management to avoid redraw overhead.
 
 **Option B — Plotly Dash with `dcc.Interval`:**
@@ -1488,7 +1451,7 @@ A Dash app renders Plotly figures (visually consistent with `TimeHistoryFigure`)
 - Pro: Visual consistency with `TimeHistoryFigure` — same Plotly rendering engine.
 - Pro: Excellent control responsiveness and visual quality in the browser.
 - Pro: Portable to Linux and ARM via any browser.
-- Pro: `dcc.Interval` provides a natural polling mechanism compatible with the ring buffer polling model (OQ-PP-24a).
+- Pro: `dcc.Interval` provides a natural polling mechanism compatible with the ring buffer polling model.
 - Con: Requires a local Dash server process; display opens in a browser rather than a native window.
 - Con: Adds Dash as a dependency (MIT license, acceptable).
 - Con: Server-client architecture introduces slight latency between data availability and display update.
@@ -1511,7 +1474,7 @@ Bokeh's `ColumnDataSource` supports efficient live data streaming; a Bokeh serve
 - Pro: Designed for live streaming visualization — `ColumnDataSource.stream()` appends new data efficiently.
 - Pro: Browser-based; portable to Linux and ARM.
 - Pro: BSD license.
-- Con: Visual style differs from Plotly — violates the "same visual style as `TimeHistoryFigure`" requirement unless `TimeHistoryFigure` is also migrated to Bokeh.
+- Con: Visual style differs from Plotly — violates the visual style consistency requirement unless `TimeHistoryFigure` is also migrated to Bokeh.
 - Con: Adds Bokeh as a dependency; Bokeh and Plotly serve overlapping roles — having both is redundant.
 
 **Summary against known criteria:**
@@ -1527,16 +1490,16 @@ Options B and C are the strongest candidates given the visual consistency requir
 
 ---
 
-### OQ-PP-20 — Terrain Data Access Mechanism for TrajectoryView
+### DR-11 — Terrain Data Access Mechanism
 
-**Status: Resolved.** Option A is eliminated. Option B (pre-generated glTF/GLB via `TerrainMesh::exportGltf()`) is selected. The export trigger was resolved by OQ-PP-27 (offline ingestion pipeline); the storage path and naming convention were resolved by OQ-PP-28 (`terrain_paths.py`).
+**Decision:** Option B — pre-generated glTF/GLB file read by `TrajectoryView.load_terrain(path)`. The glTF is produced by the terrain ingestion pipeline (see DR-12) and stored at the path defined by `terrain_paths.py` (see DR-13).
 
-The option analysis below documents the tradeoffs of each candidate. Option B is established as the correct approach; the analysis is retained for context and for the architectural rationale eliminating Option A.
+**Alternatives considered:**
 
 **Known constraints from prior resolutions:**
 
-- Terrain is rendered by the Vispy scene graph as a mesh visual (OQ-PP-26). The access mechanism must ultimately deliver a vertex/face/color numpy array to Vispy.
-- Both adaptive LOD and user-configurable LOD override are required (OQ-PP-21). The access mechanism must support delivering geometry at different LOD levels.
+- Terrain is rendered by the Vispy scene graph as a mesh visual. The access mechanism must ultimately deliver a vertex/face/color numpy array to Vispy.
+- Both adaptive LOD and user-configurable LOD override are required. The access mechanism must support delivering geometry at different LOD levels.
 - Terrain is required in both post-processing (`TrajectoryView`) and any future live 3D trajectory view (PP-F23). Post-processing runs offline without a running simulation.
 - `tinygltf` is already a C++ project dependency. A Python glTF reader is not yet a project dependency.
 
@@ -1592,7 +1555,7 @@ to numpy arrays and passed to Vispy.
 - Pro: `TrajectoryView` has no C++ runtime dependency — pure Python post-processing visualization.
 - Pro: glTF is the industry-standard 3D geometry exchange format. The project already uses `tinygltf` in C++; a matching Python glTF reader (e.g., `pygltflib`, MIT license) would be a lightweight new dependency.
 - Pro: The glTF file is a portable artifact — it can be archived alongside the MCAP log and re-used for visualization on any machine.
-- Pro: Multiple LOD meshes can be embedded as separate mesh primitives in the glTF file, satisfying OQ-PP-21.
+- Pro: Multiple LOD meshes can be embedded as separate mesh primitives in the glTF file, satisfying the multiple LOD levels requirement.
 - Pro: Fidelity with the simulation's terrain is achieved by workflow consistency (both derived from the same authoritative source), not by runtime coupling.
 - Con: Requires a terrain processing workflow step before visualization. The workflow must be defined and run before the display glTF artifact exists.
 - Con: File size: a high-resolution terrain mesh for a large flight area can be large. LOD selection and geographic clipping at workflow time are needed to keep the file manageable.
@@ -1615,7 +1578,7 @@ directly. The caller is responsible for obtaining the arrays from any source.
 clips to the trajectory bounding box, and tessellates a mesh at the requested LOD resolution.
 
 - Pro: Standard geographic format; DEM files are available for most real-world flight areas.
-- Pro: LOD is natural — just change the tessellation resolution. Adaptive LOD (OQ-PP-21) is straightforward as a function of pixel-per-meter density for the current view.
+- Pro: LOD is natural — just change the tessellation resolution. Adaptive LOD is straightforward as a function of pixel-per-meter density for the current view.
 - Pro: No C++ runtime dependency.
 - Con: Adds `rasterio` or equivalent as a new geospatial dependency. This library has non-trivial native dependencies (GDAL) and is not currently in the project.
 - Con: Requires georeferencing: the trajectory NED coordinate origin must be mapped to the DEM's geographic CRS (WGS-84 lat/lon or projected CRS). This requires knowing the simulation's NED origin in geographic coordinates, which may not be a published output of the sim.
@@ -1639,23 +1602,17 @@ clips to the trajectory bounding box, and tessellates a mesh at the requested LO
 
 Option A (pybind11 binding) is eliminated. Options C and D are not competitive given the
 existing infrastructure. Option B (pre-generated glTF/GLB via `TerrainMesh::exportGltf()`)
-is selected. The export trigger question was resolved by OQ-PP-27: the terrain ingestion
-Python script calls `exportGltf()` offline, prior to simulation or visualization. OQ-PP-20
-is fully closed. The storage path and naming convention for the glTF file are the subject
-of [OQ-PP-28](#oq-pp-28--gltf-file-storage-path-and-naming-convention).
+is selected. The export trigger is specified in DR-12: the terrain ingestion pipeline calls
+`exportGltf()` offline, prior to simulation or visualization. The storage path and naming
+convention are specified in DR-13.
 
 ---
 
-### OQ-PP-27 — glTF Export Trigger for Display Terrain Mesh
+### DR-12 — Terrain glTF Export Trigger
 
-**Decision: Option A selected.** The terrain ingestion Python script calls
-`TerrainMesh::exportGltf()` as part of the offline ingestion pipeline, prior to any simulation
-or visualization task. The glTF file is produced once per terrain dataset and stored alongside
-the `.las_terrain` tiles. Option B (sim initialization) is eliminated — the simulation does not
-generate visualization artifacts at startup. This resolves OQ-PP-20. The storage path and naming
-convention for the glTF file are the subject of OQ-PP-28.
+**Decision:** Option A — offline export during terrain ingestion. The glTF is produced once per dataset and stored alongside the `.las_terrain` tiles. The storage path and naming convention are specified in DR-13.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 **Known constraints:**
 
@@ -1740,22 +1697,21 @@ directly via `las_terrain.py` and writes a glTF using a Python-side glTF writer 
 | B — Sim initialization | Yes | Per-run | Per-run (grows with runs) | Yes | No (output dir convention) |
 | C — Python on demand | No | None | Optional (cacheable) | No | No |
 
-Option A is selected (OQ-PP-27 resolved). It imposes no runtime cost on the simulation,
+Option A is selected. It imposes no runtime cost on the simulation,
 produces a stable reusable artifact, and keeps the export logic in one place
-(C++ `TerrainMesh::exportGltf()`). The storage path and naming convention for the glTF
-file are the subject of OQ-PP-28.
+(C++ `TerrainMesh::exportGltf()`). The storage path and naming convention are specified in DR-13.
 
 ---
 
-### OQ-PP-28 — glTF File Storage Path and Naming Convention
+### DR-13 — Terrain Data Repository Structure
 
-**Decision: Resolved.** Terrain data is organized under a common repository rooted at
+**Decision:** Terrain data is organized under a common repository rooted at
 `data/terrain/` relative to the project root. The root path is defined once in a shared
 path module and imported by all terrain-accessing components. Source inputs and derived
 pipeline products are strictly separated so that derived products can be deleted and
 regenerated cleanly when pipeline requirements change.
 
-The option analysis below is retained for context.
+**Alternatives considered:**
 
 #### Terrain Data Repository Structure
 
@@ -1784,7 +1740,7 @@ the shared path module. An explicit path override is always accepted for non-sta
 
 **LOD encoding:** A single `terrain.glb` per dataset contains all available LODs as separate
 named mesh primitives within the file. `TrajectoryView` selects the LOD at load time based
-on OQ-PP-21 criteria (adaptive selection or user override). No per-LOD filename variants
+on LOD selection criteria (adaptive based on view bounds, or user override). No per-LOD filename variants
 are required; re-export with different `max_lod` replaces `terrain.glb` in place.
 
 **`metadata.json` schema:**
