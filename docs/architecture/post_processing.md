@@ -157,9 +157,9 @@ simulation design item that is not yet complete.
 | `ModeEventSeries` | `pandas` | None |
 | `TimeHistoryFigure` | `plotly` | None |
 | `LiveTimeHistoryFigure` | `panel`, `plotly` | Ring buffer and channel registry architecture document (OQ-PP-24) |
-| `RibbonTrail` | `numpy`, `vispy`, `matplotlib` (colormap utilities) | None (geometry only); terrain rendering blocked on OQ-PP-20 |
+| `RibbonTrail` | `numpy`, `vispy`, `matplotlib` (colormap utilities) | None |
 | `HudOverlay` | `vispy` | None |
-| `TrajectoryView` | `vispy`, `pyside6` | None; terrain rendering blocked on OQ-PP-20 |
+| `TrajectoryView` | `vispy`, `pyside6`, `pygltflib` | None; terrain LOD algorithm deferred to item 9 (OQ-PP-21) |
 
 These modules may be implemented as soon as this item is authorized.
 
@@ -633,7 +633,7 @@ live path (OQ-PP-18, OQ-PP-24).
 
 #### Layout
 
-The figure uses a single matplotlib window divided into two regions:
+The figure uses a single Qt window (`QMainWindow`, PySide6) divided into two regions:
 
 ```text
 ┌───────────────────────────────────────────────────────────────┐
@@ -657,9 +657,11 @@ provides spatial context for interpreting the trajectory — altitude above terr
 path relative to ridgelines, etc. The terrain surface is required in both post-processing
 `TrajectoryView` and any future live 3D trajectory view.
 
-How terrain geometry is made available to the Python view (pybind11 `TerrainMesh` binding,
-pre-exported glTF file, or direct numpy mesh arrays) is unresolved — see OQ-PP-20. The
-LOD to use for rendering is unresolved — see OQ-PP-21.
+Terrain geometry is delivered to `TrajectoryView` as a pre-generated glTF/GLB file via
+`TrajectoryView.load_terrain(path)`, where the path is resolved by `gltf_path(dataset_name)`
+in `python/tools/terrain/terrain_paths.py` (OQ-PP-20, OQ-PP-27, OQ-PP-28 resolved). The LOD
+to use for rendering is selected adaptively at load time with a user-configurable override;
+the concrete LOD selection algorithm is defined by item 9 (OQ-PP-21 resolved).
 
 #### Visual Design
 
@@ -930,9 +932,12 @@ matplotlib>=3.8
 
 | Test | Pass criterion |
 | --- | --- |
-| `test_export_html_creates_file` | `export_html("output.html")` creates a file; matplotlib is not invoked (test calls `export_html` only, no `show()`) |
+| `test_export_html_creates_file` | `export_html("output.html")` creates a non-empty file without opening a browser |
 | `test_add_panel_channel_appears_in_figure` | A channel added via `add_panel` is present as a named trace in the returned Plotly figure |
-| `test_shared_xaxis_present` | Exported Plotly figure layout has `shared_xaxes=True` |
+| `test_shared_xaxis_present` | Two-panel figure layout has `xaxis2` present and at least one x-axis carries a `matches` key (shared-axis linking) |
+| `test_multiple_channels_in_one_panel` | Two channels added to the same panel are both present as named traces in the returned figure |
+| `test_y2_channel_uses_secondary_axis` | A channel supplied via `y2_channels` is rendered with `yaxis='y2'` in the figure data |
+| `test_mode_event_overlay_adds_shape` | After `set_mode_events()`, the built figure layout contains at least one shape whose `x0` equals the event timestamp |
 
 **File:** `python/test/test_ribbon_trail.py`
 
@@ -961,8 +966,10 @@ matplotlib>=3.8
 ### Rendering Non-Invocation Requirement
 
 No test invokes `plt.show()`, `fig.show()`, or opens a display. All rendering tests
-operate on the returned figure or artist objects only. Matplotlib is configured with the
-`Agg` backend in the test environment.
+operate on the returned figure or artist objects only. `TimeHistoryFigure` tests inspect
+the Plotly `Figure` object directly. `TrajectoryView` and `RibbonTrail` tests call
+`animate()` or `build()` only — `show()` is never called from tests. Vispy tests must be
+run with an offscreen backend (e.g., `vispy.use("offscreen")`) to avoid opening a window.
 
 ---
 
@@ -1522,7 +1529,7 @@ Options B and C are the strongest candidates given the visual consistency requir
 
 ### OQ-PP-20 — Terrain Data Access Mechanism for TrajectoryView
 
-**Status: Architecture established; one blocking question remains.** Option A is eliminated. Option B (pre-generated glTF/GLB via `TerrainMesh::exportGltf()`) is the established approach. The single remaining blocking question — the glTF export trigger — is stated at the end of this section.
+**Status: Resolved.** Option A is eliminated. Option B (pre-generated glTF/GLB via `TerrainMesh::exportGltf()`) is selected. The export trigger was resolved by OQ-PP-27 (offline ingestion pipeline); the storage path and naming convention were resolved by OQ-PP-28 (`terrain_paths.py`).
 
 The option analysis below documents the tradeoffs of each candidate. Option B is established as the correct approach; the analysis is retained for context and for the architectural rationale eliminating Option A.
 
