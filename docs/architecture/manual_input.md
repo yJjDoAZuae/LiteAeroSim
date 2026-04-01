@@ -78,6 +78,46 @@ They do not depend on any other Domain Layer class.
 
 ---
 
+## Input Frame and Named Actions
+
+Each call to `read()` returns a `ManualInputFrame` containing both the current
+`AircraftCommand` and a bitmask of `InputAction` flags that fired on that tick.
+Action bits are **edge-triggered**: a bit is set to 1 only on the tick the
+button or key transitions from not-pressed to pressed. This means the caller does
+not need to debounce or latch — each action fires exactly once per press event.
+
+```cpp
+// include/input/ManualInput.hpp  (excerpt)
+
+// Named actions that ManualInput can report, independent of which physical
+// control triggered them.  ManualInput has no knowledge of simulation state or
+// control-law configuration — it reports that an action was requested; the
+// application layer decides what to do.
+enum class InputAction : uint32_t {
+    Center      = 1u << 0,  // snap all command axes to neutral immediately
+    CaptureTrim = 1u << 1,  // set current raw axis positions as the trim reference
+    ResetTrim   = 1u << 2,  // restore trim to the configured initial values
+    SimReset    = 1u << 3,  // signal: application should reset the simulation
+    SimStart    = 1u << 4,  // signal: application should start or unpause the run
+};
+
+struct ManualInputFrame {
+    AircraftCommand command;
+    uint32_t        actions = 0u;   // bitmask of InputAction flags active this tick
+};
+
+inline bool hasAction(const ManualInputFrame& frame, InputAction action) {
+    return (frame.actions & static_cast<uint32_t>(action)) != 0u;
+}
+```
+
+The `InputAction` enumeration covers input-device-level operations and simulation
+lifecycle signals. Application-specific mode changes (e.g. toggling FBW vs autopilot,
+cycling autopilot modes) are handled by the application layer after inspecting the
+action flags and correlating them with application state. Additional `InputAction`
+values are added to the enum as those features are designed — they are not
+anticipated here.
+
 ## `ManualInput` Abstract Interface
 
 ```cpp
@@ -86,6 +126,7 @@ They do not depend on any other Domain Layer class.
 
 #include "Aircraft.hpp"   // AircraftCommand
 #include <nlohmann/json.hpp>
+#include <cstdint>
 
 namespace liteaero::simulation {
 
@@ -101,12 +142,12 @@ public:
     // Throws std::invalid_argument on missing or out-of-range fields.
     virtual void initialize(const nlohmann::json& config) = 0;
 
-    // Reset command state to the neutral command (straight-and-level, idle throttle).
+    // Reset command state and trim to configured initial values.
     virtual void reset() = 0;
 
-    // Return the AircraftCommand implied by the current device state.
+    // Return the AircraftCommand and any fired InputActions for this tick.
     // Non-blocking.  Must be called from the simulation thread.
-    virtual AircraftCommand read() = 0;
+    virtual ManualInputFrame read() = 0;
 
     virtual ~ManualInput() = default;
 };
@@ -153,6 +194,11 @@ struct KeyboardInputConfig {
     SDL_Scancode key_throttle_up     = SDL_SCANCODE_W;
     SDL_Scancode key_throttle_down   = SDL_SCANCODE_S;
     SDL_Scancode key_center          = SDL_SCANCODE_SPACE;
+
+    // Keys that fire InputAction events (edge-triggered on key-down).
+    // Set to SDL_SCANCODE_UNKNOWN to disable.
+    SDL_Scancode key_sim_reset       = SDL_SCANCODE_UNKNOWN;
+    SDL_Scancode key_sim_start       = SDL_SCANCODE_UNKNOWN;
 
     // Rates (per second) at which each command axis ramps while the key is held.
     float nz_rate_g_s            = 2.0f;    // load factor rate (g/s)
@@ -260,12 +306,62 @@ integer scancodes rather than string names to avoid a string-to-scancode lookup 
 
 `JoystickInput` opens and closes the SDL2 joystick device in its constructor and
 destructor. The caller is responsible for having called `SDL_Init(SDL_INIT_JOYSTICK)`
-before constructing a `JoystickInput`. A `device_index` of 0 selects the first
-enumerated joystick.
+before constructing a `JoystickInput`.
 
 If the device is not present at construction, the constructor throws
 `std::runtime_error`. Mid-run disconnect handling is described under
-[Open Questions](#open-questions).
+[Joystick Disconnect Handling](#joystick-disconnect-handling).
+
+### Device Selection
+
+SDL2 identifies joystick devices by a runtime device index (0, 1, 2, …) that is
+assigned by the OS at enumeration time. This index is not stable: it changes as devices
+are plugged or unplugged and may differ between reboots. Addressing a specific device
+by index alone is only reliable when exactly one joystick is connected.
+
+**Name-based selection.** `JoystickInputConfig` includes a `device_name_contains`
+string field. When non-empty, `JoystickInput` scans all enumerated devices at
+construction time and opens the first one whose SDL name contains the configured
+substring (case-insensitive). If no match is found, construction throws
+`std::runtime_error` listing the available device names.
+
+When `device_name_contains` is empty, the `device_index` field is used directly
+(default 0). This keeps single-joystick setups simple.
+
+```json
+// Select by name (preferred when multiple devices may be present):
+"device_name_contains": "Taranis"
+
+// Select by index (simple, single-device setups):
+"device_name_contains": "",
+"device_index": 0
+```
+
+`JoystickInput` exposes a static method for enumerating available devices, which is
+used internally and can be called by scenario setup code or by the notebook run cell
+to display available options before construction:
+
+```cpp
+// Returns one entry per enumerated SDL joystick: {device_index, name, num_axes}.
+static std::vector<JoystickDeviceInfo> enumerateDevices();
+```
+
+where `JoystickDeviceInfo` is:
+
+```cpp
+struct JoystickDeviceInfo {
+    int         device_index;
+    std::string name;
+    int         num_axes;
+};
+```
+
+**In the verification notebook.** The run cell calls the pygame equivalent
+(`pygame.joystick.get_count()` / `pygame.joystick.Joystick(i).get_name()`) at startup
+and prints a table of available devices with their axis counts, so the user can
+confirm the correct device index or set a name filter before the window opens. A
+`device_name_contains` parameter in the notebook configuration cell selects the device
+by name using the same substring-match logic.
 
 ```cpp
 // include/input/JoystickInput.hpp
@@ -283,9 +379,15 @@ struct AxisMapping {
     bool    inverted       = false;   // if true, negate the normalized axis before scaling
     int16_t raw_min        = -32768;  // calibrated raw minimum (device full-back/left)
     int16_t raw_max        =  32767;  // calibrated raw maximum (device full-forward/right)
+    int16_t raw_trim       = 0;       // trim reference: raw value that maps to zero deflection
     // raw_min / raw_max allow R/C transmitters and devices that do not use the full
     // SDL ±32767 range to be calibrated correctly.  Values outside [raw_min, raw_max]
     // are clamped before normalization.
+    //
+    // raw_trim is initialized to (raw_min + raw_max) / 2 if not specified in the JSON
+    // config.  At runtime, captureTrim() updates raw_trim to the current axis reading
+    // so that the current stick position is treated as zero deflection.  ResetTrim
+    // restores raw_trim to the configured initial value.
 };
 
 struct JoystickInputConfig {
@@ -293,35 +395,72 @@ struct JoystickInputConfig {
 
     // Axis-to-command mappings.  Defaults assume no specific device — all
     // axis indices and raw limits must be set per device in the JSON config.
-    AxisMapping nz_axis       = {1, 1.0f,   3.0f,   true,  -32768, 32767};
+    //
+    // For a one-sided throttle lever (full back = min output, full forward = max):
+    //   center_output = (max_throttle_nd + min_throttle_nd) / 2
+    //   scale         = (max_throttle_nd - min_throttle_nd) / 2
+    // so that the full lever travel spans [min_throttle_nd, 1.0].
+    AxisMapping nz_axis       = {1, 1.0f,   3.0f,   true,  -32768, 32767, 0};
         // pitch axis, center = 1 g, scale = 3 g per unit, inverted
         // (pull back → positive normalized → +Nz; push forward → −Nz)
-    AxisMapping ny_axis       = {3, 0.0f,   1.0f,   false, -32768, 32767};
+    AxisMapping ny_axis       = {3, 0.0f,   1.0f,   false, -32768, 32767, 0};
         // yaw/rudder axis, center = 0 g, scale = 1 g per unit
-    AxisMapping roll_axis     = {0, 0.0f,   1.5708f,false, -32768, 32767};
+    AxisMapping roll_axis     = {0, 0.0f,   1.5708f,false, -32768, 32767, 0};
         // aileron axis, center = 0 rad/s, scale = π/2 rad/s per unit
-    AxisMapping throttle_axis = {2, 0.0f,   1.0f,   true,  -32768, 32767};
-        // throttle axis, center = 0 (idle), scale = 1.0 per unit, inverted
+    AxisMapping throttle_axis = {2, 0.5f,   0.5f,   true,  -32768, 32767, 0};
+        // throttle axis, inverted one-sided lever: full back → 0.0, full forward → 1.0
+        // center_output = 0.5, scale = 0.5 → output range = [0.0, 1.0]
         // R/C transmitters: set raw_min/raw_max to the calibrated travel extents
 
-    // Command limits (applied after axis mapping and dead zone).
+    // Throttle command limits.
+    // Set min_throttle_nd to a negative value to enable reverse thrust command output.
+    // When reverse thrust is used, update throttle_axis.center_output and
+    // throttle_axis.scale so that full-back lever travel reaches min_throttle_nd:
+    //   center_output = (1.0 + min_throttle_nd) / 2
+    //   scale         = (1.0 - min_throttle_nd) / 2
+    float min_throttle_nd     =  0.0f;   // 0.0 = no reverse; negative enables reverse thrust
+
+    // Throttle value used for the neutral/disconnect command fallback and for the
+    // idle position displayed in the verification notebook.
+    float idle_throttle_nd    =  0.05f;
+
+    // Command limits for non-throttle axes (applied after axis mapping and dead zone).
     float min_nz_g            = -2.0f;
     float max_nz_g            =  4.0f;
     float max_ny_g            =  2.0f;
     float max_roll_rate_rad_s =  1.5708f;  // π/2 rad/s ≈ 90 °/s
 
-    // Button index for the "center" action; -1 to disable.
-    int   center_button_index = 0;
+    // Button indices for named InputActions; set to -1 to disable each binding.
+    int   btn_center          =  0;   // InputAction::Center
+    int   btn_capture_trim    = -1;   // InputAction::CaptureTrim
+    int   btn_reset_trim      = -1;   // InputAction::ResetTrim
+    int   btn_sim_reset       = -1;   // InputAction::SimReset
+    int   btn_sim_start       = -1;   // InputAction::SimStart
 };
 ```
 
-> **Note on throttle axis:** A typical single-lever throttle reports full forward as
-> SDL value −32768 and full back as +32767. Set `inverted = true` so that full forward
-> maps to normalized +1, then to `center_output + scale = 1.0` (full throttle). For
-> R/C transmitters whose throttle channel spans only part of the SDL range (e.g.,
+> **Note on throttle axis:** A typical single-lever throttle is one-sided: full back is
+> minimum thrust and full forward is maximum. SDL reports full forward as −32768 and
+> full back as +32767. Set `inverted = true` so that full forward maps to normalized +1.
+> With `center_output = 0.5` and `scale = 0.5`, the normalized range [−1, +1] maps to
+> throttle command [0.0, 1.0]. The mechanical center of the lever maps to
+> `idle_throttle_nd`, not to `center_output`; `center_output` is an axis-math parameter,
+> not a throttle setting.
+>
+> **Reverse thrust.** Set `min_throttle_nd` to a negative value (e.g. −0.3 for 30%
+> reverse). Update `center_output` and `scale` so the full lever travel spans
+> `[min_throttle_nd, 1.0]`:
+>
+> $$\text{center\_output} = \frac{1 + \text{min\_throttle\_nd}}{2}, \qquad \text{scale} = \frac{1 - \text{min\_throttle\_nd}}{2}$$
+>
+> For example, with `min_throttle_nd = −0.3`: `center_output = 0.35`, `scale = 0.65`.
+> Full-back lever → normalized −1 → throttle $= 0.35 - 0.65 = -0.30$. Full-forward →
+> normalized +1 → throttle $= 0.35 + 0.65 = 1.00$.
+>
+> For R/C transmitters whose throttle channel spans only part of the SDL range (e.g.,
 > [−16000, +16000] from a Taranis in USB HID mode), set `raw_min = −16000` and
-> `raw_max = 16000` to calibrate the effective travel extents. The normalization step
-> then maps the full transmitter travel to [−1, +1] regardless of the SDL scale.
+> `raw_max = 16000`. The normalization step then maps the full transmitter travel to
+> [−1, +1] regardless of the SDL scale, before `center_output` and `scale` are applied.
 
 ```cpp
 class JoystickInput final : public ManualInput {
@@ -346,22 +485,28 @@ public:
     JoystickInput(JoystickInput&&)                 = delete;
     JoystickInput& operator=(JoystickInput&&)      = delete;
 
-    void            initialize(const nlohmann::json& config) override;
-    void            reset() override;
-    AircraftCommand read() override;
+    void             initialize(const nlohmann::json& config) override;
+    void             reset() override;
+    ManualInputFrame read() override;
+
+    // Sets raw_trim on all four axis mappings to the current raw axis readings.
+    // This defines the current stick/lever positions as the zero-deflection point.
+    // Called internally when InputAction::CaptureTrim fires; may also be called
+    // directly by scenario setup code before starting a run.
+    void             captureTrim();
 
     // False after an SDL_JOYDEVICEREMOVED event is detected; true until then.
     // Always true when constructed with an injected AxisProvider.
-    bool            isConnected() const;
+    bool             isConnected() const;
 
 private:
     SDL_Joystick*       joystick_        = nullptr;
     AxisProvider        axis_provider_;
     JoystickInputConfig config_;
-    AircraftCommand     neutral_command_;
+    JoystickInputConfig trim_reset_;    // copy of config_ at initialize() time; used by ResetTrim
     bool                connected_       = true;
 
-    float applyDeadZoneAndScale(Sint16 raw, const AxisMapping& mapping) const;
+    float applyAxisPipeline(Sint16 raw, const AxisMapping& mapping, float dead_zone) const;
     void  checkDisconnectEvents();
 };
 ```
@@ -371,15 +516,17 @@ private:
 SDL2 axis values are `Sint16` in the range [−32768, +32767]. The normalization and dead
 zone application steps are:
 
-1. **Calibrate and normalize** to $[-1, +1]$ using the per-axis configured limits:
+1. **Calibrate, trim, and normalize** to $[-1, +1]$:
 
-$$r = \frac{\text{raw} - m}{\Delta / 2}, \quad m = \frac{\text{raw\_min} + \text{raw\_max}}{2}, \quad \Delta = \text{raw\_max} - \text{raw\_min}$$
+$$r = \frac{\text{raw} - \text{raw\_trim}}{\Delta / 2}, \quad \Delta = \text{raw\_max} - \text{raw\_min}$$
 
-Clamp $r$ to $[-1, +1]$ before proceeding. The `raw_min` / `raw_max` fields let
-R/C transmitters and other devices that do not use the full SDL ±32767 span be
-calibrated correctly. For a standard USB joystick with the default
-`raw_min = −32768`, `raw_max = 32767`, this reduces to $r = \text{raw} / 32767.5$,
-clamped to $[-1, +1]$.
+Clamp $r$ to $[-1, +1]$ before proceeding. `raw_trim` defines the raw reading that
+maps to zero deflection. It is initialized to the midpoint
+$(\text{raw\_min} + \text{raw\_max}) / 2$ at `initialize()` time if not overridden in
+the JSON config, and is updated by `captureTrim()` at runtime. When `raw_trim` equals
+the midpoint, the formula reduces to the standard centred normalization. For a standard
+USB joystick with default limits, this is $r = \text{raw} / 32767.5$, clamped to
+$[-1, +1]$.
 
 2. **Apply inversion** if `mapping.inverted`:
 
@@ -411,7 +558,7 @@ The four `AircraftCommand` fields are each driven by a fully configurable axis:
 | `n_z` | 1 | Pitch (elevator) | 1.0 g |
 | `n_y` | 3 | Yaw (rudder pedals) | 0.0 g |
 | `rollRate_Wind_rps` | 0 | Roll (aileron) | 0.0 rad/s |
-| `throttle_nd` | 2 | Throttle lever | 0.0 (idle) |
+| `throttle_nd` | 2 | Throttle lever | `idle_throttle_nd` (default 0.05) |
 
 The `center_output` for `n_z` is 1.0 g because the `Aircraft` model requires
 `n_z = 1.0 g` to maintain level flight — a stick centered at 0.0 g would cause the
@@ -429,24 +576,42 @@ for any device.
 
 ```json
 {
-  "dead_zone_nd": 0.05,
-  "nz_axis":      { "sdl_axis_index": 1, "center_output": 1.0, "scale": 3.0,    "inverted": true,  "raw_min": -32768, "raw_max": 32767 },
-  "ny_axis":      { "sdl_axis_index": 3, "center_output": 0.0, "scale": 1.0,    "inverted": false, "raw_min": -32768, "raw_max": 32767 },
-  "roll_axis":    { "sdl_axis_index": 0, "center_output": 0.0, "scale": 1.5708, "inverted": false, "raw_min": -32768, "raw_max": 32767 },
-  "throttle_axis":{ "sdl_axis_index": 2, "center_output": 0.0, "scale": 1.0,    "inverted": true,  "raw_min": -32768, "raw_max": 32767 },
-  "min_nz_g":     -2.0,
-  "max_nz_g":      4.0,
-  "max_ny_g":      2.0,
+  "dead_zone_nd":       0.05,
+  "idle_throttle_nd":   0.05,
+  "min_throttle_nd":    0.0,
+  "nz_axis":       { "sdl_axis_index": 1, "center_output": 1.0,  "scale": 3.0,    "inverted": true,  "raw_min": -32768, "raw_max": 32767, "raw_trim": 0 },
+  "ny_axis":       { "sdl_axis_index": 3, "center_output": 0.0,  "scale": 1.0,    "inverted": false, "raw_min": -32768, "raw_max": 32767, "raw_trim": 0 },
+  "roll_axis":     { "sdl_axis_index": 0, "center_output": 0.0,  "scale": 1.5708, "inverted": false, "raw_min": -32768, "raw_max": 32767, "raw_trim": 0 },
+  "throttle_axis": { "sdl_axis_index": 2, "center_output": 0.5,  "scale": 0.5,    "inverted": true,  "raw_min": -32768, "raw_max": 32767, "raw_trim": 0 },
+  "min_nz_g":          -2.0,
+  "max_nz_g":           4.0,
+  "max_ny_g":           2.0,
   "max_roll_rate_rad_s": 1.5708,
-  "center_button_index": 0
+  "btn_center":          0,
+  "btn_capture_trim":   -1,
+  "btn_reset_trim":     -1,
+  "btn_sim_reset":      -1,
+  "btn_sim_start":      -1
 }
 ```
 
-For an R/C transmitter that outputs throttle on axis 5 with a calibrated range of
-[−20000, +20000], the throttle entry would be:
+`raw_trim` defaults to 0 in the JSON, which causes `initialize()` to compute and apply
+the midpoint $(\text{raw\_min} + \text{raw\_max}) / 2$ as the initial trim. To
+persist a captured trim value across sessions, write the current `raw_trim` values back
+to the config file after running `captureTrim()`.
+
+For an R/C transmitter outputting throttle on axis 5 with calibrated range [−20000,
++20000] and no reverse thrust:
 
 ```json
-"throttle_axis": { "sdl_axis_index": 5, "center_output": 0.0, "scale": 1.0, "inverted": true, "raw_min": -20000, "raw_max": 20000 }
+"throttle_axis": { "sdl_axis_index": 5, "center_output": 0.5, "scale": 0.5, "inverted": true, "raw_min": -20000, "raw_max": 20000, "raw_trim": 0 }
+```
+
+For the same transmitter with 30% reverse thrust (`min_throttle_nd = −0.3`):
+
+```json
+"min_throttle_nd":    -0.3,
+"throttle_axis": { "sdl_axis_index": 5, "center_output": 0.35, "scale": 0.65, "inverted": true, "raw_min": -20000, "raw_max": 20000, "raw_trim": 0 }
 ```
 
 ---
@@ -471,7 +636,6 @@ configures the input adapter, then passes a non-owning pointer to `SimRunner` vi
 `setManualInput()` method:
 
 ```cpp
-// Proposed addition to SimRunner:
 void SimRunner::setManualInput(ManualInput* input);
 ```
 
@@ -479,12 +643,12 @@ If `setManualInput()` has not been called (or is called with `nullptr`), the run
 uses a default `AircraftCommand` (1 g, zero lateral, zero roll rate, idle throttle)
 for every step.
 
-> **Open question OQ-MI3:** The `SimRunner` interface currently accepts a single
-> `Aircraft&`. Adding `ManualInput*` requires modifying `SimRunner::initialize()` or
-> adding a separate setter. The setter form (`setManualInput()`) avoids changing the
-> `initialize()` signature and is compatible with batch-mode scenarios where no manual
-> input is present. Resolution requires confirming this addition to
-> [`docs/architecture/sim_runner.md`](sim_runner.md).
+The setter form was chosen over adding `ManualInput*` to `initialize()` for two
+reasons: the `initialize()` signature is unchanged so all existing batch-mode scenarios
+compile without modification, and the input adapter can be swapped between runs without
+resetting timing state. This is the same pattern as `Aircraft::setTerrain()`.
+[`sim_runner.md`](sim_runner.md) must document `setManualInput()` before `SimRunner`
+implementation begins.
 
 ---
 
@@ -522,7 +686,7 @@ call `SDL_Init`.
 ## Joystick Disconnect Handling
 
 When the joystick is disconnected mid-simulation, `read()` returns the neutral command
-(`n_z = 1.0 g`, `n_y = 0`, `rollRate = 0`, `throttle = idle`). This allows keyboard
+(`n_z = 1.0 g`, `n_y = 0`, `rollRate = 0`, `throttle = idle_throttle_nd`). This allows keyboard
 input to take over control immediately — the keyboard adapter is unaffected by a
 joystick disconnect and can be polled in parallel by the scenario.
 
@@ -625,6 +789,158 @@ raw SDL axis to `AircraftCommand` has correct sign and scale for the reference d
 
 ---
 
+## Verification Notebook — `manual_input_demo.ipynb`
+
+The verification notebook provides a live GUI display of the current `AircraftCommand`
+values without involving any aircraft simulation. It serves as a stand-alone tool for
+verifying axis assignments, dead zones, calibration limits, and keyboard bindings.
+
+### Purpose and Scope
+
+- Enumerate attached joystick devices and their axis counts.
+- Display the four command channels (`n_z`, `n_y`, `rollRate`, `throttle`) in real time.
+- Accept input from the keyboard (via Qt events) and from the first attached joystick
+  (via pygame / SDL2). Keyboard input takes over automatically if the joystick is
+  disconnected.
+- No `Aircraft` object, no simulation loop, no domain physics. Input only.
+
+### Python Dependencies
+
+| Library | Role |
+| --- | --- |
+| `PySide6` | Qt window, event loop, `QTimer`, keyboard capture |
+| `matplotlib` (with `FigureCanvasQTAgg`) | All plot rendering, embedded in the Qt window |
+| `pygame` | Joystick enumeration and axis polling (SDL2 wrapper) |
+
+### Window Layout
+
+The window contains two rows of matplotlib axes:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  [Left 2D box]             │  [Right 2D box]                 │  row 1
+│  X = n_y  (positive right) │  X = roll_rate (positive right) │
+│  Y = throttle (positive up)│  Y = n_z  (positive DOWN)       │
+│  Crosshairs at neutral      │  Crosshairs at neutral          │
+│  Bug dot = current command  │  Bug dot = current command      │
+├──────────────────────────────────────────────────────────────┤
+│  [n_z gauge]  [n_y gauge]  [roll gauge]  [throttle gauge]    │  row 2
+│  ◄────────────── 4 horizontal bar gauges ──────────────►     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Row 1 uses two equal-width subplot axes (`subplot(2, 2, 1)` and `subplot(2, 2, 2)`).
+Row 2 uses four equal-width subplot axes arranged side by side (`subplot(2, 4, 5–8)`,
+or equivalently a `GridSpec` with two rows of different column counts). The aspect
+ratio of the row-2 gauges is unconstrained (wide, short).
+
+### Left 2D Box — Throttle / n_y
+
+| Property | Value |
+| --- | --- |
+| Title | "Throttle / n_y" |
+| X axis | n_y (lateral load factor), range [−2, +2] g, positive **right** |
+| Y axis | Throttle, range [0, 1], positive **up** (standard matplotlib direction) |
+| X crosshair | Vertical line at x = 0 (n_y neutral) |
+| Y crosshair | Horizontal line at y = `idle_throttle_nd` (throttle neutral, default 0.05) |
+| Bug | Single scatter dot at `(n_y_current, throttle_current)` |
+| Bug at neutral | Dot plots near bottom-center: (0, ~0.05) |
+
+The throttle axis uses the standard matplotlib Y direction (increasing upward) because
+throttle increases are conventionally displayed as moving the lever forward/up.
+
+### Right 2D Box — n_z / Roll Rate
+
+| Property | Value |
+| --- | --- |
+| Title | "n_z / Roll Rate" |
+| X axis | Roll rate, range [−90, +90] °/s, positive **right** |
+| Y axis | n_z (normal load factor), range [−2, +4] g, positive **down** |
+| X crosshair | Vertical line at x = 0 (roll rate neutral) |
+| Y crosshair | Horizontal line at y = 1.0 g (n_z neutral, straight-and-level) |
+| Bug | Single scatter dot at `(roll_rate_current_deg_s, nz_current)` |
+| Bug at neutral | Dot plots at center: (0, 1 g) |
+
+"Positive down" means the matplotlib Y axis is **inverted** (`ax.invert_yaxis()`).
+With inversion, increasing n_z moves the bug downward on screen, which matches the
+pilot's intuitive feel: pulling back (increasing load factor) moves the feel-point
+downward. The Y limits are set as `ax.set_ylim(-2, 4)` **before** inversion so that
+−2 g appears at the bottom and 4 g at the top of the inverted axis.
+
+The crosshair at y = 1 g falls at the vertical midpoint when the configured
+`max_nz_g = 4` and `min_nz_g = −2` (range of 6 g, neutral at 1 g ≈ midpoint at
+(1 − (−2)) / (4 − (−2)) = 0.5).
+
+### Horizontal Bar Gauges (Row 2)
+
+Four gauges, one per command channel. Each gauge is a horizontal bar chart on its own
+subplot axis:
+
+| Gauge | Range | Neutral mark | Units displayed |
+| --- | --- | --- | --- |
+| n_z | [−2, +4] g | 1.0 g | g |
+| n_y | [−2, +2] g | 0.0 g | g |
+| Roll rate | [−90, +90] °/s | 0.0 °/s | °/s |
+| Throttle | [0, 100] % | 5 % (idle) | % |
+
+The bar is drawn from the neutral mark to the current value. Bar color transitions from
+blue (near neutral) to orange (moderate deflection) to red (near limit), using the
+fractional deflection `|value − neutral| / (limit − neutral)`.
+
+### Input Handling
+
+**Keyboard.** Qt `keyPressEvent` and `keyReleaseEvent` methods maintain a set of
+currently held keys. A `KeyboardState` object integrates the command at each timer
+tick using the same integrating model as `KeyboardInput` (rate × dt). Default key
+bindings mirror `KeyboardInputConfig` defaults. Spacebar centers all axes.
+
+**Joystick.** pygame is initialized once at startup. The first detected joystick
+(`pygame.joystick.Joystick(0)`) is opened. Each timer tick calls `pygame.event.pump()`
+to flush the SDL event queue, then reads raw axis values via `get_axis()`. An
+`AxisMapping` dataclass (Python equivalent of the C++ struct) applies calibration,
+inversion, and dead zone using the same formulas documented under
+[Dead Zone and Axis Scaling](#dead-zone-and-axis-scaling). If a `JOYDEVICEREMOVED`
+event is detected, the joystick is marked disconnected and all channels revert to
+neutral, allowing keyboard input to take over.
+
+**Source priority.** When a joystick is connected and returning non-neutral values,
+it is the active source. When the joystick is disconnected or absent at startup,
+keyboard input is the active source. The status bar at the bottom of the window shows
+the current active source ("Joystick" or "Keyboard") and the joystick connection state.
+
+### Update Loop
+
+A `QTimer` fires at 20 Hz (50 ms period). Each tick:
+
+1. `pygame.event.pump()` — flush SDL event queue.
+2. Check for joystick disconnect; revert to neutral if detected.
+3. Read joystick axes or keyboard state (depending on active source).
+4. Apply axis mapping, dead zone, and command limits.
+5. Redraw both 2D box bugs (update scatter data) and all 4 bar gauges.
+6. `canvas.draw_idle()` — trigger a single matplotlib redraw.
+
+The timer is started after the window is shown. It is stopped when the window is
+closed.
+
+### Axis Mapping in Python
+
+Because `pygame.get_axis()` returns a float in [−1, +1] (already normalized by SDL),
+the Python `AxisMapping` dataclass uses `float` for `raw_min` and `raw_max` rather
+than `int16_t`. The calibration formula is otherwise identical to the C++ version:
+
+```python
+mid        = (mapping.raw_min + mapping.raw_max) / 2.0
+half_range = (mapping.raw_max - mapping.raw_min) / 2.0
+r          = (raw - mid) / half_range          # clamp to [-1, +1]
+```
+
+Default `raw_min = −1.0`, `raw_max = 1.0` makes the calibration step a no-op for
+devices that already fill the full pygame range. For a transmitter whose throttle
+channel only spans [−0.6, +0.6] in pygame units, set `raw_min = −0.6`,
+`raw_max = 0.6`.
+
+---
+
 ## File Map
 
 | File | Purpose |
@@ -636,79 +952,5 @@ raw SDL axis to `AircraftCommand` has correct sign and scale for the reference d
 | `src/input/JoystickInput.cpp` | Implementation |
 | `test/KeyboardInput_test.cpp` | Unit tests (10 tests) |
 | `test/JoystickInput_test.cpp` | Unit tests (15 tests) |
+| `python/manual_input_demo.ipynb` | Verification notebook — live GUI display of command channels |
 
----
-
-## Open Questions
-
-| ID | Question | Impact |
-| --- | --- | --- |
-| ~~OQ-MI1~~ | ~~Injected key/axis state provider~~ | **Resolved:** `KeyboardInput` accepts a `KeyStateProvider` function at construction; `JoystickInput` has a dedicated test constructor taking an `AxisProvider`. Unit tests supply lambdas — no SDL or hardware required. |
-| ~~OQ-MI2~~ | ~~Reference joystick device for default axis layout~~ | **Resolved:** no default axis layout is guaranteed correct for any device. Every axis assignment (`sdl_axis_index`), direction (`inverted`), and calibration range (`raw_min`, `raw_max`) must be set explicitly in the JSON config for the specific device in use. Default values in `JoystickInputConfig` are illustrative only. |
-| ~~OQ-MI3~~ | ~~SimRunner integration point~~ | **Resolved:** Option B — `SimRunner::setManualInput(ManualInput*)` separate setter, consistent with `Aircraft::setTerrain()`. See [discussion below](#oq-mi3-simrunner-integration). Requires updating [`sim_runner.md`](sim_runner.md) before implementation. |
-| ~~OQ-MI4~~ | ~~Joystick disconnect behavior~~ | **Resolved:** `read()` returns neutral command on disconnect; `isConnected()` accessor added; reconnection requires reconstructing the `JoystickInput`. |
-
----
-
-## OQ-MI3 — SimRunner Integration
-
-`SimRunner::initialize()` currently takes two parameters: a `RunnerConfig` (timing
-configuration) and an `Aircraft&` (the domain object to step). `ManualInput` needs to
-be available inside the run loop so the current command can be read each step. The
-question is where that pointer is introduced.
-
-There are two viable options.
-
-### Option A — Additional parameter on `initialize()`
-
-```cpp
-void SimRunner::initialize(const RunnerConfig& config,
-                           Aircraft& aircraft,
-                           ManualInput* manual_input = nullptr);
-```
-
-The pointer defaults to `nullptr`, which preserves all existing call sites —
-batch/scripted scenarios that never use manual input compile and run unchanged.
-When non-null, the run loop calls `manual_input->read(dt_s)` each step in place of
-the hard-coded default command.
-
-**Consequences:**
-- All three dependencies (`RunnerConfig`, `Aircraft`, `ManualInput`) are declared
-  together at initialization time. There is no window where the runner is initialized
-  but the input adapter has not yet been attached.
-- Changing the input adapter between runs requires calling `initialize()` again, which
-  also resets the step counter and timing state. If the intent is purely to swap the
-  input device (e.g., hot-switch from keyboard to joystick), that side-effect may be
-  undesirable.
-- `initialize()` already mixes timing config and a domain-object reference; adding
-  another pointer is consistent with the existing pattern.
-
-### Option B — Separate setter `setManualInput()`
-
-```cpp
-void SimRunner::setManualInput(ManualInput* input);  // call after initialize(), before start()
-```
-
-This is the same pattern as `Aircraft::setTerrain()`, which is already in the
-codebase: an optional dependency injected via a setter after the primary
-initialization. The run loop checks whether the pointer is non-null each step.
-
-**Consequences:**
-- `initialize()` signature is unchanged; no existing call site is touched.
-- The input adapter can be replaced between runs (or between `stop()` and the next
-  `start()`) without calling `initialize()` again.
-- There is a valid-state window between `initialize()` and `setManualInput()` during
-  which the runner would use the default command if started prematurely. This is the
-  same risk as `Aircraft::setTerrain()` — it is accepted elsewhere in the codebase.
-- Consistent with established precedent in the codebase.
-
-### Decision
-
-**Option B is selected.** It is consistent with `Aircraft::setTerrain()` and does not
-change `SimRunner::initialize()`. The ability to swap the input device between runs
-without resetting timing state is a practical advantage for interactive development
-sessions. The risk of forgetting `setManualInput()` is the same level as the existing
-`setTerrain()` risk and is accepted.
-
-`sim_runner.md` must be updated to document `setManualInput()` before `SimRunner`
-implementation begins.
