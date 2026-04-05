@@ -1064,3 +1064,17 @@ and the display window is shown. The subprocess is terminated when the window is
 | `test/JoystickInput_test.cpp` | Unit tests (15 tests) |
 | `test/ScriptedInput_test.cpp` | Unit tests |
 | `python/manual_input_demo.ipynb` | Verification notebook — launches `joystick_verify`, displays command channels |
+
+---
+
+## Open Questions
+
+### OQ-MI-PY-1: Python Bindings Module Structure
+
+**Status:** Resolved. Design authority: [`python_bindings.md`](python_bindings.md).
+
+Module name `liteaero_sim_py`, entry point `src/python/bindings.cpp`, per-subsystem
+registration functions in `src/python/bind_*.cpp`. `AircraftCommand` exposed with named
+constructor arguments and attribute access. `JoystickInput::enumerateDevices()` exposed
+as a static method. See [`python_bindings.md`](python_bindings.md) for the full
+specification.

@@ -200,7 +200,7 @@ calling `start()` and after calling `stop()`. See the SDL2 Initialization Contra
 **Echo.** `lastManualInputFrame()` returns the `last_frame_` snapshot under
 `frame_mutex_`. This allows the scenario or application layer to read the ingested
 `ManualInputFrame` after each step and log it alongside other step outputs, without
-requiring `SimRunner` to hold a logger reference. See Open Questions.
+requiring `SimRunner` to hold a logger reference. See [OQ-SR-3](#oq-sr-3-manual-input-echo--live-display-and-logging).
 
 ---
 
@@ -270,3 +270,24 @@ File: `test/SimRunner_test.cpp`
 | `ManualInput_InjectedAdapter_CommandPropagated` | Injected mock adapter returning a fixed command — `Aircraft::step()` receives that command; `lastManualInputFrame()` reflects it |
 | `ManualInput_LastFrame_ThreadSafe` | `lastManualInputFrame()` called from a second thread while `Batch` run executes — no data race (run under ThreadSanitizer) |
 | `ManualInput_NotSet_LastFrameIsNeutral` | `lastManualInputFrame()` before `start()` returns neutral frame |
+
+---
+
+## Open Questions
+
+### OQ-SR-3: Manual Input Echo — Live Display and Logging
+
+**Status:** Partially resolved. Logging deferred.
+
+**Live display — resolved.** `lastManualInputFrame()` (the mutex-protected snapshot
+already implemented) is sufficient. A display timer on any thread polls it at its own
+rate, always getting the most recent ingested frame. Missing intermediate frames is
+acceptable for this use case. No further design work is needed here.
+
+**Logging — deferred.** Logging `ManualInputFrame` per tick is one instance of a
+general problem: delivering every per-tick output from `SimRunner` (kinematic state,
+air data, manual input, etc.) to a log consumer completely and in order. Designing that
+delivery mechanism for manual input alone would produce a partial solution inconsistent
+with the eventual logging subsystem design. This is deferred to the logging subsystem
+architecture, which must address all per-tick outputs uniformly. The requirement that
+the full `ManualInputFrame` be present in every log tick stands; the mechanism is TBD.

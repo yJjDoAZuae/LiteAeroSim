@@ -88,6 +88,13 @@ project roadmap [README.md](README.md) for cross-cutting milestones.
 | `RibbonTrail` | `python/tools/trajectory_view.py` | ✅ Reworked — `wing_span_m` parameter, CCW winding, time-based α fade via `alpha_at()`, Vispy `MeshVisual` from `mesh()` (DR-8) |
 | `HudOverlay` | `python/tools/trajectory_view.py` | ✅ Reworked — Vispy `Text` visuals in 2D overlay view, α-fading mode banner (DR-7, DR-8) |
 | `TrajectoryView` | `python/tools/trajectory_view.py` | ✅ Reworked — `CameraMode` enum (FPV/TRAIL/GODS_EYE/LOCAL_TOP), Vispy `SceneCanvas` embedded in `QMainWindow`, `load_terrain()` via `pygltflib`, `set_terrain_saturation()`, headless `animate()` (DR-7 through DR-13) |
+| `ManualInput` | `include/input/ManualInput.hpp` | ✅ Implemented — abstract base; `ManualInputFrame`, `InputAction`, `hasAction()` |
+| `KeyboardInput` | `include/input/KeyboardInput.hpp` | ✅ Implemented — integrating keyboard adapter; configurable key bindings; injected key-state provider |
+| `JoystickInput` | `include/input/JoystickInput.hpp` | ✅ Implemented — SDL2 joystick adapter; axis pipeline, dead zone, trim, disconnect fallback; `enumerateDevices()` |
+| `ScriptedInput` | `include/input/ScriptedInput.hpp` | ✅ Implemented — mutex-protected command slot; `push()` callable from Python via pybind11 |
+| `joystick_verify` | `tools/joystick_verify.cpp` | ✅ Implemented — SDL polling loop; JSON lines + `--proto` output; DEVICE/READY protocol |
+| `liteaero_sim_py` | `src/python/` | ✅ Implemented — pybind11 module; `AircraftCommand`, `ScriptedInput`, `JoystickInput.enumerate_devices()` |
+| `manual_input_demo.ipynb` | `python/manual_input_demo.ipynb` | ✅ Implemented — subprocess-based verification notebook; PySide6 + matplotlib display |
 | `AnomalyDetector` | `python/tools/anomaly.py` | 🔲 Planned |
 | `BehaviorVerifier` | `python/tools/behavior_verifier.py` | 🔲 Planned |
 | `DataOverlay` | `python/tools/data_overlay.py` | 🔲 Planned |
@@ -131,135 +138,11 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 | PP-1 | **Post-processing visualization tools — first-pass TDD implementation** — `FlightLogReader` (CSV loading via `pd.read_csv`, JSON-encoded MCAP via `mcap.reader.make_reader`, per-source DataFrames keyed by filename stem / `channel.topic`); `ModeEventSeries` (step-channel transition parser, `from_dataframe()` classmethod, `name_map` parameter, initial value skipped); `TimeHistoryFigure` (Plotly multi-panel, `shared_xaxes=True`, secondary y-axis via `specs`, `Scattergl` above 50 000 points, `add_vline()` mode overlays, `load(frames)` + `build()` + `export_html()`); `RibbonTrail` (ZYX Euler rotation matrices, wing body vector `[0, half_width_m, 0]`, `Poly3DCollection` quads, RdBu_r roll colormap via `TwoSlopeNorm(±π/3)`, midpoint-roll quad color); `HudOverlay` (9 fixed-position `text2D` artists, fading mode-change banner, 60-frame countdown); `TrajectoryView` (ghost ribbon α=0.15, live ribbon last 200 quads, dual-source overlay, `FuncAnimation(blit=False)`); `conftest.py` Agg backend; all design decisions subsequently resolved in dedicated design sessions; see DR-1 through DR-13 in [`post_processing.md`](../architecture/post_processing.md) | `test_log_reader.py` — 4 tests; `test_mode_events.py` — 5 tests; `test_time_history.py` — 6 tests; `test_ribbon_trail.py` — 5 tests; 20 tests total |
 | PP-D | **Post-processing tools design — full architecture and decision records** — resolved all 28 design questions across both visualization and analysis layers; selections: Vispy (OpenGL, DR-8) for 3D rendering; PySide6 Qt window (DR-7) for playback and camera controls; Panel + Plotly (DR-10) for live time history; pre-generated glTF terrain via `pygltflib` (DR-11); offline terrain ingestion pipeline (DR-12); `terrain_paths.py` shared path module with `data/terrain/<dataset>/source/` + `derived/` repository structure (DR-13); per-field MCAP topic convention `"source/field_name"` (DR-9); `FlightLogReader` stateful API (DR-1); `ModeEventSeries` constructor name-map (DR-2); `TimeHistoryFigure.figure()` accessor (DR-3); ring buffer polling via pybind11 (DR-5, DR-6); camera modes FPV/Trailing/God's-eye/Local-top defined (PP-F28–PP-F32); terrain saturation runtime API (DR-13 area); document restructured from open-question tracking format to settled architecture with Decision Records appendix | [`docs/architecture/post_processing.md`](../architecture/post_processing.md) |
 | PP-2 | **Post-processing visualization rework** (Tasks A–G, TDD) — `FlightLogReader`: per-field MCAP topic parsing (`"source/field_name"`), CSV `source_name` column, stateful `frames()` getter, `channel_names()` raises before load (DR-1, DR-9); `ModeEventSeries`: initial value emitted as first event, `name_map` moved to constructor (DR-2); `TimeHistoryFigure`: `figure()` public accessor with caching, `_build()` internal (DR-3); `RibbonTrail`: `wing_span_m` parameter, CCW quad winding, time-based α fade via `alpha_at()`, Vispy `MeshVisual` from `mesh()` (DR-8); `HudOverlay`: Vispy `Text` visuals in 2D overlay view, α-fading mode-change banner (DR-7, DR-8); `TrajectoryView`: `CameraMode` enum (FPV/TRAIL/GODS_EYE/LOCAL_TOP), Vispy `SceneCanvas` embedded in `QMainWindow`, `load_terrain()` via `pygltflib`, `set_terrain_saturation()`, headless `animate()` returns canvas (DR-7 through DR-13); `terrain_paths.py`: `get_terrain_data_root()`, `dataset_dir()`, `source_dir()`, `derived_dir()`, `las_terrain_dir()`, `gltf_path()`, `metadata_path()`; `vispy>=0.14`, `pyside6>=6.6`, `pygltflib`, `mcap-protobuf-support>=0.5` added to `pyproject.toml` | `test_log_reader.py` — 9 tests; `test_mode_events.py` — 6 tests; `test_time_history.py` — 6 tests; `test_ribbon_trail.py` — 9 tests; `test_terrain_paths.py` — 11 tests; `test_trajectory_view.py` — 14 tests; 55 tests total; full suite 150 pass |
+| MI-1 | **Manual Input — Full Subsystem** — `ManualInput` abstract base; `KeyboardInput` (integrating keyboard adapter, configurable scancodes, action keys, injected key-state provider); `JoystickInput` (SDL2 adapter, axis pipeline: calibration/trim/normalization/dead-zone/scale, per-axis `raw_min`/`raw_max`/`raw_trim`, inversion, disconnect fallback, `captureTrim()`, `enumerateDevices()`); `ScriptedInput` (mutex-protected slot, `push(AircraftCommand)`); `SimRunner::setManualInput()` / `lastManualInputFrame()` with `SDL_WasInit` guard; `joystick_verify` tool (DEVICE/READY protocol, JSON lines + `--proto` output, `ManualInputFrameProto`/`AircraftCommandProto` added to `liteaerosim.proto`); `manual_input_demo.ipynb` verification notebook (subprocess-based, PySide6 + matplotlib, 20 Hz QTimer); `liteaero_sim_py` pybind11 module (`AircraftCommand`, `ScriptedInput`, `JoystickInput.enumerate_devices()`); SDL2 and pybind11 added to `conanfile.txt` and dependency registry; design authority: [`docs/architecture/manual_input.md`](../architecture/manual_input.md), [`docs/architecture/sim_runner.md`](../architecture/sim_runner.md), [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md) | C++: `KeyboardInput_test.cpp` — 10 tests; `JoystickInput_test.cpp` — 15 tests; `ScriptedInput_test.cpp` — 4 tests; `SimRunner_test.cpp` — 4 new manual input tests; Python: `test_manual_input_bindings.py` — 7 tests |
 
 ---
 
-## 1. Manual Input — Full Subsystem
-
-**Design authority:** [`docs/architecture/manual_input.md`](../architecture/manual_input.md)
-
-**Blocking dependencies:**
-
-- `AircraftCommand` — implemented.
-- SDL2 (`sdl/2.28.5`) — add to `conanfile.txt`.
-- pybind11 — project-wide dependency; add to `conanfile.txt` and
-  [`docs/dependencies/README.md`](../dependencies/README.md) before this item is authorized.
-
-Manual input adapters translate human control inputs (joystick axes, keyboard state)
-into `ManualInputFrame` values containing an `AircraftCommand` and a bitmask of named
-`InputAction` flags. They live in the Interface Layer and have no physics logic.
-
-### Deliverables
-
-**C++ library (`liteaero-sim`):**
-
-| Class / Type | File | Description |
-| --- | --- | --- |
-| `InputAction` enum, `ManualInputFrame` struct, `hasAction()` | `include/input/ManualInput.hpp` | Return type and action flags shared by all adapters |
-| `ManualInput` | `include/input/ManualInput.hpp` | Abstract base: `initialize()`, `reset()`, `read()` |
-| `KeyboardInputConfig`, `KeyboardInput` | `include/input/KeyboardInput.hpp` | Integrating keyboard adapter; configurable key bindings; named action keys (`SimReset`, `SimStart`); injected key-state provider for unit testing |
-| `JoystickInputConfig`, `JoystickInput`, `AxisMapping`, `JoystickDeviceInfo` | `include/input/JoystickInput.hpp` | SDL2 joystick adapter; device selection by name (`device_name_contains`) or index; per-axis calibration (`raw_min`/`raw_max`/`raw_trim`), dead zone, inversion, scale; named action buttons; `captureTrim()` / `ResetTrim`; disconnect fallback to neutral; `enumerateDevices()` static method |
-| `ScriptedInput` | `include/input/ScriptedInput.hpp` | Mutex-protected command slot; `push(AircraftCommand)` callable from Python via pybind11; `read()` returns last pushed frame |
-
-**SimRunner extension** (modifies the existing `Sim-1` implementation):
-
-| Change | Description |
-| --- | --- |
-| `SimRunner::setManualInput(ManualInput*)` | Injects a manual input adapter; `nullptr` or not called → neutral command fallback. Design authority: [`docs/architecture/sim_runner.md`](../architecture/sim_runner.md) must be updated before implementation. |
-| Run loop update | `SDL_PumpEvents()` called before `ManualInput::read()` each tick. |
-| Output echo | `ManualInputFrame` from `read()` included in every output tick. Required by HUD display and post-processing use cases. |
-
-**Python bindings (pybind11):**
-
-| Export | Description |
-| --- | --- |
-| `AircraftCommand` | Struct exposed to Python for `ScriptedInput::push()` |
-| `ScriptedInput::push()` | Allows Python scripts to drive sim inputs |
-| `JoystickInput::enumerateDevices()` | Returns device list for Python scenario setup and notebook configuration |
-
-**Standalone tool:**
-
-| File | Description |
-| --- | --- |
-| `src/tools/joystick_verify.cpp` | C++ executable; SDL polling loop; streams `ManualInputFrame` to stdout as JSON lines (default) or protobuf (flag); prints device table at startup; joystick-only scope initially |
-
-**Verification notebook:**
-
-| File | Description |
-| --- | --- |
-| `python/manual_input_demo.ipynb` | Launches `joystick_verify` subprocess; reads JSON stream; PySide6 + matplotlib window with 2D command boxes (row 1) and 4 horizontal bar gauges (row 2); 20 Hz `QTimer` |
-
-### Tests
-
-**`test/KeyboardInput_test.cpp`** (10 tests):
-
-| # | Test |
-| --- | --- |
-| 1 | No keys pressed → `n_z = neutral_nz_g`, `throttle = idle_throttle_nd`, others zero |
-| 2 | Pitch-up key held N steps → `n_z` increases by `nz_rate × N × dt_s` |
-| 3 | `n_z` clamps at `max_nz_g` |
-| 4 | `n_z` clamps at `min_nz_g` |
-| 5 | Throttle ramps up, clamps at 1.0 |
-| 6 | Throttle ramps down, clamps at 0.0 |
-| 7 | Center key → all axes snap to neutral instantly |
-| 8 | `reset()` → neutral command |
-| 9 | `initialize()` applies non-default rates and limits |
-| 10 | `initialize()` with missing required field → `std::invalid_argument` |
-
-**`test/JoystickInput_test.cpp`** (15 tests):
-
-| # | Test |
-| --- | --- |
-| 1 | Axis at center → output = `center_output` |
-| 2 | Axis at dead zone boundary → output = `center_output` |
-| 3 | Axis just beyond dead zone → non-zero output (continuity) |
-| 4 | Axis at full deflection → output = `center_output + scale` |
-| 5 | Axis at full negative deflection → correct output (SDL asymmetric min handled) |
-| 6 | Inverted axis → negated normalized output |
-| 7 | `n_z` clamps at `max_nz_g` |
-| 8 | `n_z = 1.0 g` at stick center |
-| 9 | `reset()` returns neutral command |
-| 10 | `initialize()` applies non-default dead zone |
-| 11 | `initialize()` rejects `dead_zone_nd ≥ 1.0` → `std::invalid_argument` |
-| 12 | `raw_min`/`raw_max` sub-range: raw at `raw_max` → normalized +1 |
-| 13 | Out-of-range raw clamped to `[raw_min, raw_max]` |
-| 14 | `isConnected()` true for injected-provider instance |
-| 15 | Simulated disconnect → `read()` returns neutral command |
-
-**`test/ScriptedInput_test.cpp`** (4 tests):
-
-| # | Test |
-| --- | --- |
-| 1 | `push()` → `read()` returns the pushed command |
-| 2 | `reset()` → neutral command |
-| 3 | `initialize()` accepts empty JSON config |
-| 4 | `push()` from thread A + `read()` from thread B → no data race (run under ThreadSanitizer) |
-
-### CMake Additions
-
-```cmake
-find_package(SDL2 REQUIRED)
-find_package(pybind11 REQUIRED)
-
-target_sources(liteaero-sim PRIVATE
-    src/input/KeyboardInput.cpp
-    src/input/JoystickInput.cpp
-    src/input/ScriptedInput.cpp
-)
-target_link_libraries(liteaero-sim PRIVATE SDL2::SDL2)
-
-add_executable(joystick_verify src/tools/joystick_verify.cpp)
-target_link_libraries(joystick_verify PRIVATE liteaero-sim SDL2::SDL2)
-
-pybind11_add_module(liteaero_py src/python/bindings.cpp)
-target_link_libraries(liteaero_py PRIVATE liteaero-sim)
-```
-
-`conanfile.txt` additions: `sdl/2.28.5`, `pybind11/2.11.1` (or latest stable in ConanCenter).
-
----
-
-## 2. Sensor Models — Implementable Subset
+## 1. Sensor Models — Implementable Subset
 
 **Blocking dependencies:** None. `KinematicState` and `V_Terrain` are implemented.
 
@@ -281,7 +164,7 @@ listed; `SensorLaserAlt` and `SensorRadAlt` outputs are required by the `Anomaly
 
 ---
 
-## 3. Logged Channel Registry — Design
+## 2. Logged Channel Registry — Design
 
 **Blocking dependencies:** SimRunner (delivered), LandingGear C++ (delivered), item 2
 (sensor models subset). The registry must reflect the complete channel set produced by the
@@ -305,7 +188,7 @@ Design document (`docs/architecture/channel_registry.md`) specifying:
 
 ---
 
-## 4. Real Flight Log Format — Design
+## 3. Real Flight Log Format — Design
 
 **Blocking dependencies:** None. This is a standalone design decision.
 
@@ -327,7 +210,7 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 
 ---
 
-## 5. Aerodynamic Coefficient Design Study
+## 4. Aerodynamic Coefficient Design Study
 
 **Blocking dependencies:** None. `AeroCoeffEstimator` is implemented.
 
@@ -340,7 +223,7 @@ Design authority documents:
 - Propulsion parameter estimation and propulsion-aero coupling:
   [`docs/architecture/propulsion_coeff_estimator.md`](../architecture/propulsion_coeff_estimator.md)
 
-Prerequisite for item 6 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-16(c).
+Prerequisite for item 5 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-16(c).
 
 ### Deliverables — Aerodynamic and Propulsion Coefficient Design Study
 
@@ -351,13 +234,13 @@ Prerequisite for item 6 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-1
 - `BodyAxisCoeffModel` and `PropulsionCouplingCoefficients` formats decided and documented.
 - Element registry updated (`AeroModel` named, `BodyAxisCoeffModel` and `PropulsionCoeffEstimator` formats defined).
 
-Must be complete before item 6 begins.
+Must be complete before item 5 begins.
 
 ---
 
-## 6. Aircraft6DOF — Design and Implementation
+## 5. Aircraft6DOF — Design and Implementation
 
-**Blocking dependencies:** Item 5 (aerodynamic coefficient design study).
+**Blocking dependencies:** Item 4 (aerodynamic coefficient design study).
 
 Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
 [`docs/architecture/system/future/element_registry.md`](../architecture/system/future/element_registry.md).
@@ -388,7 +271,7 @@ proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must bot
 
 ---
 
-## 7. Post-Processing — Analysis Tools Design Harmonization and Implementation
+## 6. Post-Processing — Analysis Tools Design Harmonization and Implementation
 
 **Blocking dependencies:** Item 3 (Logged Channel Registry), item 4 (Real Flight Log
 Format), and LiteAero Flight command channel schema (cross-repo dependency — track in
@@ -426,7 +309,7 @@ Implement in dependency order:
 
 ---
 
-## 8. LandingGear — Python Bindings and Scenario Tests
+## 7. LandingGear — Python Bindings and Scenario Tests
 
 **Blocking dependencies:** LandingGear C++ (delivered, LG-1), PP-1 (delivered —
 visualization tools exist for animation). PP-2 (rework) is delivered.
@@ -439,8 +322,7 @@ Implement Steps G–H from the design authority document
 #### Step G — Python Bindings (pybind11)
 
 Expose `LandingGear`, `WheelUnit`, `StrutState`, and `ContactForces` to Python via
-pybind11. Build target: `liteaero_sim_py` — a pybind11 extension module. Add to CMake
-as an optional target gated on `LITEAERO_SIM_BUILD_PYTHON_BINDINGS=ON`.
+pybind11. Design authority: [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md) — Landing Gear section.
 
 Rewrite `python/scripts/touchdown_animation.py` to call `LandingGear::step()` via the
 pybind11 module. Remove Python-side contact physics. The Python-side aerodynamics model
@@ -460,14 +342,13 @@ Implement the four scenario tests from the design authority document as pytest f
 
 ### CMake Addition
 
-Add optional `liteaero_sim_py` pybind11 extension target controlled by
-`LITEAERO_SIM_BUILD_PYTHON_BINDINGS`. Add pybind11 to `conanfile.txt` (ConanCenter).
+See [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md) for the CMake target and conan dependency.
 
 ---
 
-## 9. External Interface Elements
+## 8. External Interface Elements
 
-**Blocking dependencies:** SimRunner (delivered) for all elements. Item 6 (Aircraft6DOF)
+**Blocking dependencies:** SimRunner (delivered) for all elements. Item 5 (Aircraft6DOF)
 for `PX4Interface`. `NavigationState` from LiteAero Flight for `QGroundControlLink`.
 
 Adapters that connect LiteAero Sim to external systems. All live in the Interface Layer.
@@ -475,7 +356,7 @@ Adapters that connect LiteAero Sim to external systems. All live in the Interfac
 | # | Element | Protocol | Depends on |
 | --- | --- | --- | --- |
 | LAS-ext-1 | `ArduPilotInterface` | ArduPilot SITL protocol | SimRunner (delivered); `Aircraft` or `Aircraft6DOF` |
-| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (delivered); `Aircraft6DOF` (item 6) |
+| LAS-ext-2 | `PX4Interface` | PX4 SITL bridge | SimRunner (delivered); `Aircraft6DOF` (item 5) |
 | LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (delivered); `NavigationState` (LiteAero Flight) |
 | LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (delivered); `SimulationFrame` (done) |
 
@@ -487,7 +368,7 @@ transport and axis convention are decided (see
 
 ---
 
-## 10. Sensor Models — Deferred Subset
+## 9. Sensor Models — Deferred Subset
 
 **Blocking dependencies:** LiteAero Flight components not yet designed (`NavigationFilter`
 for `SensorINS`; Guidance for `SensorForwardTerrainProfile`). `SensorAA`, `SensorAAR`,
@@ -506,7 +387,7 @@ Schedule when respective LiteAero Flight dependencies are available.
 
 ---
 
-## 11. Synthetic Perception Sensors — Proposed
+## 10. Synthetic Perception Sensors — Proposed
 
 **Blocking dependencies:** Design items needed for each sensor before implementation
 can begin. Schedule when prerequisite sensor and terrain models are stable.

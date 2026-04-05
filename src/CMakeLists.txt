@@ -14,6 +14,8 @@ file(GLOB_RECURSE LITEAEROSIM_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cxx"
 )
 list(FILTER LITEAEROSIM_SOURCES EXCLUDE REGEX ".*/tools/.*")
+# Exclude src/python/: pybind11 extension files are built as a separate target.
+list(FILTER LITEAEROSIM_SOURCES EXCLUDE REGEX ".*/python/.*")
 
 # Core simulation library (static or shared, governed by BUILD_SHARED_LIBS)
 add_library(liteaerosim ${LITEAEROSIM_SOURCES})
@@ -50,6 +52,14 @@ target_compile_features(liteaerosim PUBLIC cxx_std_17)
 set_target_properties(liteaerosim PROPERTIES
     POSITION_INDEPENDENT_CODE ${CMAKE_POSITION_INDEPENDENT_CODE}
 )
+
+# ---------------------------------------------------------------------------
+# Python extension module (optional)
+# ---------------------------------------------------------------------------
+
+if(LITEAERO_SIM_BUILD_PYTHON_BINDINGS)
+    add_subdirectory(python)
+endif()
 
 # ---------------------------------------------------------------------------
 # Install rules (uncomment when packaging is needed)

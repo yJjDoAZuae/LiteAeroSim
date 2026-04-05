@@ -21,8 +21,9 @@ Prefer permissive open-source licenses. See [guidelines/general.md](../guideline
 | [nlohmann/json](https://github.com/nlohmann/json) | 3.12.0 | MIT | Conan | JSON serialization / deserialization |
 | [googletest](https://github.com/google/googletest) | 1.14.0 | BSD-3-Clause | Conan | Unit testing (gtest + gmock) |
 | [protobuf](https://github.com/protocolbuffers/protobuf) | 3.21.12 | BSD-3-Clause | Conan | Binary serialization (proto3 wire format) |
+| [SDL2](https://www.libsdl.org) | 2.28.5 | zlib | Conan | Keyboard and joystick input |
+| [pybind11](https://github.com/pybind/pybind11) | 2.11.1 | BSD-3-Clause | Conan | Python bindings (optional — `LITEAERO_SIM_BUILD_PYTHON_BINDINGS`) |
 | [trochoids](https://github.com/castacks/trochoids) | `38d23eb` | Clear BSD | FetchContent (pattern 1b) | Dubins and trochoidal path planning |
-| [mcap](https://github.com/foxglove/mcap) | v1.4.0 | MIT | FetchContent (pattern 1b) | MCAP binary log format |
 | [tinygltf](https://github.com/syoyo/tinygltf) | v2.9.3 | MIT | FetchContent (pattern 1b) | glTF 2.0 / GLB export |
 
 ### Python Dependencies
