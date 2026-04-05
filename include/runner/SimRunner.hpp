@@ -1,9 +1,11 @@
 #pragma once
 
 #include "Aircraft.hpp"
+#include "input/ManualInput.hpp"
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -28,15 +30,30 @@ public:
     bool   is_running() const;
     double elapsed_sim_time_s() const;
 
+    // Inject a manual input adapter.  nullptr (default) uses a neutral
+    // AircraftCommand on every tick.  Must not be called while a run is in
+    // progress.  SimRunner does not take ownership; the caller must keep the
+    // adapter alive for the duration of the run.
+    void setManualInput(ManualInput* input);
+
+    // Returns a mutex-protected snapshot of the ManualInputFrame produced on
+    // the most recent tick.  Returns a neutral frame when no adapter is set or
+    // before the first tick.  Safe to call from any thread.
+    ManualInputFrame lastManualInputFrame() const;
+
 private:
     void runLoop();
 
     RunnerConfig          config_;
-    Aircraft*             aircraft_   = nullptr;
-    std::atomic<bool>     stop_flag_  {false};
-    std::atomic<bool>     running_    {false};
-    std::atomic<uint64_t> step_count_ {0};
+    Aircraft*             aircraft_     = nullptr;
+    ManualInput*          manual_input_ = nullptr;
+    std::atomic<bool>     stop_flag_    {false};
+    std::atomic<bool>     running_      {false};
+    std::atomic<uint64_t> step_count_   {0};
     std::thread           worker_;
+
+    mutable std::mutex    frame_mutex_;
+    ManualInputFrame      last_frame_;   // guarded by frame_mutex_
 };
 
 }  // namespace liteaero::simulation

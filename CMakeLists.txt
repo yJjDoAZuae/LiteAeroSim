@@ -19,6 +19,11 @@ option(BUILD_SHARED_LIBS "Build libraries as shared instead of static" OFF)
 # so _USE_MATH_DEFINES must be set globally to restore them on MinGW/MSVC.
 add_compile_definitions(_USE_MATH_DEFINES)
 
+# SDL2 on Windows redefines main() as SDL_main() unless SDL_MAIN_HANDLED is set.
+# Setting it globally ensures test binaries and tools that define their own main()
+# are not affected by SDL2main's WinMain redirect.
+add_compile_definitions(SDL_MAIN_HANDLED)
+
 # Enable CTest at the project root so all subdirectories are registered
 enable_testing()
 
@@ -39,6 +44,7 @@ enable_testing()
 #   nlohmann_json    | 3.12.0                                   | MIT          | Conan (find_package)
 #   gtest            | 1.14.0                                   | BSD-3-Clause | Conan (find_package)
 #   protobuf         | 3.21.12                                  | BSD-3-Clause | Conan (find_package)
+#   sdl              | 2.28.5                                   | zlib         | Conan (find_package)
 #   trochoids        | 38d23eb3346737fe9d6e9ff57c742113e29dfe4f | Clear BSD    | FetchContent (pattern 1b — catkin CMake)
 #   tinygltf         | v2.9.3                                   | MIT          | FetchContent (pattern 1b — header-only)
 #   liteaero-flight  | co-located sibling repo                  | proprietary  | add_subdirectory (co-located dev)
@@ -46,6 +52,9 @@ enable_testing()
 # NOTE: mcap is intentionally absent. It was liteaero-sim's only consumer of mcap
 # and is now provided transitively via liteaero::log from liteaero-flight.
 # ---------------------------------------------------------------------------
+
+# --- SDL2 (zlib) — keyboard and joystick input ---
+find_package(SDL2 REQUIRED)
 
 # --- Eigen3 (MPL-2) — linear algebra ---
 find_package(Eigen3 REQUIRED NO_MODULE)
@@ -138,3 +147,4 @@ add_subdirectory(../liteaero-flight liteaero-flight-build)
 add_subdirectory(proto)
 add_subdirectory(src)
 add_subdirectory(test)
+add_subdirectory(tools)

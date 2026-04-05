@@ -330,3 +330,22 @@ message LandingGearState {
     int32                    schema_version = 1;
     repeated WheelUnitState  wheel_units    = 2;
 }
+
+// ---------------------------------------------------------------------------
+// Manual input — AircraftCommand and ManualInputFrame serialization
+// ---------------------------------------------------------------------------
+
+message AircraftCommandProto {
+    int32 schema_version      = 1;
+    float n_z                 = 2;  // commanded normal load factor (g)
+    float n_y                 = 3;  // commanded lateral load factor (g)
+    float roll_rate_wind_rps  = 4;  // commanded wind-frame roll rate (rad/s)
+    float throttle_nd         = 5;  // normalized throttle [0, 1]
+}
+
+message ManualInputFrameProto {
+    int32                schema_version = 1;
+    AircraftCommandProto command        = 2;
+    uint32               actions        = 3;  // bitmask of InputAction flags
+    bool                 connected      = 4;  // joystick connection state
+}

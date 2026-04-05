@@ -39,12 +39,23 @@ target_compile_definitions(liteaerosim_test PRIVATE
 # the liteaerosim static library (proto dep is PRIVATE to liteaerosim).
 target_link_libraries(liteaerosim_test
     PRIVATE
+        # gtest_main must come before liteaerosim (which transitively introduces
+        # SDL2 and libmingw32). GNU ld processes archives left to right; if
+        # libmingw32 is processed before gtest_main, crtexewin.o wins the
+        # 'main' symbol and expects WinMain which is not defined.
+        GTest::gtest_main
+        GTest::gtest
         liteaerosim
         liteaerosim_proto
-        GTest::gtest_main
         Eigen3::Eigen
         nlohmann_json::nlohmann_json
 )
+
+# SDL2 static library on Windows embeds the GUI subsystem. Force console
+# subsystem so the test binary uses main() not WinMain().
+if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(liteaerosim_test PRIVATE -mconsole -Wl,--subsystem,console)
+endif()
 
 # Register individual test cases with CTest via Google Test discovery.
 # WORKING_DIRECTORY keeps test-generated output files (e.g. CSVs) inside the

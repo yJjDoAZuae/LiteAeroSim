@@ -3,8 +3,10 @@
 
 #include "runner/SimRunner.hpp"
 #include "Aircraft.hpp"
+#include "input/ManualInput.hpp"
 #include "propulsion/Propulsion.hpp"
 #include <gtest/gtest.h>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
@@ -316,4 +318,142 @@ TEST(SimRunnerTest, IsRunning_FalseAfterBatchCompletes)
     runner.start();
 
     EXPECT_FALSE(runner.is_running());
+}
+
+// ---------------------------------------------------------------------------
+// Manual input tests
+// ---------------------------------------------------------------------------
+
+// Mock ManualInput: returns a fixed frame; counts how many times read() was called.
+class MockManualInput : public liteaero::simulation::ManualInput {
+public:
+    explicit MockManualInput(liteaero::simulation::AircraftCommand cmd) : cmd_(cmd) {}
+
+    void initialize(const nlohmann::json&) override {}
+    void reset() override { read_count_.store(0); }
+
+    liteaero::simulation::ManualInputFrame read() override {
+        ++read_count_;
+        liteaero::simulation::ManualInputFrame f;
+        f.command = cmd_;
+        f.actions = 0u;
+        return f;
+    }
+
+    int readCount() const { return read_count_.load(); }
+
+private:
+    liteaero::simulation::AircraftCommand cmd_;
+    std::atomic<int> read_count_{0};
+};
+
+TEST(SimRunnerTest, ManualInput_NotSet_LastFrameIsNeutral)
+{
+    auto ac = makeAircraft(0.02f);
+    SimRunner runner;
+
+    RunnerConfig cfg;
+    cfg.mode       = ExecutionMode::Batch;
+    cfg.dt_s       = 0.02f;
+    cfg.duration_s = 0.1;
+    runner.initialize(cfg, *ac);
+
+    // Before start(): last frame must be neutral.
+    const auto frame = runner.lastManualInputFrame();
+    EXPECT_FLOAT_EQ(frame.command.n_z,               1.0f);
+    EXPECT_FLOAT_EQ(frame.command.n_y,               0.0f);
+    EXPECT_FLOAT_EQ(frame.command.rollRate_Wind_rps, 0.0f);
+    EXPECT_FLOAT_EQ(frame.command.throttle_nd,       0.0f);
+    EXPECT_EQ(frame.actions, 0u);
+}
+
+TEST(SimRunnerTest, ManualInput_NullAdapter_UsesNeutralCommand)
+{
+    auto ac = makeAircraft(0.02f);
+    SimRunner runner;
+
+    RunnerConfig cfg;
+    cfg.mode       = ExecutionMode::Batch;
+    cfg.dt_s       = 0.02f;
+    cfg.duration_s = 3 * 0.02;
+    runner.initialize(cfg, *ac);
+    runner.setManualInput(nullptr);
+    runner.start();
+
+    // With null adapter, last_frame_ must contain the neutral AircraftCommand.
+    const auto frame = runner.lastManualInputFrame();
+    EXPECT_FLOAT_EQ(frame.command.n_z,               1.0f);
+    EXPECT_FLOAT_EQ(frame.command.n_y,               0.0f);
+    EXPECT_FLOAT_EQ(frame.command.rollRate_Wind_rps, 0.0f);
+    EXPECT_FLOAT_EQ(frame.command.throttle_nd,       0.0f);
+}
+
+TEST(SimRunnerTest, ManualInput_InjectedAdapter_CommandPropagated)
+{
+    auto ac = makeAircraft(0.02f);
+    SimRunner runner;
+
+    liteaero::simulation::AircraftCommand injected;
+    injected.n_z               = 2.0f;
+    injected.n_y               = 0.5f;
+    injected.rollRate_Wind_rps = 0.3f;
+    injected.throttle_nd       = 0.7f;
+    MockManualInput mock(injected);
+
+    RunnerConfig cfg;
+    cfg.mode       = ExecutionMode::Batch;
+    cfg.dt_s       = 0.02f;
+    cfg.duration_s = 5 * 0.02;
+    runner.initialize(cfg, *ac);
+    runner.setManualInput(&mock);
+    runner.start();
+
+    // Adapter read() must have been called once per step.
+    EXPECT_EQ(mock.readCount(), 6);  // steps at t=0,0.02,...,0.10 (6 steps)
+
+    // lastManualInputFrame() must reflect the injected command.
+    const auto frame = runner.lastManualInputFrame();
+    EXPECT_FLOAT_EQ(frame.command.n_z,               2.0f);
+    EXPECT_FLOAT_EQ(frame.command.n_y,               0.5f);
+    EXPECT_FLOAT_EQ(frame.command.rollRate_Wind_rps, 0.3f);
+    EXPECT_FLOAT_EQ(frame.command.throttle_nd,       0.7f);
+}
+
+TEST(SimRunnerTest, ManualInput_LastFrame_ThreadSafe)
+{
+    // Run under ThreadSanitizer to verify absence of data races.
+    // Correctness check: reader never observes a torn (partially updated) frame.
+    auto ac = makeAircraft(0.02f);
+    SimRunner runner;
+
+    liteaero::simulation::AircraftCommand injected;
+    injected.n_z = 1.5f;
+    MockManualInput mock(injected);
+
+    RunnerConfig cfg;
+    cfg.mode       = ExecutionMode::Batch;
+    cfg.dt_s       = 0.001f;   // fast steps to maximize contention
+    cfg.duration_s = 0.5;
+    runner.initialize(cfg, *ac);
+    runner.setManualInput(&mock);
+
+    std::atomic<bool> done{false};
+    std::atomic<int>  errors{0};
+
+    // Reader thread: call lastManualInputFrame() while the Batch run executes.
+    std::thread reader([&]() {
+        while (!done.load()) {
+            const auto f = runner.lastManualInputFrame();
+            // n_z must always equal the injected value or the initial neutral 1.0.
+            if (f.command.n_z != 1.5f && f.command.n_z != 1.0f) {
+                ++errors;
+            }
+        }
+    });
+
+    runner.start();   // blocks until Batch completes
+    done.store(true);
+    reader.join();
+
+    EXPECT_EQ(errors.load(), 0);
 }

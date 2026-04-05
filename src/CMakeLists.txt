@@ -5,13 +5,15 @@
 # made available by the root CMakeLists.txt before this file is processed.
 # ---------------------------------------------------------------------------
 
-# Collect all C++ source files under src/ recursively.
+# Collect all C++ source files under src/ recursively, excluding src/tools/
+# (tools/ contains main() executables built separately in the tools/ subdirectory).
 # CONFIGURE_DEPENDS causes CMake to re-glob when files are added or removed.
 file(GLOB_RECURSE LITEAEROSIM_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cxx"
 )
+list(FILTER LITEAEROSIM_SOURCES EXCLUDE REGEX ".*/tools/.*")
 
 # Core simulation library (static or shared, governed by BUILD_SHARED_LIBS)
 add_library(liteaerosim ${LITEAEROSIM_SOURCES})
@@ -26,15 +28,16 @@ target_include_directories(liteaerosim
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# External dependencies are PRIVATE: they are implementation details of the
-# library and do not form part of its public API. Consumers of liteaerosim
-# do not need to link these separately.
+# SDL2 is PUBLIC because SDL_Scancode and Sint16 appear in public headers
+# (KeyboardInputConfig, JoystickInput). Consumers that include these headers
+# need SDL2 on their include path.
 target_link_libraries(liteaerosim
     PUBLIC
         liteaero::log
         liteaero::control
         liteaero::terrain
         liteaero::nav
+        SDL2::SDL2
     PRIVATE
         Eigen3::Eigen
         nlohmann_json::nlohmann_json

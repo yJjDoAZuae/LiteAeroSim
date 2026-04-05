@@ -1,5 +1,6 @@
 #include "runner/SimRunner.hpp"
 
+#include <SDL2/SDL.h>
 #include <chrono>
 #include <stdexcept>
 
@@ -81,6 +82,21 @@ double SimRunner::elapsed_sim_time_s() const
 
 // ---------------------------------------------------------------------------
 
+void SimRunner::setManualInput(ManualInput* input)
+{
+    manual_input_ = input;
+}
+
+// ---------------------------------------------------------------------------
+
+ManualInputFrame SimRunner::lastManualInputFrame() const
+{
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    return last_frame_;
+}
+
+// ---------------------------------------------------------------------------
+
 void SimRunner::runLoop()
 {
     const bool   has_duration   = (config_.duration_s > 0.0);
@@ -97,19 +113,36 @@ void SimRunner::runLoop()
 
     const auto t_start = Clock::now();
 
-    AircraftCommand cmd{};
     const Eigen::Vector3f wind_NED_mps = Eigen::Vector3f::Zero();
     constexpr float rho_kgm3 = 1.225f;
 
     while (!stop_flag_.load()) {
-        const uint64_t k           = step_count_.load();
-        const double   sim_time_s  = static_cast<double>(k) * dt_s_d;
+        const uint64_t k          = step_count_.load();
+        const double   sim_time_s = static_cast<double>(k) * dt_s_d;
 
         if (has_duration && sim_time_s > config_.duration_s + time_initial_s) {
             break;
         }
 
-        aircraft_->step(sim_time_s, cmd, wind_NED_mps, rho_kgm3);
+        ManualInputFrame frame;
+        if (manual_input_ != nullptr) {
+            // SDL_PumpEvents flushes the OS event queue so joystick-removed events
+            // are visible to JoystickInput::checkDisconnectEvents().
+            // Guard behind SDL_WasInit so tests that inject ScriptedInput without
+            // initializing SDL do not crash.
+            if (SDL_WasInit(0) != 0) {
+                SDL_PumpEvents();
+            }
+            frame = manual_input_->read();
+        }
+        // frame is neutral (AircraftCommand default + actions=0) when no adapter is set.
+
+        {
+            std::lock_guard<std::mutex> lock(frame_mutex_);
+            last_frame_ = frame;
+        }
+
+        aircraft_->step(sim_time_s, frame.command, wind_NED_mps, rho_kgm3);
         step_count_.store(k + 1);
 
         if (timed) {

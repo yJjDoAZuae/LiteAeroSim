@@ -1059,9 +1059,8 @@ and the display window is shown. The subprocess is terminated when the window is
 | `src/input/KeyboardInput.cpp` | Implementation |
 | `src/input/JoystickInput.cpp` | Implementation |
 | `src/input/ScriptedInput.cpp` | Implementation |
-| `src/tools/joystick_verify.cpp` | Standalone verification executable — SDL polling loop, JSON lines to stdout |
+| `tools/joystick_verify.cpp` | Standalone verification executable — SDL polling loop, JSON lines to stdout |
 | `test/KeyboardInput_test.cpp` | Unit tests (10 tests) |
 | `test/JoystickInput_test.cpp` | Unit tests (15 tests) |
 | `test/ScriptedInput_test.cpp` | Unit tests |
 | `python/manual_input_demo.ipynb` | Verification notebook — launches `joystick_verify`, displays command channels |
-
