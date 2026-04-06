@@ -147,64 +147,140 @@ Design authority for all delivered items: [`docs/architecture/aircraft.md`](../a
 
 ## LS-1. Live Simulation Viewer
 
-**Blocking dependencies:** SB-1 (Aircraft and SimRunner Python bindings), SB-2 (ring
-buffer), PP-2 (delivered — `TrajectoryView` with trailing camera, ribbon, terrain, and HUD
-infrastructure), MI-1 (delivered — `JoystickInput`, `ScriptedInput`, `AircraftCommand`).
+**Blocking dependencies:** SB-1 (Aircraft and SimRunner Python bindings), MI-1
+(delivered — `JoystickInput`, `ScriptedInput`, `AircraftCommand`).
 
-Implements the minimum viable product live simulation: a 3D window displaying terrain,
-aircraft model, ribbon trail, and shadows, driven by the FBW joystick or scripted input
-channel, launchable from CLI or notebook. This is the first item where the full loop
-closes: C++ `SimRunner` drives `Aircraft` step-by-step in `RealTime` mode; the ring buffer
-delivers kinematic state to Python; `LiveSimView` renders it in real time; `JoystickInput`
-or `ScriptedInput` delivers commands at the FBW interface.
+**SB-2 (ring buffer) is not a blocking dependency.** The MVP rendering path is
+`SimRunner → SimulationFrame → UDP → Godot 4`. SB-2 is not in that path.
+
+**Note — PP-2 is not a blocking dependency.** The Vispy post-processing infrastructure
+(`TrajectoryView`, `RibbonTrail`, `HudOverlay`) is not used for live rendering. The live
+viewer is an independent pipeline.
+
+Implements the minimum viable product live simulation: a **Godot 4** 3D scene displaying
+terrain, aircraft model, ribbon trail, and shadows, driven by the FBW joystick or
+scripted input channel, launchable from CLI or notebook. This is the first item where the
+full loop closes: C++ `SimRunner` drives `Aircraft` step-by-step in `RealTime` mode;
+after each step it populates a `SimulationFrame` and broadcasts it via UDP to a fixed
+local port; the Godot 4 scene receives the datagrams via a GDExtension plugin and updates
+the vehicle actor transform each render frame. `JoystickInput` or `ScriptedInput` delivers
+commands at the FBW interface via Python `SimSession`.
+
+The renderer is Godot 4 (MIT license) — the architectural decision made during terrain
+mesh implementation; see [`docs/architecture/terrain.md §Game Engine Integration`](../architecture/terrain.md)
+and [`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md)
+decision row 26.
 
 ### Deliverables — Live Simulation Viewer Design Document
 
-Produce `docs/architecture/live_sim_view.md` as the first deliverable, covering:
+~~Produce `docs/architecture/live_sim_view.md` — delivered; see
+[`docs/architecture/live_sim_view.md`](../architecture/live_sim_view.md).~~
 
-- Class design: `LiveSimView` built on `TrajectoryView`'s rendering infrastructure;
-  `SimSession` wiring the run loop (`Aircraft`, `SimRunner`, input source, ring buffer
-  subscription); `LiveInputBridge` connecting `JoystickInput` / `ScriptedInput` commands
-  to `SimRunner::setManualInput()`.
-- Aircraft mesh asset: low-poly glTF mesh (< 500 triangles) stored in
-  `python/assets/aircraft_lp.glTF`. UV-mapped for solid diffuse color; no texture required
-  for MVP.
-- Shadow rendering: approach (shadow projection plane or Vispy shadow pass) decided and
-  documented.
-- Camera mode: `CameraMode.TRAIL` (trailing camera, PP-F30) as the default for live
-  simulation; other modes selectable at runtime.
-- Launch modes: standalone CLI (`python/tools/live_sim.py`) and notebook
-  (`python/live_sim_demo.ipynb`).
-- Threading model: `SimRunner` in `RealTime` mode on a background thread; ring buffer
-  drain on the Vispy render timer.
-- All open questions resolved before implementation begins.
+**Open questions in the design document requiring resolution before implementation:**
+
+- **OQ-LS-4** — Aircraft mesh asset sourcing: ~~resolved — `python/assets/aircraft_lp.glb`
+  committed (323 triangles).~~
+- **OQ-LS-5** — `JoystickInput` wiring approach: ~~resolved — Option A (C++ `live_sim`
+  binary owns `JoystickInput` directly; no Python binding required).~~
+- **OQ-LS-6** — Float precision of ring buffer position channels: deferred to SB-3
+  (ring buffer redesign). Not blocking for LS-1 — Godot receives `double` geodetic
+  directly in `SimulationFrame`; ring buffer is not in the MVP rendering path.
+- **OQ-LS-7** — UDP datagram serialization format: ~~resolved — Option B (protobuf
+  `SimulationFrameProto` added to `liteaerosim.proto`).~~
+- **OQ-LS-8** — Godot scene launch mechanism: ~~resolved — Option C (developer opens
+  Godot manually; Python/C++ broadcast regardless).~~
+- **OQ-LS-9** — Aircraft mesh coordinate frame correction: ~~resolved — Option B (fixed
+  `rotation_degrees` on `AircraftMesh` node in Godot scene; no mesh re-export).~~
+
+**Architectural corrections required before implementation (see
+[`docs/architecture/live_sim_view.md §Architectural Issues`](../architecture/live_sim_view.md)):**
+
+1. Implement `SimulationFrame` value struct and `ISimulationBroadcaster` interface
+   (`include/SimulationFrame.hpp`, `include/broadcaster/ISimulationBroadcaster.hpp`).
+2. Implement `UdpSimulationBroadcaster` (`src/broadcaster/UdpSimulationBroadcaster.cpp`).
+3. Add `SimRunner::set_broadcaster()` and call `broadcaster_->broadcast()` after each
+   `step()` in `runLoop()`.
+4. Bind `SimRunner.set_broadcaster()` in `bind_runner.cpp`.
+5. `SimRunner.setManualInput()` not Python-bound; `JoystickInput` not fully bound —
+   resolved by OQ-LS-5.
+6. Godot 4 project and GDExtension plugin do not exist — new `godot/` directory required.
 
 ### Scope — Live Simulation Viewer
 
-- **`LiveSimView`** — `QMainWindow` wrapping a Vispy `SceneCanvas`; extends
-  `TrajectoryView` rendering to consume ring buffer frames instead of a log file; trailing
-  camera tracks the most recent kinematic state; ribbon trail updates live using existing
-  `RibbonTrail` infrastructure.
-- **Aircraft mesh** — low-poly glTF asset (`aircraft_lp.glTF`); loaded at startup via
-  `pygltflib`; rendered as a `MeshVisual` at the current aircraft position and attitude.
-- **Shadow** — simple shadow projection beneath the aircraft mesh.
-- **`SimSession`** — Python class: constructs `Aircraft` and `SimRunner` via SB-1
-  bindings, sets the manual input source, starts `SimRunner` in `RealTime` mode, exposes
-  the ring buffer subscription for `LiveSimView` to poll.
-- **CLI launcher** (`python/tools/live_sim.py`) — argparse; accepts
-  `--config <aircraft_config.json>`, `--terrain <path>`, `--joystick` / `--scripted`.
-- **Notebook** (`python/live_sim_demo.ipynb`) — thin notebook importing `SimSession` and
-  `LiveSimView`; renders in a Qt window (not inline) to avoid Vispy / ipympl widget
-  conflicts.
+- **`SimulationFrame`** — plain value struct in C++ Domain Layer; position (geodetic
+  double), attitude (body-to-NED quaternion float), velocity NED (float).
+- **`UdpSimulationBroadcaster`** — UDP unicast implementation of `ISimulationBroadcaster`;
+  sends `SimulationFrame` to `127.0.0.1:14560` (default port) after each `SimRunner` step.
+- **`SimSession`** — Python class: constructs `Aircraft`, `SimRunner`, and
+  `UdpSimulationBroadcaster` via SB-1 bindings; wires manual input; starts `SimRunner`
+  in `RealTime` mode.
+- **Godot 4 scene** (`godot/`) — `World` scene with terrain tiles, `Vehicle` actor
+  (aircraft mesh GLB), ribbon trail, shadow disc, and HUD overlay; driven by
+  `SimulationReceiver` GDExtension node polling UDP datagrams.
+- **Aircraft mesh** — `python/assets/aircraft_lp.glb` (323 triangles); body-frame offset
+  (nose=+X) corrected by fixed `rotation_degrees` on the `AircraftMesh` `MeshInstance3D`
+  node in the Godot scene (OQ-LS-9 Option B — no mesh re-export required).
+- **CLI launcher** (`python/tools/live_sim.py`) — argparse; accepts `--config`,
+  `--joystick` / `--scripted`, `--dt`, `--port`.
+- **Notebook** (`python/live_sim_demo.ipynb`) — `SimSession` in notebook; Godot window
+  opened separately by developer.
 - **LandingGear terrain interaction** — wired through item 7 (LandingGear Python
-  bindings); once item 7 is delivered, `SimSession` enables gear contact by injecting the
-  terrain into `Aircraft`. LS-1 does not block on item 7 — the simulation runs without
-  gear contact until item 7 is complete.
+  bindings); LS-1 does not block on item 7.
 
 ### Tests — Live Simulation Viewer
 
-`python/test/test_live_sim_view.py` — headless offscreen canvas smoke test; `SimSession`
-initialize, start, stop; ring buffer drain integration; CLI argument parsing.
+C++ (`test/SimulationBroadcaster_test.cpp`) — 3 tests: `SimulationFrame` size;
+`UdpSimulationBroadcaster` sends a loopback datagram; `SimRunner` broadcasts after step.
+
+Python (`python/test/test_live_sim_session.py`) — 6 tests: `SimSession` initialize /
+start / stop; broadcasts ≥ 1 datagram after run; datagram size matches `SimulationFrame`;
+scripted input wiring; CLI argument parsing.
+
+---
+
+## SB-3. Ring Buffer Redesign
+
+**Blocking dependencies:** SB-2 (delivered — existing ring buffer implementation).
+
+**Not blocking LS-1.** The MVP live simulation rendering path does not use the ring
+buffer. SB-3 is ordered after LS-1 and before any Python-side live telemetry feature
+that requires accurate multi-type channel data.
+
+The existing `SB-2` ring buffer was designed with a scalar `float` value type
+(`Sample::value`). This is inadequate for:
+
+- **Position precision:** `latitude_rad` ≈ 0.7 rad stored as `float` gives ≈ 0.53 m
+  quantization — visible jitter in any Python position consumer.
+- **Vector/quaternion channels:** attitude, velocity, and force vectors require multiple
+  channels with no atomicity guarantee between them. A Python consumer draining a
+  partial quaternion across a step boundary gets meaningless data.
+- **Future extensibility:** sensors, estimators, and guidance outputs will need `double`,
+  `Eigen::Vector3f`, and `Eigen::Quaternionf` channel types.
+
+### Deliverables — Ring Buffer Redesign
+
+Produce a revised [`docs/architecture/ring_buffer.md`](../architecture/ring_buffer.md)
+covering:
+
+- **Type policy decision:** choose between (a) upgrading `Sample::value` from `float` to
+  `double` (simple, fixes precision, still scalar); (b) typed `Channel<T>` with type
+  erasure in the registry (supports vector/quaternion, higher complexity); or (c) a
+  hybrid (scalar double registry + a separate structured-sample channel type).
+- **Breaking change strategy:** SB-2 is already implemented and tested; the redesign
+  must specify which APIs change, which tests are replaced, and what the migration path
+  is.
+- **Updated channel table:** revise the 14 kinematic channels registered by `SimRunner`
+  to use the new type policy. Address OQ-LS-6 (position precision) as part of this
+  channel table revision.
+- **Python binding impact:** any type changes affect `bind_ring_buffer.cpp` and
+  `test_ring_buffer_bindings.py`.
+
+### Ordering
+
+SB-3 is required before any roadmap item that introduces a Python-side live telemetry
+consumer (e.g., a live time-history panel, a Python logging subscriber, or a notebook
+that reads ring buffer position data). It is not required for the Godot 3D rendering
+path.
 
 ---
 
