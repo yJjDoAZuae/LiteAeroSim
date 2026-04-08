@@ -73,6 +73,8 @@ def build_terrain(
     aircraft_config_path: Path | str,
     *,
     name: str | None = None,
+    center_lat_deg: float | None = None,
+    center_lon_deg: float | None = None,
     radius_m: float | None = None,
     dem_source: str = "copernicus_dem_glo30",
     imagery_source: str = "sentinel2",
@@ -83,15 +85,19 @@ def build_terrain(
     Parameters
     ----------
     aircraft_config_path:
-        Path to an aircraft configuration JSON file.  All spatial parameters are
-        derived from this file.
+        Path to an aircraft configuration JSON file.
     name:
         Dataset name used as the directory key under ``data/terrain/``.
-        Defaults to the config file's stem (e.g. ``general_aviation``).
+        Defaults to the config file's stem (e.g. ``general_aviation_ksba``).
+    center_lat_deg:
+        Geodetic latitude of the terrain tile centroid in decimal degrees.
+        Overrides ``initial_state.latitude_rad`` from the config file.
+    center_lon_deg:
+        Longitude of the terrain tile centroid in decimal degrees.
+        Overrides ``initial_state.longitude_rad`` from the config file.
     radius_m:
-        Half-side of the square bounding box centred on the aircraft's initial
-        position, in metres.  Defaults to 10 minutes at the aircraft's cruise speed
-        (``600 × |v_initial|``).
+        Half-side of the square bounding box in metres.
+        Overrides ``terrain.radius_km`` from the config file.
     dem_source:
         DEM data source.  One of ``"copernicus_dem_glo30"``, ``"nasadem"``, ``"srtm"``.
     imagery_source:
@@ -114,7 +120,8 @@ def build_terrain(
     json.JSONDecodeError
         If the config file contains invalid JSON.
     ValueError
-        If all velocity components are zero and ``radius_m`` is not supplied.
+        If terrain radius cannot be determined (neither ``radius_m`` nor
+        ``terrain.radius_km`` in config is supplied).
     DownloadError
         If a DEM or imagery download fails.
     MeshQualityError
@@ -132,14 +139,19 @@ def build_terrain(
     # Parameter derivation
     # -------------------------------------------------------------------
     init = config["initial_state"]
-    center_lat_rad: float = init["latitude_rad"]
-    center_lon_rad: float = init["longitude_rad"]
-    center_lat_deg: float = math.degrees(center_lat_rad)
-    center_lon_deg: float = math.degrees(center_lon_rad)
+
+    # Terrain centroid: CLI/caller override takes precedence over initial_state.
+    if center_lat_deg is None:
+        center_lat_deg = math.degrees(float(init["latitude_rad"]))
+    if center_lon_deg is None:
+        center_lon_deg = math.degrees(float(init["longitude_rad"]))
+    center_lat_rad: float = math.radians(center_lat_deg)
+    center_lon_rad: float = math.radians(center_lon_deg)
     center_h_m: float = float(init.get("altitude_m", 0.0))
 
+    # Terrain radius: CLI/caller override takes precedence over config terrain section.
     if radius_m is None:
-        radius_m = _radius_from_config(init)
+        radius_m = _radius_from_config(config)
 
     bbox_deg = _bbox_from_center(center_lat_deg, center_lon_deg, radius_m)
 
@@ -294,18 +306,18 @@ def build_terrain(
 # Internal helpers (also exposed for unit-testing parameter derivation)
 # ---------------------------------------------------------------------------
 
-def _radius_from_config(initial_state: dict) -> float:
-    """Return the default terrain radius (m) from the aircraft initial state.
+def _radius_from_config(config: dict) -> float:
+    """Return the terrain radius (m) from the config ``terrain.radius_km`` field.
 
-    Raises ValueError if all velocity components are zero.
+    Raises ValueError if the field is absent.
     """
-    vn = float(initial_state.get("velocity_north_mps", 0.0))
-    ve = float(initial_state.get("velocity_east_mps", 0.0))
-    vd = float(initial_state.get("velocity_down_mps", 0.0))
-    speed_mps = math.sqrt(vn**2 + ve**2 + vd**2)
-    if speed_mps == 0.0:
-        raise ValueError("cruise speed is zero — supply radius_m explicitly")
-    return 600.0 * speed_mps
+    terrain_section = config.get("terrain")
+    if terrain_section is None or "radius_km" not in terrain_section:
+        raise ValueError(
+            "terrain radius not specified — add 'terrain.radius_km' to the "
+            "aircraft config or pass --radius-km on the command line"
+        )
+    return float(terrain_section["radius_km"]) * 1000.0
 
 
 def _bbox_from_center(
@@ -442,12 +454,15 @@ def _main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  # Build terrain for Santa Barbara airport:\n"
-            "  python build_terrain.py configs/ksba_ga.json\n\n"
-            "  # Override the coverage radius:\n"
-            "  python build_terrain.py configs/ksba_jet.json --radius-km 80\n\n"
+            "  # Build terrain for Santa Barbara airport (centroid from config):\n"
+            "  python build_terrain.py ../configs/general_aviation_ksba.json\n\n"
+            "  # Override centroid to a different runway threshold:\n"
+            "  python build_terrain.py ../configs/general_aviation_ksba.json \\\n"
+            "      --center-lat 34.4258 --center-lon -119.8400\n\n"
+            "  # Override coverage radius:\n"
+            "  python build_terrain.py ../configs/jet_trainer_ksba.json --radius-km 120\n\n"
             "  # Force a full rebuild (keeps cached downloads):\n"
-            "  python build_terrain.py configs/ksba_ga.json --force\n\n"
+            "  python build_terrain.py ../configs/general_aviation_ksba.json --force\n\n"
             "output locations:\n"
             "  Terrain data:   data/terrain/<name>/\n"
             "  Godot GLB:      godot/terrain/terrain.glb\n"
@@ -470,14 +485,33 @@ def _main() -> None:
         ),
     )
     parser.add_argument(
+        "--center-lat",
+        metavar="DEG",
+        type=float,
+        default=None,
+        help=(
+            "geodetic latitude of the terrain tile centroid in decimal degrees. "
+            "Overrides initial_state.latitude_rad from the config file."
+        ),
+    )
+    parser.add_argument(
+        "--center-lon",
+        metavar="DEG",
+        type=float,
+        default=None,
+        help=(
+            "longitude of the terrain tile centroid in decimal degrees. "
+            "Overrides initial_state.longitude_rad from the config file."
+        ),
+    )
+    parser.add_argument(
         "--radius-km",
         metavar="KM",
         type=float,
         default=None,
         help=(
             "half-side of the terrain coverage square in kilometres. "
-            "Defaults to 10 minutes at the aircraft cruise speed "
-            "(600 × |v_initial|)."
+            "Overrides terrain.radius_km from the config file."
         ),
     )
     parser.add_argument(
@@ -519,6 +553,8 @@ def _main() -> None:
         glb_path = build_terrain(
             args.config,
             name=args.name,
+            center_lat_deg=args.center_lat,
+            center_lon_deg=args.center_lon,
             radius_m=radius_m,
             dem_source=args.dem_source,
             imagery_source=args.imagery_source,

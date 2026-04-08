@@ -1,0 +1,104 @@
+{
+    "schema_version": 1,
+    "aircraft": {
+        "S_ref_m2": 15.8,
+        "cl_y_beta": -0.90,
+        "ar": 3.75,
+        "e": 0.82,
+        "cd0": 0.020,
+        "cmd_filter_substeps": 1,
+        "nz_wn_rad_s": 20.0,
+        "nz_zeta_nd": 0.7,
+        "ny_wn_rad_s": 20.0,
+        "ny_zeta_nd": 0.7,
+        "roll_rate_wn_rad_s": 40.0,
+        "roll_rate_zeta_nd": 0.7
+    },
+    "airframe": {
+        "g_max_nd": 7.33,
+        "g_min_nd": -3.0,
+        "tas_max_mps": 370.0,
+        "mach_max_nd": 1.30
+    },
+    "inertia": {
+        "mass_kg": 5500.0,
+        "Ixx_kgm2": 4200.0,
+        "Iyy_kgm2": 16400.0,
+        "Izz_kgm2": 19200.0
+    },
+    "lift_curve": {
+        "cl_alpha": 4.5,
+        "cl_max": 1.40,
+        "cl_min": -0.80,
+        "delta_alpha_stall": 0.209,
+        "delta_alpha_stall_neg": 0.209,
+        "cl_sep": 0.90,
+        "cl_sep_neg": -0.50
+    },
+    "landing_gear": {
+        "substeps": 4,
+        "wheel_units": [
+            {
+                "_comment": "Nose gear — steerable, no brake",
+                "attach_point_body_m": [2.5, 0.0, 0.5],
+                "travel_axis_body": [0.0, 0.0, 1.0],
+                "spring_stiffness_npm": 60000.0,
+                "damper_coeff_nspm": 3500.0,
+                "preload_n": 0.0,
+                "travel_max_m": 0.35,
+                "tyre_radius_m": 0.25,
+                "tyre_cornering_stiffness_npm": 80000.0,
+                "tyre_longitudinal_stiffness_npm": 100000.0,
+                "rolling_resistance_nd": 0.02,
+                "is_steerable": true,
+                "has_brake": false
+            },
+            {
+                "_comment": "Left main gear",
+                "attach_point_body_m": [-0.3, -1.2, 0.5],
+                "travel_axis_body": [0.0, 0.0, 1.0],
+                "spring_stiffness_npm": 175000.0,
+                "damper_coeff_nspm": 12000.0,
+                "preload_n": 0.0,
+                "travel_max_m": 0.40,
+                "tyre_radius_m": 0.32,
+                "tyre_cornering_stiffness_npm": 150000.0,
+                "tyre_longitudinal_stiffness_npm": 200000.0,
+                "rolling_resistance_nd": 0.02,
+                "is_steerable": false,
+                "has_brake": true
+            },
+            {
+                "_comment": "Right main gear",
+                "attach_point_body_m": [-0.3, 1.2, 0.5],
+                "travel_axis_body": [0.0, 0.0, 1.0],
+                "spring_stiffness_npm": 175000.0,
+                "damper_coeff_nspm": 12000.0,
+                "preload_n": 0.0,
+                "travel_max_m": 0.40,
+                "tyre_radius_m": 0.32,
+                "tyre_cornering_stiffness_npm": 150000.0,
+                "tyre_longitudinal_stiffness_npm": 200000.0,
+                "rolling_resistance_nd": 0.02,
+                "is_steerable": false,
+                "has_brake": true
+            }
+        ]
+    },
+    "terrain": {
+        "_comment": "Coverage half-side for terrain build — independent of initial_state",
+        "radius_km": 90.0
+    },
+    "initial_state": {
+        "_comment": "KSBA runway 07 threshold — aircraft at rest on the ground",
+        "latitude_rad": 0.60073,
+        "longitude_rad": -2.09139,
+        "altitude_m": 3.0,
+        "velocity_north_mps": 0.0,
+        "velocity_east_mps": 0.0,
+        "velocity_down_mps": 0.0,
+        "wind_north_mps": 0.0,
+        "wind_east_mps": 0.0,
+        "wind_down_mps": 0.0
+    }
+}

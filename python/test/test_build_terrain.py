@@ -67,19 +67,18 @@ def _minimal_config(
     lat_rad: float = 0.0,
     lon_rad: float = 0.0,
     alt_m: float = 100.0,
-    vn: float = 0.5,
-    ve: float = 0.0,
-    vd: float = 0.0,
+    radius_km: float = 1.0,
 ) -> dict:
     return {
         "schema_version": 1,
+        "terrain": {"radius_km": radius_km},
         "initial_state": {
             "latitude_rad": lat_rad,
             "longitude_rad": lon_rad,
             "altitude_m": alt_m,
-            "velocity_north_mps": vn,
-            "velocity_east_mps": ve,
-            "velocity_down_mps": vd,
+            "velocity_north_mps": 0.0,
+            "velocity_east_mps": 0.0,
+            "velocity_down_mps": 0.0,
             "wind_north_mps": 0.0,
             "wind_east_mps": 0.0,
             "wind_down_mps": 0.0,
@@ -106,22 +105,22 @@ class TestParameterDerivation:
         with pytest.raises(json.JSONDecodeError):
             bt.build_terrain(bad)
 
-    def test_raises_value_error_for_zero_speed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_raises_value_error_for_missing_radius(self, tmp_path: Path) -> None:
         import build_terrain as bt
 
-        cfg_path = tmp_path / "zero_speed.json"
-        cfg_path.write_text(json.dumps(_minimal_config(vn=0.0, ve=0.0, vd=0.0)))
-        with pytest.raises(ValueError, match="cruise speed is zero"):
+        cfg = _minimal_config()
+        del cfg["terrain"]  # remove terrain section entirely
+        cfg_path = tmp_path / "no_terrain.json"
+        cfg_path.write_text(json.dumps(cfg))
+        with pytest.raises(ValueError, match="terrain radius not specified"):
             bt.build_terrain(cfg_path)
 
-    def test_radius_derived_from_velocity(self) -> None:
+    def test_radius_from_terrain_section(self) -> None:
         import build_terrain as bt
 
-        radius_m = bt._radius_from_config(
-            {"velocity_north_mps": 20.0, "velocity_east_mps": 15.0, "velocity_down_mps": 0.0}
-        )
-        expected = 600.0 * math.sqrt(20.0**2 + 15.0**2)
-        assert math.isclose(radius_m, expected, rel_tol=1e-9)
+        config = {"terrain": {"radius_km": 50.0}, "initial_state": {}}
+        radius_m = bt._radius_from_config(config)
+        assert math.isclose(radius_m, 50_000.0, rel_tol=1e-9)
 
     def test_bbox_from_center_and_radius(self) -> None:
         import build_terrain as bt
@@ -294,9 +293,8 @@ class TestEndToEndMocked:
 
     @pytest.fixture
     def _aircraft_config(self, tmp_path: Path) -> Path:
-        # speed = 0.5 m/s → radius = 300 m.  Triangulation is mocked so the
-        # small bbox causes no triangulate-minimum-points error.
-        cfg = _minimal_config(vn=0.5)
+        # Triangulation is mocked so radius size doesn't matter for performance.
+        cfg = _minimal_config(radius_km=1.0)
         path = tmp_path / "test_aircraft.json"
         path.write_text(json.dumps(cfg))
         return path
