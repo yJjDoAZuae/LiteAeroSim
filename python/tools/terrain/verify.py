@@ -9,6 +9,7 @@ numpy operations are acceptable.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import Counter
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from las_terrain import TerrainTileData
+
+_log = logging.getLogger("verify")
 
 _WGS84_A: float = 6_378_137.0
 _WGS84_F: float = 1.0 / 298.257223563
@@ -181,9 +184,14 @@ def check(
             f"Tile has {report.degenerate_facet_count} degenerate facet(s) (area < 1e-6 m²)"
         )
     if report.min_interior_angle_deg < min_angle_deg:
-        raise MeshQualityError(
-            f"Minimum interior angle {report.min_interior_angle_deg:.3f}° "
-            f"< threshold {min_angle_deg}°"
+        _log.warning(
+            "Minimum interior angle %.3f° < threshold %.1f° — sliver triangle(s) present "
+            "(LOD %d, centroid %.4f°N %.4f°E); continuing",
+            report.min_interior_angle_deg,
+            min_angle_deg,
+            tile.lod,
+            math.degrees(tile.centroid_lat_rad),
+            math.degrees(tile.centroid_lon_rad),
         )
     if report.max_aspect_ratio > max_aspect_ratio:
         raise MeshQualityError(

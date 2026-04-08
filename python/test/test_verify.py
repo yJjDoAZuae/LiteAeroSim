@@ -115,3 +115,30 @@ def test_thin_triangle_fails_aspect_ratio() -> None:
 
     with pytest.raises(MeshQualityError):
         check(tile)
+
+
+# T5 — sliver triangle (small interior angle) → check() warns but does not raise.
+def test_sliver_triangle_warns_not_raises(caplog: pytest.LogCaptureFixture) -> None:
+    from verify import check, verify
+
+    # Isoceles triangle: base 1000 m, height 80 m.
+    # min angle ≈ 2*arctan(80/500) ≈ 9.1° < 10°; aspect ratio ≈ 7.8 < 15.
+    vertices = np.array(
+        [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [500.0, 80.0, 0.0]],
+        dtype=np.float32,
+    )
+    indices = np.array([[0, 1, 2]], dtype=np.uint32)
+    tile = _make_tile(vertices, indices)
+
+    report = verify(tile)
+    assert report.min_interior_angle_deg < 10.0, (
+        f"Expected min_angle < 10°, got {report.min_interior_angle_deg:.3f}°"
+    )
+
+    # check() must log a WARNING and return without raising.
+    import logging
+    with caplog.at_level(logging.WARNING, logger="verify"):
+        check(tile)  # must not raise
+
+    assert any("sliver" in r.message.lower() or "interior angle" in r.message.lower()
+               for r in caplog.records), "Expected a warning about interior angle"

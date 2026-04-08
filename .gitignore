@@ -18,3 +18,4 @@ python/**/.ipynb_checkpoints/
 # Godot — generated, not configuration-managed
 godot/.godot/
 godot/terrain/
+data/terrain/
