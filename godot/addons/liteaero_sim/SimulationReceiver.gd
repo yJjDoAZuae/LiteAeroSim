@@ -29,7 +29,8 @@ extends Node3D
 ## Maximum datagrams to drain per _process() frame (bounds latency spike).
 @export var max_datagrams_per_frame: int = 10
 
-## World origin geodetic coordinates.  Set from terrain metadata or on first frame.
+## World origin geodetic coordinates.  Set by TerrainLoader before any UDP packets
+## arrive.  world_origin_set must be true before _apply_frame() positions the vehicle.
 var world_origin_lat_rad: float = 0.0
 var world_origin_lon_rad: float = 0.0
 var world_origin_h_m: float     = 0.0
@@ -93,12 +94,10 @@ func _apply_frame(data: PackedByteArray) -> void:
 	var q_y: float      = parsed.get(7, 0.0)
 	var q_z: float      = parsed.get(8, 0.0)
 
-	# Set world origin to first received frame if not yet established.
+	# World origin must be set by TerrainLoader before any frame is processed.
 	if not world_origin_set:
-		world_origin_lat_rad = lat_rad
-		world_origin_lon_rad = lon_rad
-		world_origin_h_m     = h_m
-		world_origin_set     = true
+		push_error("SimulationReceiver: world origin not set — run build_terrain and ensure TerrainLoader._ready() executes before the first UDP packet")
+		return
 
 	# Geodetic -> ENU offset from world origin.
 	var dlat := lat_rad - world_origin_lat_rad

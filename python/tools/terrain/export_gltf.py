@@ -141,7 +141,7 @@ def export_gltf(
 
         scene.add_geometry(
             mesh,
-            geom_name=f"tile_lod{tile.lod}_{idx}",
+            geom_name=f"tile_L{tile.lod}_{idx:04d}",
             transform=matrix,
         )
 
