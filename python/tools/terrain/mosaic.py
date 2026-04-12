@@ -86,7 +86,13 @@ def mosaic_dem(
             count=mosaic_data.shape[0],
             nodata=src_nodata,
             driver="GTiff",
+            tiled=False,
         )
+        # Strip block-size keys inherited from the source profile: BLOCKXSIZE /
+        # BLOCKYSIZE are only valid when tiled=True, and GDAL warns if they are
+        # present in an untiled output.
+        for _key in ("blockxsize", "blockysize"):
+            profile.pop(_key, None)
 
         with rasterio.open(output_path, "w", **profile) as dst:
             for band_idx in range(1, mosaic_data.shape[0] + 1):

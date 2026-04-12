@@ -13,7 +13,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_INCLUDES OFF)
 
 option(BUILD_SHARED_LIBS "Build libraries as shared instead of static" OFF)
-option(LITEAERO_SIM_BUILD_PYTHON_BINDINGS "Build pybind11 Python extension module (liteaero_sim_py)" OFF)
+option(LITEAERO_SIM_BUILD_PYTHON_BINDINGS "Build pybind11 Python extension module (liteaero_sim_py)" ON)
+option(LITEAERO_SIM_BUILD_GODOT_PLUGIN
+    "Build the GDExtension C++ plugin for Godot 4 (liteaero_sim_gdext.dll); requires network access on first configure to fetch godot-cpp" OFF)
 
 # M_PI and other POSIX math constants are not defined in strict C++17 mode
 # (-std=c++17, not -std=gnu++17). The Conan toolchain disables GNU extensions,
@@ -61,6 +63,7 @@ enable_testing()
 #   protobuf         | 3.21.12                                  | BSD-3-Clause | Conan (find_package)
 #   sdl              | 2.28.5                                   | zlib         | Conan (find_package)
 #   pybind11         | 2.11.1                                   | BSD-3-Clause | Conan (find_package, optional — LITEAERO_SIM_BUILD_PYTHON_BINDINGS)
+#   godot-cpp        | derived from godot/project.godot version | MIT          | FetchContent (optional — LITEAERO_SIM_BUILD_GODOT_PLUGIN)
 #   trochoids        | 38d23eb3346737fe9d6e9ff57c742113e29dfe4f | Clear BSD    | FetchContent (pattern 1b — catkin CMake)
 #   tinygltf         | v2.9.3                                   | MIT          | FetchContent (pattern 1b — header-only)
 #   liteaero-flight  | co-located sibling repo                  | proprietary  | add_subdirectory (co-located dev)
@@ -164,3 +167,7 @@ add_subdirectory(proto)
 add_subdirectory(src)
 add_subdirectory(test)
 add_subdirectory(tools)
+
+if(LITEAERO_SIM_BUILD_GODOT_PLUGIN)
+    add_subdirectory(godot/addons/liteaero_sim/src)
+endif()

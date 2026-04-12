@@ -96,9 +96,9 @@ def test_open_boundary_edges() -> None:
     )
 
 
-# T4 — very thin triangle → max_aspect_ratio > 15; check() raises MeshQualityError.
-def test_thin_triangle_fails_aspect_ratio() -> None:
-    from verify import MeshQualityError, check, verify
+# T4 — very thin triangle → max_aspect_ratio > 15; check() warns but does not raise.
+def test_thin_triangle_warns_aspect_ratio(caplog: pytest.LogCaptureFixture) -> None:
+    from verify import check, verify
 
     # Base = 1000 m, height = 1 m → very thin triangle.
     vertices = np.array(
@@ -113,8 +113,13 @@ def test_thin_triangle_fails_aspect_ratio() -> None:
         f"Expected max_aspect_ratio > 15, got {report.max_aspect_ratio:.2f}"
     )
 
-    with pytest.raises(MeshQualityError):
-        check(tile)
+    import logging
+    with caplog.at_level(logging.WARNING, logger="verify"):
+        check(tile)  # must not raise
+
+    assert any("aspect ratio" in r.message.lower() for r in caplog.records), (
+        "Expected a warning about aspect ratio"
+    )
 
 
 # T5 — sliver triangle (small interior angle) → check() warns but does not raise.

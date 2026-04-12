@@ -192,40 +192,30 @@ decision row 26.
 - **OQ-LS-9** — Aircraft mesh coordinate frame correction: ~~resolved — Option B (fixed
   `rotation_degrees` on `AircraftMesh` node in Godot scene; no mesh re-export).~~
 
-**Architectural corrections required before implementation (see
-[`docs/architecture/live_sim_view.md §Architectural Issues`](../architecture/live_sim_view.md)):**
+**Architectural corrections — delivery status:**
 
-1. Implement `SimulationFrame` value struct and `ISimulationBroadcaster` interface
-   (`include/SimulationFrame.hpp`, `include/broadcaster/ISimulationBroadcaster.hpp`).
-2. Implement `UdpSimulationBroadcaster` (`src/broadcaster/UdpSimulationBroadcaster.cpp`).
-3. Add `SimRunner::set_broadcaster()` and call `broadcaster_->broadcast()` after each
-   `step()` in `runLoop()`.
-4. Bind `SimRunner.set_broadcaster()` in `bind_runner.cpp`.
-5. `SimRunner.setManualInput()` not Python-bound; `JoystickInput` not fully bound —
-   resolved by OQ-LS-5.
-6. Godot 4 project and GDExtension plugin do not exist — new `godot/` directory required.
+1. ~~Implement `SimulationFrame` value struct and `ISimulationBroadcaster` interface.~~ ✅
+2. ~~Implement `UdpSimulationBroadcaster`.~~ ✅
+3. ~~Add `SimRunner::set_broadcaster()` and broadcast after each `step()`.~~ ✅
+4. ~~Bind `SimRunner.set_broadcaster()` in `bind_runner.cpp`.~~ ✅
+5. ~~`JoystickInput` wiring — resolved by OQ-LS-5 (C++ binary).~~ ✅
+6. Godot project and GDScript placeholder exist. GDExtension C++ plugin pending GP-1.
 
 ### Scope — Live Simulation Viewer
 
-- **`SimulationFrame`** — plain value struct in C++ Domain Layer; position (geodetic
-  double), attitude (body-to-NED quaternion float), velocity NED (float).
-- **`UdpSimulationBroadcaster`** — UDP unicast implementation of `ISimulationBroadcaster`;
-  sends `SimulationFrame` to `127.0.0.1:14560` (default port) after each `SimRunner` step.
-- **`SimSession`** — Python class: constructs `Aircraft`, `SimRunner`, and
-  `UdpSimulationBroadcaster` via SB-1 bindings; wires manual input; starts `SimRunner`
-  in `RealTime` mode.
-- **Godot 4 scene** (`godot/`) — `World` scene with terrain tiles, `Vehicle` actor
-  (aircraft mesh GLB), ribbon trail, shadow disc, and HUD overlay; driven by
-  `SimulationReceiver` GDExtension node polling UDP datagrams.
-- **Aircraft mesh** — `python/assets/aircraft_lp.glb` (323 triangles); body-frame offset
-  (nose=+X) corrected by fixed `rotation_degrees` on the `AircraftMesh` `MeshInstance3D`
-  node in the Godot scene (OQ-LS-9 Option B — no mesh re-export required).
-- **CLI launcher** (`python/tools/live_sim.py`) — argparse; accepts `--config`,
-  `--joystick` / `--scripted`, `--dt`, `--port`.
-- **Notebook** (`python/live_sim_demo.ipynb`) — `SimSession` in notebook; Godot window
-  opened separately by developer.
-- **LandingGear terrain interaction** — wired through item 7 (LandingGear Python
-  bindings); LS-1 does not block on item 7.
+- ~~**`SimulationFrame`** — plain value struct; position, attitude, velocity NED.~~ ✅
+- ~~**`UdpSimulationBroadcaster`** — UDP unicast; sends `SimulationFrameProto` to port
+  14560 after each `SimRunner` step.~~ ✅
+- ~~**`SimSession`** — Python class; owns `Aircraft`, `SimRunner`,
+  `UdpSimulationBroadcaster`; wires manual input; starts in `RealTime` mode.~~ ✅
+- ~~**CLI launcher** (`python/tools/live_sim.py`, `src/tools/live_sim.cpp`).~~ ✅
+- ~~**Terrain build pipeline** (`build_terrain.py`) — produces terrain GLB and
+  `terrain_config.json` sidecar; terrain dataset built and in place.~~ ✅
+- **Godot 4 scene** — `World.tscn` basic structure exists; aircraft mesh and
+  GDExtension plugin pending GP-1. See [GP-1](#gp-1-godot-plugin-gdextension-implementation).
+- **Aircraft mesh** — `python/assets/aircraft_lp.glb` committed; mesh wiring and
+  configurable-per-aircraft-config path pending GP-1.
+- **LandingGear terrain interaction** — deferred; LS-1 does not block on it.
 
 ### Tests — Live Simulation Viewer
 
@@ -235,6 +225,128 @@ C++ (`test/SimulationBroadcaster_test.cpp`) — 3 tests: `SimulationFrame` size;
 Python (`python/test/test_live_sim_session.py`) — 6 tests: `SimSession` initialize /
 start / stop; broadcasts ≥ 1 datagram after run; datagram size matches `SimulationFrame`;
 scripted input wiring; CLI argument parsing.
+
+---
+
+## GP-1. Godot Plugin GDExtension Implementation
+
+**Blocking dependencies:** LS-1 design complete (delivered). Terrain dataset built
+(`godot/terrain/terrain.glb` and `terrain_config.json` in place). `live_sim.exe`
+built.
+
+**Design authority:** [`docs/architecture/godot_plugin.md`](../architecture/godot_plugin.md)
+
+The GDScript placeholder (`SimulationReceiver.gd`) is not used for the first live
+simulation test. The C++ GDExtension is implemented directly. The GDScript file
+remains in the repository until the GDExtension is confirmed working, then is
+removed.
+
+### Deliverables — Godot Plugin GDExtension Implementation
+
+#### Step 1 — Aircraft config `visualization` section
+
+Add `"visualization": {"mesh_res_path": "res://assets/aircraft_lp.glb"}` to:
+
+- `configs/general_aviation_ksba.json`
+- `configs/jet_trainer_ksba.json`
+- `configs/small_uas_ksba.json`
+
+Update `docs/schemas/aircraft_config_v1.md` to document the new `visualization`
+section and its `mesh_res_path` field.
+
+#### Step 2 — `build_terrain.py`: write `aircraft_mesh_path` to `terrain_config.json`
+
+Read `config.get("visualization", {}).get("mesh_res_path", "res://assets/aircraft_lp.glb")`
+and write it as `aircraft_mesh_path` in the `terrain_config` dict. Regenerate
+`godot/terrain/terrain_config.json` once to pick up the new field.
+
+#### Step 3 — `TerrainLoader.gd`: aircraft mesh loading and GDExtension compatibility
+
+- Add `_load_aircraft_mesh(config)`: reads `aircraft_mesh_path` from config; loads
+  via `ResourceLoader`; instantiates as child of `Vehicle` node; applies
+  `rotation_degrees = Vector3(0, 90, 0)` (OQ-LS-9 body-frame correction).
+- Add `_find_vehicle(node)`: depth-first search for the `Vehicle` node by name.
+- Update `_find_simulation_receiver()`: check `node.get_class() == "SimulationReceiver"`
+  (native C++ type) first, then fall back to script path check (GDScript placeholder).
+- Update `_set_world_origin()`: call `receiver.set_world_origin(lat, lon, h)` when
+  native type is detected; use direct property assignment for GDScript placeholder.
+
+#### Step 4 — `World.tscn`: remove static `AircraftMesh` node
+
+Remove the `MeshInstance3D` `AircraftMesh` placeholder. `TerrainLoader` instantiates
+the mesh at runtime.
+
+#### Step 5 — GDExtension C++ source files
+
+Per [`docs/architecture/godot_plugin.md`](../architecture/godot_plugin.md):
+
+- `godot/addons/liteaero_sim/src/register_types.hpp`
+- `godot/addons/liteaero_sim/src/register_types.cpp` — `liteaero_sim_init` entry
+  point; `WSAStartup` / `WSACleanup` on Windows; `ClassDB::register_class<SimulationReceiver>()`.
+- `godot/addons/liteaero_sim/src/SimulationReceiver.hpp` — `Node3D` subclass;
+  exported properties `broadcast_port`, `max_datagrams_per_frame`; `set_world_origin()`
+  bound method; non-blocking UDP socket.
+- `godot/addons/liteaero_sim/src/SimulationReceiver.cpp` — `_ready()` opens socket;
+  `_process()` drains datagrams; `_apply_frame()` calls
+  `SimulationFrameProto::ParseFromArray()`, computes ENU offset, sets `Vehicle`
+  position and quaternion.
+
+#### Step 6 — `.gdextension` manifest
+
+Create `godot/addons/liteaero_sim/liteaero_sim.gdextension` declaring
+`entry_symbol = "liteaero_sim_init"` and
+`windows.release.x86_64 = "res://addons/liteaero_sim/bin/liteaero_sim_gdext.dll"`.
+
+#### Step 7 — Build system
+
+`CMakeLists.txt` already has `LITEAERO_SIM_BUILD_GODOT_PLUGIN=OFF` option and
+`add_subdirectory(godot/addons/liteaero_sim/src)` guard.
+`godot/addons/liteaero_sim/src/CMakeLists.txt` already exists with version-parsing
+and error-handling logic. No further CMake changes required.
+
+#### Step 8 — Aircraft mesh asset placement
+
+Copy `python/assets/aircraft_lp.glb` → `godot/assets/aircraft_lp.glb` so Godot
+can find it at `res://assets/aircraft_lp.glb`.
+
+### Build and First Run
+
+```bash
+# Configure with Godot plugin enabled
+PATH="/c/msys64/ucrt64/bin:$PATH" cmake -B build -G "MinGW Makefiles" \
+    -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLITEAERO_SIM_BUILD_GODOT_PLUGIN=ON
+
+# Build (includes liteaero_sim_gdext.dll)
+PATH="/c/msys64/ucrt64/bin:$PATH" mingw32-make -C build
+
+# Regenerate terrain_config.json (picks up aircraft_mesh_path)
+cd python && uv run python tools/terrain/build_terrain.py \
+    --config ../configs/general_aviation_ksba.json
+
+# Start physics broadcaster
+../build/tools/live_sim.exe --config ../configs/general_aviation_ksba.json --dt 0.02
+
+# Open Godot editor → godot/ → play World.tscn
+```
+
+### Tests — Godot Plugin GDExtension
+
+The GDExtension has no automated test suite at this stage. The first-run
+integration test is manual:
+
+| Check | Pass criterion |
+| --- | --- |
+| Build | `liteaero_sim_gdext.dll` present in `godot/addons/liteaero_sim/bin/` |
+| Plugin load | Godot editor opens without "GDExtension API mismatch" or "failed to load" errors |
+| Terrain | Terrain tiles appear at scene start; LOD switches visible as camera moves |
+| Aircraft mesh | Aircraft GLB appears at the world origin; correct orientation (nose forward) |
+| Position tracking | Aircraft moves in response to `live_sim.exe` UDP datagrams |
+| Attitude tracking | Aircraft rotates correctly with attitude changes |
+
+Automated Godot scene tests are a future item once the GDTest framework is
+evaluated.
 
 ---
 

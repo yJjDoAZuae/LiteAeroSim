@@ -49,8 +49,7 @@ to the C++ `TerrainMesh` class.
 | OQ-TB-1 | Is it feasible to download at native (L0) resolution for all aircraft classes, and how should large coverage areas be tiled? | **Resolved — see §OQ-TB-1 Analysis** |
 | OQ-TB-2 | How should the terrain world origin and GLB path be communicated to the Godot scene without manual GUI interaction? | **Resolved — see §OQ-TB-2 Analysis** |
 | OQ-TB-3 | How should LOD levels be exported to the Godot GLB so that the correct LOD renders at each camera distance without exceeding GPU VRAM? | **Resolved — see §OQ-TB-3 Analysis** |
-
-All three open questions are resolved.  Implementation of TB-1 may begin.
+| OQ-TB-4 | The current `triangulate.py` produces sliver triangles (small interior angles, high aspect ratios) in flat and coastal regions.  How should the triangulation algorithm be redesigned to guarantee mesh quality? | **Open — see §OQ-TB-4 Analysis** |
 
 ---
 
@@ -713,10 +712,13 @@ a complete and successful build.
 | Condition | Behaviour |
 | --- | --- |
 | Aircraft config not found or invalid JSON | Raise `FileNotFoundError` / `json.JSONDecodeError` immediately, before any network I/O |
-| All velocity components zero | Raise `ValueError("cruise speed is zero — supply radius_m explicitly")` |
+| `terrain.radius_km` absent and `--radius-km` not supplied | Raise `ValueError` immediately, before any network I/O |
 | Download authentication failure | `DownloadError` (from `download.py`) propagates; no partial output is written |
-| Mesh quality check failure | `MeshQualityError` (from `verify.py`) propagates; the `.las_terrain` file is not written |
+| Degenerate facets (zero-area triangles) | `MeshQualityError` raised; the `.las_terrain` file is not written |
+| Sliver triangles (small angle or high aspect ratio) | `WARNING` logged (see OQ-TB-4); build continues; `.las_terrain` is written |
 | Any step raises after mosaicking | Intermediate rasters in `source/` are retained so a subsequent run can skip the download step |
+| `BLOCKXSIZE can only be used with TILED=YES` (GDAL) | Benign.  The Sentinel-2 source files carry a `BLOCKXSIZE` creation option in their rasterio profile.  `mosaic.py` strips this key before writing the untiled mosaic output; the warning is suppressed. |
+| `TIFFReadDirectory: Sum of Photometric type-related color channels…` (libtiff) | Benign, expected on every run with Sentinel-2 imagery.  The warning originates inside the downloaded provider files — a tag inconsistency in the provider's TIFF encoding.  It does not affect the data read and cannot be suppressed from our code. |
 
 ---
 
@@ -727,24 +729,166 @@ No editor interaction is required.
 
 `build_terrain` is responsible for:
 
-- Writing `godot/terrain/terrain.glb` (copy or symlink of
+- Writing `godot/terrain/terrain.glb` (copy of
   `data/terrain/<name>/derived/gltf/terrain.glb`).
-- Writing `godot/terrain/terrain_config.json` with world origin and GLB path.
+- Writing `godot/terrain/terrain_config.json` with world origin, GLB path, and
+  aircraft mesh path.
+
+### `terrain_config.json` schema
+
+```json
+{
+    "schema_version": 1,
+    "dataset_name":          "<string>",
+    "glb_path":              "res://terrain/terrain.glb",
+    "world_origin_lat_rad":  <double>,
+    "world_origin_lon_rad":  <double>,
+    "world_origin_height_m": <double>,
+    "aircraft_mesh_path":    "res://assets/aircraft_lp.glb"
+}
+```
+
+| Field | Source | Notes |
+| --- | --- | --- |
+| `schema_version` | Constant `1` | |
+| `dataset_name` | Aircraft config basename or `--name` override | |
+| `glb_path` | Constant `res://terrain/terrain.glb` | Fixed relative to Godot project root |
+| `world_origin_lat_rad` | Derived from aircraft config `initial_state.latitude_rad` or `--center-lat` | |
+| `world_origin_lon_rad` | Derived from aircraft config `initial_state.longitude_rad` or `--center-lon` | |
+| `world_origin_height_m` | Derived from aircraft config `initial_state.altitude_m` | |
+| `aircraft_mesh_path` | Aircraft config `visualization.mesh_res_path`; default `"res://assets/aircraft_lp.glb"` | May be edited by hand to swap mesh without terrain rebuild |
+
+`aircraft_mesh_path` is the only field safe to edit by hand after a build. All
+other fields must match the terrain dataset and must not be changed without a
+terrain rebuild.
 
 `TerrainLoader.gd` runs at scene start and is responsible for:
 
-- Loading the GLB from the path in `terrain_config.json` via `ResourceLoader.load()`.
+- Loading the terrain GLB from `glb_path` via `ResourceLoader.load()`.
 - Instantiating it as a child of the `World` node.
 - Iterating `MeshInstance3D` children; parsing node names to extract LOD; setting
   `visibility_range_begin` / `visibility_range_end` on each node.
-- Setting `SimulationReceiver.world_origin_*` from `terrain_config.json` before the
-  first UDP packet arrives.
+- Loading the aircraft mesh from `aircraft_mesh_path`; instantiating it as a child
+  of the `Vehicle` node with `rotation_degrees = Vector3(0, 90, 0)` applied.
+- Setting the world origin on `SimulationReceiver` from `terrain_config.json` before
+  the first UDP packet arrives.
 
 `godot/terrain/` is in `.gitignore`.  A fresh checkout requires one `build_terrain`
 call per location before the scene can be played.
 
 The `.las_terrain` file will be consumed by `TerrainMesh::deserializeLasTerrain()` once
 the `Aircraft` / `SimRunner` terrain integration is implemented (a separate future item).
+
+---
+
+## OQ-TB-4 Analysis — Triangulation Mesh Quality
+
+### Observed Problem
+
+During initial operation of the terrain build pipeline, `verify.py` reports sliver
+triangles in flat and coastal terrain cells — minimum interior angles below 10° and
+aspect ratios above 15.  These violations are currently downgraded to warnings so the
+build continues, but the underlying cause must be corrected.
+
+### Root Cause
+
+`triangulate.py` performs **naive 2.5D triangulation**: it samples the DEM raster on a
+regular grid, then connects adjacent sample points using a fixed connectivity pattern
+(quad-split into two triangles per grid cell).  The triangle connectivity is therefore
+inherited directly from the raster grid topology.
+
+In flat terrain — where adjacent sample points have nearly identical elevation — three
+grid-adjacent vertices can be nearly collinear in 3D space even though they are
+well-separated in the horizontal plane.  The resulting triangles are geometrically valid
+(non-zero area) but degenerate in shape.  Coastal tiles are a common trigger because the
+ocean surface is perfectly flat, but the same pathology can appear anywhere the terrain
+is level over a sufficiently large area.
+
+### Why This Is a Design Issue
+
+A proper surface triangulation should optimise triangle quality independently of the
+source data topology.  The correct approach is:
+
+1. **Sample** the DEM to obtain a set of 3D point positions (this step is unchanged).
+2. **Triangulate** the point set as a surface problem using 2D Delaunay on the XY
+   projection — producing connectivity that maximizes minimum interior angle regardless
+   of the original raster grid layout.
+3. **Lift** the 2D Delaunay simplices back to 3D by restoring each vertex's Z (elevation)
+   value sampled from the DEM.
+4. Optionally apply a **quality-enforcement pass** (vertex insertion via Ruppert's
+   algorithm, or constrained Delaunay with a minimum-angle argument) if the baseline
+   Delaunay result still contains triangles below the `verify.py` thresholds.
+
+The fix belongs entirely inside `triangulate.py`.  No changes to `verify.py`, the
+pipeline orchestration, or the LOD scheme are required.
+
+### Available Library Support — trimesh 4.11.3
+
+The project already depends on trimesh (v4.11.3).  The following capabilities are
+relevant to the fix.
+
+#### What trimesh provides
+
+| Function | Module | Notes |
+| --- | --- | --- |
+| `triangulate_polygon(polygon, triangle_args, engine)` | `trimesh.creation` | Triangulates a 2D Shapely polygon using a selectable engine.  With `engine="triangle"` (Shewchuk's Triangle.c), the `triangle_args` string is passed directly to Triangle — e.g. `"pq25"` enforces a 25° minimum interior angle via Ruppert refinement. |
+| `mesh.face_angles` | `trimesh.Trimesh` | Returns `(F, 3)` array of interior angles in radians — useful for post-triangulation verification. |
+| `mesh.nondegenerate_faces(height)` | `trimesh.Trimesh` | Boolean mask of non-degenerate faces; can be used to remove any residual zero-area triangles after lifting. |
+| `trimesh.smoothing.filter_laplacian(mesh, lamb, iterations)` | `trimesh.smoothing` | Laplacian vertex relocation.  Not a quality triangulator on its own, but can be applied after Delaunay lifting to improve regularity of the vertex distribution in near-flat regions. |
+| `trimesh.triangles.angles(triangles)` | `trimesh.triangles` | Low-level angle computation on `(N, 3, 3)` triangle arrays; equivalent to `mesh.face_angles` but usable without constructing a full `Trimesh` object. |
+
+#### What trimesh does NOT provide
+
+- **Native Delaunay triangulation from a point cloud** — trimesh has no direct API for
+  this.  The recommended path is to use `scipy.spatial.Delaunay(points[:, :2])` to
+  obtain 2D simplices, then lift to 3D by indexing the Z values.
+- **Edge flipping or edge collapse** — trimesh's `remesh` module provides only
+  subdivision variants (`subdivide`, `subdivide_to_size`, `subdivide_loop`) which
+  split triangles without re-optimizing angles.
+- **Aspect-ratio-targeted refinement** — the Triangle.c engine (via `triangulate_polygon`)
+  accepts a maximum-area argument (`"pa{area}"`) but not a direct aspect-ratio bound.
+  The minimum-angle argument (`"pq{deg}"`) is the correct lever; enforcing ≥ 25° is
+  sufficient to satisfy the `verify.py` thresholds.
+
+#### Recommended implementation path
+
+```python
+# Step 1 — sample DEM on LOD grid (unchanged from current code)
+xy = sample_dem_grid(dem_path, cell_bbox, lod)        # (N, 2) float, degrees
+z  = query_dem_elevation(dem_path, xy)                 # (N,)   float, metres
+
+# Step 2 — 2D Delaunay on horizontal projection
+import scipy.spatial
+tri = scipy.spatial.Delaunay(xy)                       # simplices: (F, 3) int
+
+# Step 3 — lift to 3D ENU and construct TerrainTileData
+vertices_3d = np.column_stack([xy_to_enu(xy), z])     # (N, 3) float32 ENU
+indices     = tri.simplices.astype(np.uint32)          # (F, 3)
+
+# Step 4 — optional: enforce minimum angle via Triangle.c
+# If scipy Delaunay alone does not meet quality thresholds:
+#   import trimesh.creation
+#   verts_2d, faces = trimesh.creation.triangulate_polygon(
+#       boundary_polygon, triangle_args="pq25", engine="triangle")
+#   # then lift verts_2d back to 3D via DEM query
+```
+
+The Triangle.c engine (`triangle_args="pq25"`) inserts additional Steiner points where
+needed to enforce the angle bound — this produces more vertices than the input DEM grid
+but guarantees quality.  The current grid-sampling step must be replaced with a
+boundary-polygon construction step when this path is taken.
+
+### Current Workaround
+
+`verify.py:check()` logs a `WARNING` for angle and aspect-ratio violations and returns
+without raising `MeshQualityError`.  The mesh is usable for display purposes; the
+quality deficiency does not affect simulation correctness because terrain is currently
+display-only.
+
+### Resolution Criterion
+
+OQ-TB-4 is resolved when `triangulate.py` is redesigned so that `verify.py:check()`
+produces no warnings on any real DEM tile across the KSBA test datasets.
 
 ---
 
@@ -756,6 +900,8 @@ This design is associated with roadmap item **TB-1** in
 **TB-1** depends on:
 
 - OQ-TB-1, OQ-TB-2, and OQ-TB-3 are resolved by this document.  Implementation may begin.
+- OQ-TB-4 (triangulation mesh quality) is open.  It does not block the current implementation
+  but must be resolved before the terrain pipeline is considered production-ready.
 - All existing terrain ingestion tools in `python/tools/terrain/` (Steps 14–21 of
   [terrain-implementation-plan.md](../roadmap/terrain-implementation-plan.md)) — all
   complete.

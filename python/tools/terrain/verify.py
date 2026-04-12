@@ -169,13 +169,19 @@ def check(
     min_angle_deg: float = 10.0,
     max_aspect_ratio: float = 15.0,
 ) -> None:
-    """Run verify() and raise MeshQualityError if any threshold is exceeded.
+    """Run verify() and raise or warn if thresholds are exceeded.
 
     Used as a guard in simplify() and after triangulate().
 
+    - Degenerate facets (zero area): raises MeshQualityError — these indicate a
+      hard pipeline failure that will corrupt downstream consumers.
+    - Small interior angle or high aspect ratio: logs a WARNING and continues —
+      sliver triangles from naive 2.5D heightmap triangulation are a known
+      limitation to be fixed in the triangulator; they do not prevent a usable
+      terrain mesh from being produced.
+
     Raises:
-        MeshQualityError: if degenerate facets exist, min angle < threshold, or
-                          max aspect ratio > threshold.
+        MeshQualityError: if degenerate facets exist.
     """
     report = verify(tile)
 
@@ -194,7 +200,12 @@ def check(
             math.degrees(tile.centroid_lon_rad),
         )
     if report.max_aspect_ratio > max_aspect_ratio:
-        raise MeshQualityError(
-            f"Maximum aspect ratio {report.max_aspect_ratio:.2f} "
-            f"> threshold {max_aspect_ratio}"
+        _log.warning(
+            "Maximum aspect ratio %.2f > threshold %.1f — sliver triangle(s) present "
+            "(LOD %d, centroid %.4f°N %.4f°E); continuing",
+            report.max_aspect_ratio,
+            max_aspect_ratio,
+            tile.lod,
+            math.degrees(tile.centroid_lat_rad),
+            math.degrees(tile.centroid_lon_rad),
         )

@@ -97,12 +97,16 @@ into the session.
 `SimRunner::setManualInput(ManualInput*)` is not bound in `bind_runner.cpp`. `JoystickInput`
 is bound only for its static `enumerate_devices()` method. See OQ-LS-5.
 
-### Issue 5 — Godot 4 project and GDExtension plugin do not exist
+### Issue 5 — GDExtension C++ plugin not yet implemented (GDScript placeholder in use)
 
-No Godot project directory exists in the repository. The GDExtension plugin (C++) that
-receives UDP datagrams and drives the vehicle actor has not been designed or implemented.
-The Godot project structure, plugin API, and scene hierarchy are design items for LS-1.
-See OQ-LS-8.
+The Godot project (`godot/`) and a functional GDScript placeholder exist.
+`SimulationReceiver.gd` implements the full UDP receive and coordinate transform
+pipeline in GDScript with a hand-rolled proto3 wire-format parser. This is
+sufficient for development but the hand-rolled parser is fragile — see the
+detailed design specification in
+[`docs/architecture/godot_plugin.md`](godot_plugin.md) for the GDExtension C++
+implementation that replaces it. The GDScript placeholder is not blocking for
+the first live-sim run.
 
 ---
 
@@ -239,31 +243,37 @@ ring buffer is still populated by `SimRunner`).
 
 ## Godot Plugin Design
 
-**Repository location:** `godot/` (new top-level directory, Godot 4 project root)
+**Repository location:** `godot/` (Godot 4 project root)
 
-The Godot plugin is a GDExtension C++ library. It registers a `SimulationReceiver` node
-that opens a non-blocking UDP socket on `broadcast_port`, polls for datagrams each
-`_process()` call, and drives the vehicle actor transform.
+The Godot plugin consists of two components:
 
-### Scene hierarchy (proposed)
+| Component | Language | Status |
+| --- | --- | --- |
+| `SimulationReceiver` | GDScript placeholder → GDExtension C++ | Placeholder functional; GDExtension specified but not yet built |
+| `TerrainLoader` | GDScript | Implemented |
+
+Full design specification, file structure, build system, class API, and open
+questions are in [`docs/architecture/godot_plugin.md`](godot_plugin.md).
+
+### Scene hierarchy
 
 ```text
 World (Node3D)
-├── Terrain (multiple MeshInstance3D, one per tile GLB)
+├── TerrainLoader (Node — TerrainLoader.gd)
+│     instantiates terrain GLB tiles as children at runtime
+├── DirectionalLight3D
 ├── Vehicle (Node3D)
-│   ├── SimulationReceiver (custom GDExtension node)
-│   ├── AircraftMesh (MeshInstance3D — loads aircraft_lp.glb)
-│   └── ShadowDisc (MeshInstance3D — flat translucent disc)
-├── RibbonTrail (custom GDExtension node or GPUParticles3D)
-└── HudOverlay (Control node — 2D overlay)
+│   ├── SimulationReceiver (Node3D — SimulationReceiver.gd / future GDExtension)
+│   └── AircraftMesh (instanced from aircraft_lp.glb, rotation_degrees applied)
+└── Camera3D
 ```
 
 ### `SimulationReceiver` behaviour per `_process()` frame
 
-1. Read all pending UDP datagrams (non-blocking `recvfrom`; process up to N per frame
-   to bound latency).
-2. For the latest datagram: deserialize into `SimulationFrame`.
-3. Compute ENU offset from world origin:
+1. Read all pending UDP datagrams (non-blocking socket; up to `max_datagrams_per_frame`).
+2. For the latest datagram: deserialize `SimulationFrameProto` (via protobuf C++ runtime
+   in GDExtension; via hand-rolled parser in GDScript placeholder).
+3. Compute ENU offset from world origin (set by `TerrainLoader._ready()`):
 
    ```text
    east_m  = (lon - lon_0) * R_earth * cos(lat_0)
@@ -271,20 +281,16 @@ World (Node3D)
    up_m    = height_wgs84_m - h_0
    ```
 
-   Godot position: `Vector3(east_m, up_m, -north_m)` (ENU→Godot: X=East, Y=Up, Z=−North).
-4. Convert body-to-NED quaternion to body-to-Godot quaternion:
-   - Apply the fixed NED→Godot frame rotation (see §Coordinate System).
-   - Apply aircraft mesh correction rotation (see §Aircraft Mesh Coordinate Frame).
+   Godot position: `Vector3(east_m, up_m, -north_m)`.
+4. Convert body-to-NED quaternion to body-to-Godot quaternion using the
+   NED→Godot rotation quaternion $(w=0.5,\ x=0.5,\ y=0.5,\ z=-0.5)$.
 5. Set `Vehicle.position` and `Vehicle.quaternion`.
-6. Update ribbon trail node with new position.
-7. Update HUD overlay with velocity and altitude from frame.
 
 ### World origin
 
-The world origin `(lat_0, lon_0, h_0)` is either:
-- Read from the loaded terrain GLB `extras` (`world_origin_lat_rad`, etc.) — preferred
-  when terrain is loaded.
-- Set to the first received `SimulationFrame`'s position if no terrain is loaded.
+`TerrainLoader._ready()` reads `terrain_config.json` and sets the world origin
+on `SimulationReceiver` before any UDP packet arrives. If terrain is not loaded,
+`SimulationReceiver` logs an error on the first received frame.
 
 ---
 

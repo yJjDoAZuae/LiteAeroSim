@@ -22,12 +22,10 @@ provides access, not reimplementation.
 | Python import name | `liteaero_sim_py` |
 | Extension source entry point | `src/python/bindings.cpp` |
 | CMake target | `liteaero_sim_py` (pybind11 extension module) |
-| Build flag | `LITEAERO_SIM_BUILD_PYTHON_BINDINGS` (default `OFF`) |
+| Build flag | `LITEAERO_SIM_BUILD_PYTHON_BINDINGS` (default `ON`) |
 | Conan dependency | `pybind11/2.11.1` (or latest stable in ConanCenter) |
 
-The module is an optional build target. It is not built by default and is not required
-for C++ unit tests or batch simulation. It must be enabled explicitly when building for
-Python integration.
+The module is built by default. It can be disabled with `-DLITEAERO_SIM_BUILD_PYTHON_BINDINGS=OFF` if pybind11 is unavailable, but normal builds always include it.
 
 ---
 
@@ -35,7 +33,7 @@ Python integration.
 
 ```cmake
 # Root CMakeLists.txt (conditional on LITEAERO_SIM_BUILD_PYTHON_BINDINGS)
-option(LITEAERO_SIM_BUILD_PYTHON_BINDINGS "Build pybind11 Python extension module" OFF)
+option(LITEAERO_SIM_BUILD_PYTHON_BINDINGS "Build pybind11 Python extension module" ON)
 
 if(LITEAERO_SIM_BUILD_PYTHON_BINDINGS)
     find_package(pybind11 REQUIRED)

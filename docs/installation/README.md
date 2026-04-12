@@ -90,7 +90,45 @@ Tests appear in the **Testing** panel (beaker icon) via CTest.
 }
 ```
 
-## 6. Python Environment (Optional)
+## 6. Python Bindings (Optional)
+
+The `liteaero_sim_py` pybind11 extension module exposes the C++ simulation engine to Python. It is required by `live_sim_session.py` and any Python script that imports `liteaero_sim_py`.
+
+**Build the module:**
+
+```bash
+PATH="/c/msys64/ucrt64/bin:$PATH" cmake -B build -G "MinGW Makefiles" \
+    -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake \
+    -DCMAKE_BUILD_TYPE=Release
+
+PATH="/c/msys64/ucrt64/bin:$PATH" mingw32-make -C build liteaero_sim_py
+```
+
+After a successful build, CMake automatically copies the `.pyd` to `python/`:
+
+```text
+python/liteaero_sim_py.cp312-win_amd64.pyd   ← importable via uv run
+```
+
+The module is then importable from the `python/` directory without any `PYTHONPATH` or `os.add_dll_directory` workarounds:
+
+```bash
+cd python
+uv run python -c "import liteaero_sim_py; print('OK')"
+```
+
+The `.pyd` file is excluded from version control (`.gitignore`). Rebuild after any C++ source change.
+
+**Troubleshooting:**
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `ImportError: DLL load failed` | Module copied but build was done without static winpthread | Rebuild with the MinGW toolchain from `C:/msys64/ucrt64/bin` |
+| `No module named 'liteaero_sim_py'` | Build step not run or copy failed | Run `mingw32-make -C build liteaero_sim_py` and check for POST_BUILD errors |
+
+---
+
+## 7. Python Environment (Optional)
 
 Python tooling uses [uv](https://docs.astral.sh/uv/). Install it if not already present:
 

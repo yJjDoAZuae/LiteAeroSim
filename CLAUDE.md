@@ -123,6 +123,8 @@ Full project documentation lives in [docs/](docs/README.md).
 | [docs/installation/README.md](docs/installation/README.md) | Build from source, toolchain setup, first run |
 | [docs/testing/strategy.md](docs/testing/strategy.md) | TDD strategy, required test categories, coverage, known failures |
 | [docs/examples/siso_elements.md](docs/examples/siso_elements.md) | Usage examples for filters, integrators, PID, serialization, logging |
+| [docs/architecture/live_sim_view.md](docs/architecture/live_sim_view.md) | Live simulation viewer — UDP broadcast path, SimSession, Godot scene |
+| [docs/architecture/godot_plugin.md](docs/architecture/godot_plugin.md) | **Design authority** for the Godot 4 GDExtension plugin — SimulationReceiver C++ spec, build system, .gdextension manifest |
 | [docs/guidelines/](docs/guidelines/) | Coding standards — general, C++, Python |
 
 **Before implementing any new dynamic element**, read [docs/architecture/dynamic_block.md](docs/architecture/dynamic_block.md).
