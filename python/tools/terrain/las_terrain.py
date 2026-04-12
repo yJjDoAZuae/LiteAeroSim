@@ -14,6 +14,25 @@ File format (little-endian):
         [V*12 bytes] vertices       (float32 east_m, float32 north_m, float32 up_m)
         [4 bytes]   facet_count     (uint32)
         [F*15 bytes] facets         (uint32 i0, uint32 i1, uint32 i2, uint8 r, uint8 g, uint8 b)
+
+Metadata JSON schema (matches C++ TerrainMesh::serializeLasTerrain):
+    {
+        "schema_version": 1,
+        "lod": <int 0–6>,
+        "centroid": {
+            "latitude_rad":   <float64>,
+            "longitude_rad":  <float64>,
+            "height_wgs84_m": <float32>
+        },
+        "bounds": {
+            "lat_min_rad":  <float64>,
+            "lat_max_rad":  <float64>,
+            "lon_min_rad":  <float64>,
+            "lon_max_rad":  <float64>,
+            "height_min_m": <float32>,
+            "height_max_m": <float32>
+        }
+    }
 """
 
 from __future__ import annotations
@@ -68,19 +87,23 @@ def write_las_terrain(path: Path, tiles: list[TerrainTileData]) -> None:
         f.write(struct.pack("<III", _MAGIC, _FORMAT_VERSION, len(tiles)))
 
         for tile in tiles:
-            # Metadata JSON
+            # Metadata JSON — nested schema matching C++ TerrainMesh::serializeLasTerrain.
             meta: dict = {
                 "schema_version": 1,
                 "lod": tile.lod,
-                "centroid_lat_rad": tile.centroid_lat_rad,
-                "centroid_lon_rad": tile.centroid_lon_rad,
-                "centroid_height_m": float(tile.centroid_height_m),
-                "lat_min_rad": tile.lat_min_rad,
-                "lat_max_rad": tile.lat_max_rad,
-                "lon_min_rad": tile.lon_min_rad,
-                "lon_max_rad": tile.lon_max_rad,
-                "height_min_m": float(tile.height_min_m),
-                "height_max_m": float(tile.height_max_m),
+                "centroid": {
+                    "latitude_rad":   tile.centroid_lat_rad,
+                    "longitude_rad":  tile.centroid_lon_rad,
+                    "height_wgs84_m": float(tile.centroid_height_m),
+                },
+                "bounds": {
+                    "lat_min_rad":  tile.lat_min_rad,
+                    "lat_max_rad":  tile.lat_max_rad,
+                    "lon_min_rad":  tile.lon_min_rad,
+                    "lon_max_rad":  tile.lon_max_rad,
+                    "height_min_m": float(tile.height_min_m),
+                    "height_max_m": float(tile.height_max_m),
+                },
             }
             meta_bytes = json.dumps(meta).encode("utf-8")
             f.write(struct.pack("<I", len(meta_bytes)))
@@ -147,18 +170,20 @@ def read_las_terrain(path: Path) -> list[TerrainTileData]:
                 indices[i] = [i0, i1, i2]
                 colors[i] = [r, g, b]
 
+            jc = meta["centroid"]
+            jb = meta["bounds"]
             tiles.append(
                 TerrainTileData(
                     lod=int(meta["lod"]),
-                    centroid_lat_rad=float(meta["centroid_lat_rad"]),
-                    centroid_lon_rad=float(meta["centroid_lon_rad"]),
-                    centroid_height_m=float(meta["centroid_height_m"]),
-                    lat_min_rad=float(meta["lat_min_rad"]),
-                    lat_max_rad=float(meta["lat_max_rad"]),
-                    lon_min_rad=float(meta["lon_min_rad"]),
-                    lon_max_rad=float(meta["lon_max_rad"]),
-                    height_min_m=float(meta["height_min_m"]),
-                    height_max_m=float(meta["height_max_m"]),
+                    centroid_lat_rad=float(jc["latitude_rad"]),
+                    centroid_lon_rad=float(jc["longitude_rad"]),
+                    centroid_height_m=float(jc["height_wgs84_m"]),
+                    lat_min_rad=float(jb["lat_min_rad"]),
+                    lat_max_rad=float(jb["lat_max_rad"]),
+                    lon_min_rad=float(jb["lon_min_rad"]),
+                    lon_max_rad=float(jb["lon_max_rad"]),
+                    height_min_m=float(jb["height_min_m"]),
+                    height_max_m=float(jb["height_max_m"]),
                     vertices=vertices,
                     indices=indices,
                     colors=colors,

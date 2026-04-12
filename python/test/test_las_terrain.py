@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import struct
 from pathlib import Path
 
@@ -86,7 +87,34 @@ def test_magic_bytes(tmp_path: Path) -> None:
     assert magic == _MAGIC, f"Expected magic {_MAGIC:#010x}, got {magic:#010x}"
 
 
-# T4 — read file with format_version != 1 raises ValueError.
+# T4 — metadata JSON uses nested "centroid" and "bounds" objects matching the C++ schema.
+def test_metadata_json_schema(tmp_path: Path) -> None:
+    tile = _make_tile(lod=2)
+    path = tmp_path / "schema.las_terrain"
+    write_las_terrain(path, [tile])
+
+    data = path.read_bytes()
+    # Skip 12-byte file header (magic + version + tile_count).
+    offset = 12
+    meta_len = struct.unpack_from("<I", data, offset)[0]
+    offset += 4
+    meta = json.loads(data[offset : offset + meta_len])
+
+    assert "centroid" in meta, "metadata must have a 'centroid' object"
+    assert "bounds" in meta, "metadata must have a 'bounds' object"
+    assert "latitude_rad" in meta["centroid"]
+    assert "longitude_rad" in meta["centroid"]
+    assert "height_wgs84_m" in meta["centroid"]
+    assert abs(meta["centroid"]["latitude_rad"] - tile.centroid_lat_rad) < 1e-12
+    assert "lat_min_rad" in meta["bounds"]
+    assert "lat_max_rad" in meta["bounds"]
+    assert "lon_min_rad" in meta["bounds"]
+    assert "lon_max_rad" in meta["bounds"]
+    assert "height_min_m" in meta["bounds"]
+    assert "height_max_m" in meta["bounds"]
+
+
+# T5 — read file with format_version != 1 raises ValueError.
 def test_schema_version_mismatch_raises(tmp_path: Path) -> None:
     path = tmp_path / "bad_version.las_terrain"
     # Write a valid file then patch the version byte to 99.

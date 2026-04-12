@@ -64,3 +64,74 @@ include(GoogleTest)
 gtest_discover_tests(liteaerosim_test
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+# ---------------------------------------------------------------------------
+# Cross-language .las_terrain interoperability tests.
+#
+# These tests verify that the Python writer (las_terrain.py) and the C++ reader
+# (TerrainMesh::deserializeLasTerrain) use the same binary schema, and vice versa.
+#
+# Fixture chain:
+#
+#   CrossLang_PyFixtureSetup   (Python writes py_written.las_terrain)
+#       → CrossLang_PyFixtureRead   (C++ reads and asserts py_written.las_terrain)
+#
+#   CrossLang_CppFixtureSetup  (C++ writes cpp_written.las_terrain)
+#       → CrossLang_CppFixtureRead  (Python reads and asserts cpp_written.las_terrain)
+#
+# Both directions use test/data/las_terrain/ as the shared fixture directory.
+# uv is required to run the Python side; if not found, these tests are skipped.
+# ---------------------------------------------------------------------------
+
+find_program(UV_EXECUTABLE uv)
+
+if(UV_EXECUTABLE)
+    # --- Direction 1: Python writes → C++ reads ---
+
+    add_test(
+        NAME CrossLang_PyFixtureSetup
+        COMMAND ${UV_EXECUTABLE} run pytest
+            test/test_las_terrain_cross_lang.py::test_write_py_fixture -v
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/python
+    )
+    set_tests_properties(CrossLang_PyFixtureSetup PROPERTIES
+        FIXTURES_SETUP CrossLangPyFixture
+    )
+
+    add_test(
+        NAME CrossLang_PyFixtureRead
+        COMMAND $<TARGET_FILE:liteaerosim_test>
+            --gtest_filter=CrossLangTest.ReadsPyFixture
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    set_tests_properties(CrossLang_PyFixtureRead PROPERTIES
+        FIXTURES_REQUIRED CrossLangPyFixture
+    )
+
+    # --- Direction 2: C++ writes → Python reads ---
+
+    add_test(
+        NAME CrossLang_CppFixtureSetup
+        COMMAND $<TARGET_FILE:liteaerosim_test>
+            --gtest_filter=CrossLangTest.WritesCppFixture
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    set_tests_properties(CrossLang_CppFixtureSetup PROPERTIES
+        FIXTURES_SETUP CrossLangCppFixture
+    )
+
+    add_test(
+        NAME CrossLang_CppFixtureRead
+        COMMAND ${UV_EXECUTABLE} run pytest
+            test/test_las_terrain_cross_lang.py::test_read_cpp_fixture -v
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/python
+    )
+    set_tests_properties(CrossLang_CppFixtureRead PROPERTIES
+        FIXTURES_REQUIRED CrossLangCppFixture
+    )
+else()
+    message(STATUS
+        "uv not found — cross-language .las_terrain interop tests skipped. "
+        "Install uv (winget install astral-sh.uv) to enable them."
+    )
+endif()

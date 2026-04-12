@@ -34,7 +34,20 @@
         "substepping",
         "prewarped",
         "prewarping",
-        "prewarp"
+        "prewarp",
+        "liteaero",
+        "ucrt",
+        "Makefiles",
+        "winget",
+        "venv",
+        "pyproject",
+        "rasterio",
+        "scipy",
+        "trimesh",
+        "pyproj",
+        "pytest",
+        "ksba",
+        "KSBA"
     ],
     "ignorePaths": [
         "build/**",
