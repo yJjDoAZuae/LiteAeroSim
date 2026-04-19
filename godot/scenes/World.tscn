@@ -19,21 +19,18 @@ terrain_transparency = 0.866
 camera_distance = 5.0
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1467213489]
-transform = Transform3D(-0.7682, 0, -0.6402, -0.3900, 0.7930, 0.4680, 0.5077, 0.6092, -0.6092, 0, 100, 0)
+transform = Transform3D(-0.7682, 0, -0.6402, -0.39, 0.793, 0.468, 0.5077, 0.6092, -0.6092, 0, 100, 0)
 light_energy = 1.5
 shadow_enabled = true
-directional_shadow_max_distance = 20.0
 directional_shadow_mode = 0
+directional_shadow_max_distance = 2000.0
 
 [node name="DirectionalLight3D2" type="DirectionalLight3D" parent="." unique_id=1467213490]
 transform = Transform3D(0, 1, 0, -0.7071, 0, 0.7071, 0.7071, 0, 0.7071, 0, 100, 0)
 light_energy = 1.5
-shadow_enabled = false
 
 [node name="Vehicle" type="Node3D" parent="." unique_id=1379560283]
 
 [node name="SimulationReceiver" type="SimulationReceiver" parent="Vehicle" unique_id=477612894]
 
-[node name="Camera3D" type="Camera3D" parent="." unique_id=1123197035]
-transform = Transform3D(1, 0, 0, 0, 0.92718357, 0.37460646, 0, -0.37460646, 0.92718357, 0, 52, 120)
-fov = 110.1
+[node name="Camera3D" type="Camera3D" parent="." unique_id=123456789]

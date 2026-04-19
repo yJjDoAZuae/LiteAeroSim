@@ -3,19 +3,19 @@
 // Design authority: docs/architecture/godot_plugin.md §SimulationReceiver Class
 //
 // Receives SimulationFrameProto datagrams from live_sim and drives the parent
-// Vehicle node transform each render frame.
+// Vehicle node transform each render frame via linear/slerp interpolation between
+// the two most recently received sim frames.
 //
 // Coordinate mapping (design authority: live_sim_view.md §Coordinate System):
 //   ENU -> Godot:  X = East, Y = Up, Z = -North
 //   NED -> Godot rotation quaternion: Quaternion(x=0.5, y=0.5, z=-0.5, w=0.5)
 
 #include "SimulationReceiver.hpp"
-
-// Protobuf generated header — produced by the proto/ build step.
 #include "liteaerosim.pb.h"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <cmath>
@@ -110,17 +110,48 @@ void SimulationReceiver::_process(double /*delta*/) {
     if (socket_fd_ < 0)
         return;
 
+    // Drain queued datagrams — each decoded frame shifts curr→prev and
+    // stores the new frame in curr, so after the loop frame_prev_ and
+    // frame_curr_ are the two most recent sim frames.
     uint8_t buf[k_recv_buf_size];
-    int frames = 0;
-    while (frames < max_datagrams_per_frame_) {
+    int datagrams = 0;
+    while (datagrams < max_datagrams_per_frame_) {
         int n = static_cast<int>(
             recvfrom(socket_fd_, reinterpret_cast<char*>(buf),
                      static_cast<int>(sizeof(buf)), 0, nullptr, nullptr));
         if (n <= 0)
             break;
-        _apply_frame(buf, n);
-        ++frames;
+        _decode_frame(buf, n);
+        ++datagrams;
     }
+
+    if (!frame_curr_.valid)
+        return;
+
+    // Interpolate between frame_prev_ and frame_curr_ based on current
+    // wall time.  t=0 → frame_prev_, t=1 → frame_curr_, t>1 extrapolates
+    // (clamped to 1 to avoid runaway when no new packets arrive).
+    double t = 1.0;
+    if (frame_prev_.valid) {
+        const double dt_frames = frame_curr_.wall_time_s - frame_prev_.wall_time_s;
+        if (dt_frames > 1e-6) {
+            const double now_s = static_cast<double>(
+                Time::get_singleton()->get_ticks_usec()) * 1e-6;
+            t = (now_s - frame_prev_.wall_time_s) / dt_frames;
+            // Clamp: never extrapolate past curr, allow up to 1 frame behind.
+            t = Math::clamp(t, 0.0, 1.0);
+        }
+    }
+
+    const Vector3    pos = frame_prev_.valid
+        ? frame_prev_.position.lerp(frame_curr_.position, static_cast<float>(t))
+        : frame_curr_.position;
+    const Quaternion rot = frame_prev_.valid
+        ? frame_prev_.rotation.slerp(frame_curr_.rotation, static_cast<float>(t))
+        : frame_curr_.rotation;
+
+    get_parent()->set("position",   pos);
+    get_parent()->set("quaternion", rot);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,17 +203,18 @@ void SimulationReceiver::_close_socket() {
 }
 
 // ---------------------------------------------------------------------------
-// Frame processing
+// Frame decoding
 // ---------------------------------------------------------------------------
 
-void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
+void SimulationReceiver::_decode_frame(const uint8_t* data, int size) {
     las_proto::SimulationFrameProto frame;
-    if (!frame.ParseFromArray(data, size))
+    if (!frame.ParseFromArray(data, size)) {
+        UtilityFunctions::print("SimulationReceiver: proto parse failed, size=", size);
         return;
+    }
 
     if (!world_origin_set_) {
-        // Packets arriving before TerrainLoader calls set_world_origin() are
-        // expected during startup — drop silently.
+        UtilityFunctions::print("SimulationReceiver: world origin not set — dropping frame");
         return;
     }
 
@@ -194,17 +226,22 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
     double up_m    = static_cast<double>(frame.height_wgs84_m()) - world_origin_h_m_;
 
     // ENU -> Godot position: X=East, Y=Up, Z=-North.
-    get_parent()->set("position", Vector3(
-        static_cast<float>(east_m),
-        static_cast<float>(up_m),
-        static_cast<float>(-north_m)));
+    const Vector3 pos(static_cast<float>(east_m),
+                      static_cast<float>(up_m),
+                      static_cast<float>(-north_m));
 
     // Body-to-NED quaternion -> body-to-Godot quaternion.
-    // NED->Godot frame rotation: w=0.5, x=0.5, y=0.5, z=-0.5
-    // (encodes the matrix [[0,1,0],[0,0,-1],[-1,0,0]]).
-    // Godot Quaternion(x,y,z,w) constructor — note z=-0.5, w=+0.5.
-    Quaternion r_ned_to_godot(0.5f, 0.5f, -0.5f, 0.5f);
+    // NED->Godot frame rotation: Quaternion(x=0.5, y=0.5, z=-0.5, w=0.5)
+    const Quaternion r_ned_to_godot(0.5f, 0.5f, -0.5f, 0.5f);
     Quaternion q_b2n(frame.q_x(), frame.q_y(), frame.q_z(), frame.q_w());
     q_b2n = q_b2n.normalized();
-    get_parent()->set("quaternion", (r_ned_to_godot * q_b2n).normalized());
+    const Quaternion rot = (r_ned_to_godot * q_b2n).normalized();
+
+    // Shift curr -> prev, store new frame in curr.
+    frame_prev_ = frame_curr_;
+    frame_curr_.position    = pos;
+    frame_curr_.rotation    = rot;
+    frame_curr_.wall_time_s = static_cast<double>(
+        Time::get_singleton()->get_ticks_usec()) * 1e-6;
+    frame_curr_.valid       = true;
 }

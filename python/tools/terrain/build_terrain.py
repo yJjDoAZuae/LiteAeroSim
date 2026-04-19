@@ -491,10 +491,12 @@ def _build_terrain_config(
         tyre_r = float(wheel.get("tyre_radius_m", 0.0))
         gear_contact_height_m = max(gear_contact_height_m, attach_z + tyre_r)
 
+    glb_path_str = "res://terrain/terrain.glb"
+
     return {
         "schema_version": 1,
         "dataset_name": dataset_name,
-        "glb_path": "res://terrain/terrain.glb",
+        "glb_path": glb_path_str,
         "world_origin_lat_rad": center_lat_rad,
         "world_origin_lon_rad": center_lon_rad,
         "world_origin_height_m": center_h_m,

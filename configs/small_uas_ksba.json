@@ -1,7 +1,7 @@
 {
     "schema_version": 1,
     "aircraft": {
-        "S_ref_m2": 0.60,
+        "S_ref_m2": 1.021,
         "cl_y_beta": -0.40,
         "ar": 8.07,
         "e": 0.85,

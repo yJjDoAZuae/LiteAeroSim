@@ -77,3 +77,33 @@ if(WIN32 AND _sdl2_dll AND EXISTS "${_sdl2_dll}")
         COMMENT "Deploying SDL2.dll alongside live_sim"
     )
 endif()
+
+# ---------------------------------------------------------------------------
+# mock_sim: kinematic mock broadcaster for Godot viewer diagnostics.
+# Replaces the aerodynamics engine with a direct joystick→attitude map to
+# isolate rendering / camera / coordinate chain issues from physics bugs.
+# ---------------------------------------------------------------------------
+add_executable(mock_sim
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_sim.cpp
+)
+target_link_libraries(mock_sim
+    PRIVATE
+        liteaerosim
+        liteaerosim_proto
+        SDL2::SDL2
+        $<$<PLATFORM_ID:Windows>:ws2_32>
+)
+target_compile_features(mock_sim PRIVATE cxx_std_17)
+
+if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(mock_sim PRIVATE -mconsole)
+endif()
+
+if(WIN32 AND _sdl2_dll AND EXISTS "${_sdl2_dll}")
+    add_custom_command(TARGET mock_sim POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_sdl2_dll}"
+            $<TARGET_FILE_DIR:mock_sim>
+        COMMENT "Deploying SDL2.dll alongside mock_sim"
+    )
+endif()

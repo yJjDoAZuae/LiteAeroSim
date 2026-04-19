@@ -252,10 +252,22 @@ def generate(
         sys.exit(1)
 
     # ------------------------------------------------------------------
-    # 8. Export as GLB
+    # 8. Export as GLB with flat shading.
+    #    Godot's GLTF importer interpolates normals across shared vertices,
+    #    producing smooth shading regardless of angle threshold.  Unsharing
+    #    all vertices and embedding explicit per-face normals prevents this.
     # ------------------------------------------------------------------
+    flat_verts = merged.vertices[merged.faces].reshape(-1, 3)
+    flat_faces = np.arange(len(flat_verts), dtype=np.int32).reshape(-1, 3)
+    face_normals = np.repeat(merged.face_normals, 3, axis=0)
+    flat_mesh = trimesh.Trimesh(
+        vertices=flat_verts,
+        faces=flat_faces,
+        vertex_normals=face_normals,
+        process=False,
+    )
     dst.parent.mkdir(parents=True, exist_ok=True)
-    merged.export(str(dst))
+    flat_mesh.export(str(dst))
     print(f"\nExported: {dst}  ({dst.stat().st_size // 1024} KB)")
 
 

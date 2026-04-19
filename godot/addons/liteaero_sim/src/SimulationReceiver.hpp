@@ -39,15 +39,28 @@ protected:
 private:
     void _open_socket();
     void _close_socket();
-    void _apply_frame(const uint8_t* data, int size);
+    void _decode_frame(const uint8_t* data, int size);
+
+    // A decoded sim frame in Godot world space.
+    struct GodotFrame {
+        Vector3    position;
+        Quaternion rotation;
+        double     wall_time_s = 0.0;  // Time::get_ticks_usec() / 1e6 at receipt
+        bool       valid       = false;
+    };
 
     int broadcast_port_          = 14560;
-    int max_datagrams_per_frame_ = 10;
+    int max_datagrams_per_frame_ = 64;
 
     double world_origin_lat_rad_ = 0.0;
     double world_origin_lon_rad_ = 0.0;
     double world_origin_h_m_     = 0.0;
     bool   world_origin_set_     = false;
+
+    // Two most recently received frames for interpolation.
+    // frame_prev_ is one sim step behind frame_curr_.
+    GodotFrame frame_prev_;
+    GodotFrame frame_curr_;
 
     // POSIX / WinSock UDP socket file descriptor; -1 when not open.
     int socket_fd_ = -1;
