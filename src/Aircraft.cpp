@@ -106,13 +106,22 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
         is.at("velocity_down_mps").get<float>()
     };
 
+    // Optional Euler angles (ZYX: heading, pitch, roll) — all default to 0.
+    const float heading_rad = is.value("heading_rad", 0.0f);
+    const float pitch_rad   = is.value("pitch_rad",   0.0f);
+    const float roll_rad    = is.value("roll_rad",    0.0f);
+    const Eigen::Quaternionf q_nb =
+        Eigen::AngleAxisf(heading_rad, Eigen::Vector3f::UnitZ()) *
+        Eigen::AngleAxisf(pitch_rad,   Eigen::Vector3f::UnitY()) *
+        Eigen::AngleAxisf(roll_rad,    Eigen::Vector3f::UnitX());
+
     _state = KinematicState(
         0.0,
         datum,
         vel_NED,
-        Eigen::Vector3f::Zero(),          // acceleration_NED_mps
-        Eigen::Quaternionf::Identity(),   // q_nb — level, heading north
-        Eigen::Vector3f::Zero()           // rates_Body_rps
+        Eigen::Vector3f::Zero(),
+        q_nb,
+        Eigen::Vector3f::Zero()
     );
     _initial_state = _state;
 

@@ -1,0 +1,14 @@
+{
+    "schema_version": 1,
+    "dataset_name": "test_axis_prism",
+    "glb_path": "res://terrain/terrain.glb",
+    "world_origin_lat_rad": 0.0,
+    "world_origin_lon_rad": 0.0,
+    "world_origin_height_m": 10.0,
+    "aircraft_mesh_path": "res://assets/test_prism.glb",
+    "aircraft_wingspan_m": 2.0,
+    "aircraft_gear_contact_height_m": 1.0,
+    "aircraft_cg_x_fraction": 0.5,
+    "aircraft_cg_z_fraction": 0.5,
+    "las_terrain_path": "C:\\Users\\Alex\\avraero\\liteaero\\liteaero-sim\\godot\\terrain_test\\terrain\\terrain.las_terrain"
+}

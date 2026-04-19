@@ -46,6 +46,8 @@ _LOD_CELL_SIDE_DEG: list[float] = [
 
 # Geographic partitioning: export radius per LOD (m).
 # Equals the switch-to-coarser hysteresis threshold from terrain.md §LOD Hysteresis Band.
+# _select_display_tiles uses bbox intersection (not centroid distance) so tiles that
+# straddle the center are correctly included — see DEFECT-TB-1 fix.
 _LOD_EXPORT_RADIUS_M: list[float] = [
     345.0,
     1_035.0,
@@ -53,7 +55,7 @@ _LOD_EXPORT_RADIUS_M: list[float] = [
     9_315.0,
     27_945.0,
     83_835.0,
-    math.inf,  # L6 always exported
+    math.inf,   # L6 always exported
 ]
 
 # Godot visibility range bounds per LOD (m).
@@ -400,15 +402,36 @@ def _geodetic_distance_m(
     return math.sqrt(dlat**2 + dlon**2) * 6_371_000.0
 
 
+def _bbox_min_distance_m(
+    center_lat_rad: float,
+    center_lon_rad: float,
+    lat_min_rad: float,
+    lat_max_rad: float,
+    lon_min_rad: float,
+    lon_max_rad: float,
+) -> float:
+    """Minimum great-circle distance from center point to a geodetic bbox (metres).
+
+    Returns 0.0 if the center is inside the bbox.  This is the correct test for
+    whether a tile's coverage overlaps the export circle — see DEFECT-TB-1.
+    """
+    clamped_lat = max(lat_min_rad, min(lat_max_rad, center_lat_rad))
+    clamped_lon = max(lon_min_rad, min(lon_max_rad, center_lon_rad))
+    return _geodetic_distance_m(center_lat_rad, center_lon_rad, clamped_lat, clamped_lon)
+
+
 def _select_display_tiles(
     tiles: list[TerrainTileData],
     center_lat_rad: float,
     center_lon_rad: float,
 ) -> list[TerrainTileData]:
-    """Return the subset of tiles within the geographic export radius for each LOD.
+    """Return the subset of tiles whose coverage overlaps the export radius for each LOD.
 
-    Tiles within _LOD_EXPORT_RADIUS_M[tile.lod] of (center_lat_rad, center_lon_rad)
-    are included.  L6 tiles are always included (export radius = infinity).
+    A tile is included if the minimum distance from (center_lat_rad, center_lon_rad)
+    to the tile's geographic bbox is within _LOD_EXPORT_RADIUS_M[tile.lod].
+    This correctly handles tiles that straddle the center point (centroid may be
+    outside the radius even though the tile covers the center).
+    L6 tiles are always included (export radius = infinity).
     """
     display: list[TerrainTileData] = []
     for tile in tiles:
@@ -416,11 +439,12 @@ def _select_display_tiles(
         if math.isinf(radius):
             display.append(tile)
             continue
-        dist_m = _geodetic_distance_m(
+        min_dist_m = _bbox_min_distance_m(
             center_lat_rad, center_lon_rad,
-            tile.centroid_lat_rad, tile.centroid_lon_rad,
+            tile.lat_min_rad, tile.lat_max_rad,
+            tile.lon_min_rad, tile.lon_max_rad,
         )
-        if dist_m <= radius:
+        if min_dist_m <= radius:
             display.append(tile)
     return display
 
@@ -440,6 +464,9 @@ def _build_terrain_config(
     Reads ``visualization.mesh_res_path`` from *config* to populate
     ``aircraft_mesh_path``.  Falls back to ``_DEFAULT_MESH_RES_PATH`` when
     the field is absent.
+
+    Computes ``aircraft_wingspan_m`` from the aerodynamic geometry parameters
+    in the ``aircraft`` section: wingspan = sqrt(S_ref_m2 * ar).
     """
     mesh_res_path: str = (
         config.get("visualization", {}).get("mesh_res_path", _DEFAULT_MESH_RES_PATH)
@@ -448,6 +475,22 @@ def _build_terrain_config(
     las_terrain_path: str = str(
         (las_terrain_dir(dataset_name) / "terrain.las_terrain").resolve()
     )
+
+    # Wingspan derived from aerodynamic geometry: b = sqrt(S_ref * AR).
+    aircraft_section = config.get("aircraft", {})
+    s_ref_m2 = float(aircraft_section.get("S_ref_m2", 0.0))
+    ar = float(aircraft_section.get("ar", 0.0))
+    wingspan_m = math.sqrt(s_ref_m2 * ar) if s_ref_m2 > 0 and ar > 0 else 0.0
+
+    # Gear contact height: max over all wheel units of (attach_z + tyre_radius).
+    # attach_point_body_m[2] is body-frame Z (Z-down convention), so positive =
+    # below CG.  This is the CG height above terrain when the gear contacts the ground.
+    gear_contact_height_m = 0.0
+    for wheel in config.get("landing_gear", {}).get("wheel_units", []):
+        attach_z = float(wheel.get("attach_point_body_m", [0.0, 0.0, 0.0])[2])
+        tyre_r = float(wheel.get("tyre_radius_m", 0.0))
+        gear_contact_height_m = max(gear_contact_height_m, attach_z + tyre_r)
+
     return {
         "schema_version": 1,
         "dataset_name": dataset_name,
@@ -456,6 +499,8 @@ def _build_terrain_config(
         "world_origin_lon_rad": center_lon_rad,
         "world_origin_height_m": center_h_m,
         "aircraft_mesh_path": mesh_res_path,
+        "aircraft_wingspan_m": round(wingspan_m, 4),
+        "aircraft_gear_contact_height_m": round(gear_contact_height_m, 4),
         "las_terrain_path": las_terrain_path,
     }
 

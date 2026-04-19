@@ -259,12 +259,14 @@ questions are in [`docs/architecture/godot_plugin.md`](godot_plugin.md).
 
 ```text
 World (Node3D)
+├── WorldEnvironment (ambient light, energy=0.1)
 ├── TerrainLoader (Node — TerrainLoader.gd)
 │     instantiates terrain GLB tiles as children at runtime
-├── DirectionalLight3D
+├── DirectionalLight3D  (primary sun — shadow on, energy=1.5)
+├── DirectionalLight3D  (fill — shadow off, energy=1.5, illuminates aft faces)
 ├── Vehicle (Node3D)
-│   ├── SimulationReceiver (Node3D — SimulationReceiver.gd / future GDExtension)
-│   └── AircraftMesh (instanced from aircraft_lp.glb, rotation_degrees applied)
+│   ├── SimulationReceiver (Node3D — GDExtension C++)
+│   └── AircraftMesh (instanced by TerrainLoader from mesh_res_path GLB)
 └── Camera3D
 ```
 
@@ -283,7 +285,8 @@ World (Node3D)
 
    Godot position: `Vector3(east_m, up_m, -north_m)`.
 4. Convert body-to-NED quaternion to body-to-Godot quaternion using the
-   NED→Godot rotation quaternion $(w=0.5,\ x=0.5,\ y=0.5,\ z=-0.5)$.
+   NED→Godot rotation quaternion $(x=0.5,\ y=0.5,\ z=-0.5,\ w=0.5)$
+   (Godot `Quaternion` constructor order is `(x, y, z, w)`).
 5. Set `Vehicle.position` and `Vehicle.quaternion`.
 
 ### World origin
@@ -327,29 +330,151 @@ R =    [  0   0  -1  ]
        [ -1   0   0  ]
 ```
 
-The Godot quaternion is `q_Godot = R_NED_to_Godot ⊗ q_b2n ⊗ q_mesh_correction`
-where `q_mesh_correction` corrects for the aircraft mesh body-frame offset
-(see §Aircraft Mesh Coordinate Frame).
+The `Vehicle` node's Godot quaternion is set by `SimulationReceiver`:
+
+$$q_\text{Godot} = R_\text{NED\to Godot} \otimes q_{b2n}$$
+
+The aircraft mesh is a child `AircraftMesh` node of `Vehicle` with a fixed local
+rotation `R_\text{correction}` (see §Aircraft Mesh Coordinate Frame below).
+The mesh correction is **not** folded into `q_Godot` — it is a static node rotation
+applied once at scene setup by `TerrainLoader`.
 
 ### Aircraft Mesh Coordinate Frame
 
-The source OBJ (`generic01.obj`) was exported with:
+#### Three coordinate frames
 
-| Axis | Physical direction |
+There are three distinct frames that must be kept clearly separate:
+
+**1 — Mesh layout frame** (vertices as stored in aircraft GLBs, generated from layout
+drawings with fuselage station / buttline / waterline axes):
+
+| Mesh layout axis | Physical direction |
 | --- | --- |
-| +X | Aircraft nose (forward) |
-| +Y | Right wing |
-| +Z | Up |
+| +X | Aft (increasing fuselage station) |
+| +Y | Starboard (right buttline) |
+| +Z | Up (waterline) |
 
-This is the NED body frame convention (nose=+X, right=+Y, up=+Z in body), which differs
-from the glTF canonical frame (right=+X, up=+Y, forward=−Z). As a result, the aircraft
-mesh as stored in `aircraft_lp.glb` has its nose along what Godot treats as +X (East)
-rather than −Z (North-facing forward).
+Godot's GLTF importer reads vertex positions as-is; no axis conversion is applied.
 
-A fixed mesh correction quaternion `q_mesh_correction` must be applied in the Godot
-plugin to align the mesh body frame with the physics body frame before applying
-`q_b2n`. See OQ-LS-9 for the exact correction and whether to bake it into the mesh
-or apply it at runtime.
+**2 — NED body frame** (physics convention used by `SimulationFrame.q_b2n`):
+
+| NED body axis | Physical direction |
+| --- | --- |
+| +X | Nose (forward / North in level flight) |
+| +Y | Starboard (East in level flight) |
+| +Z | Down |
+
+At level, wings-level flight the body frame is aligned with NED:
+body +X = North, body +Y = East, body +Z = Down.
+
+**3 — Godot world frame:**
+
+| Godot axis | Physical / ENU direction |
+| --- | --- |
+| +X | East |
+| +Y | Up |
+| +Z | −North |
+
+#### Layout-to-body frame correction
+
+`TerrainLoader` applies `mesh_node.rotation_degrees = Vector3(0, 180, 0)` to all
+aircraft meshes. This is a pure Ry(180°) rotation:
+
+$$R_\text{correction} = R_y(180°) = \begin{bmatrix} -1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & -1 \end{bmatrix}$$
+
+This maps layout axes to NED body axes:
+
+| Layout mesh axis | After Ry(180°) | Physical meaning |
+| --- | --- | --- |
+| +X (aft) | −X | Forward (nose) |
+| +Y (right) | +Y | Starboard (unchanged) |
+| +Z (up) | −Z | Down (NED body convention) |
+
+The corrected mesh frame (+X=fwd, +Y=right, +Z=down) is exactly the NED body frame,
+so `q_b2n` from the simulation drives the mesh orientation correctly with no residual
+attitude error.
+
+#### Live simulation rotation chain
+
+During simulation, `SimulationReceiver` sets:
+
+$$q_\text{Vehicle} = R_\text{NED\to Godot} \otimes q_{b2n}$$
+
+The `AircraftMesh` global rotation is:
+
+$$R_\text{mesh,global} = q_\text{Vehicle} \cdot R_y(180°) = R_\text{NED\to Godot} \cdot q_{b2n} \cdot R_y(180°)$$
+
+At level flight ($q_{b2n}$ = identity), the mesh +X axis (fwd in layout) maps to Godot
+−Z (−North in world frame).
+All three rotation axes (roll, pitch, yaw) have been verified with ±30° perturbations
+and a compound 75°roll + 30°pitch test case using the `test_prism.glb` asset with
+embossed axis labels.
+
+---
+
+## Implementation Pitfalls
+
+The following issues were discovered during initial implementation and are documented
+here to prevent regression.
+
+### Godot `Quaternion` constructor argument order
+
+Godot's `Quaternion` constructor takes `(x, y, z, w)` — **not** `(w, x, y, z)`.
+
+```cpp
+// WRONG — passes proto q_w as Godot x, producing identity mapped to (x=1,y=0,z=0,w=0):
+Quaternion q_b2n(frame.q_w(), frame.q_x(), frame.q_y(), frame.q_z());
+
+// CORRECT:
+Quaternion q_b2n(frame.q_x(), frame.q_y(), frame.q_z(), frame.q_w());
+```
+
+The NED→Godot quaternion is similarly specified in Godot's (x, y, z, w) order:
+
+```cpp
+// x=0.5, y=0.5, z=-0.5, w=0.5  (NOT w=0.5, x=0.5, y=0.5, z=-0.5)
+Quaternion r_ned_to_godot(0.5f, 0.5f, -0.5f, 0.5f);
+```
+
+### `is_editor_hint()` guard in GDExtension `_ready()` and `_process()`
+
+GDExtension `_ready()` is called when the scene is opened in the Godot editor, not
+only at runtime. If `SimulationReceiver::_ready()` opens a UDP socket without an
+editor guard, the socket is bound in the editor session. When the game starts, the
+second `bind()` silently fails and no datagrams are received.
+
+Both `_ready()` and `_process()` must begin with:
+
+```cpp
+if (Engine::get_singleton()->is_editor_hint()) return;
+```
+
+### Initial attitude in aircraft config
+
+`Aircraft.cpp` reads the following optional fields from `initial_state` in the
+aircraft config JSON:
+
+| Field | Unit | Default | Description |
+| --- | --- | --- | --- |
+| `roll_rad` | rad | 0.0 | Initial bank angle (positive = right wing down) |
+| `pitch_rad` | rad | 0.0 | Initial pitch angle (positive = nose up) |
+| `heading_rad` | rad | 0.0 | Initial heading (0 = North, positive = clockwise) |
+
+The initial attitude quaternion is `q_nb = Rz(heading) · Ry(pitch) · Rx(roll)`
+(ZYX Euler, standard aerospace convention). Example:
+
+```json
+"initial_state": {
+    "roll_rad": 0.5236,
+    "pitch_rad": 0.0,
+    "heading_rad": 0.0
+}
+```
+
+Test configs `test_axis_prism_roll30.json`, `test_axis_prism_pitch30.json`,
+`test_axis_prism_yaw30.json`, and `test_axis_prism_roll75_pitch30.json` demonstrate
+these fields. Landing gear is omitted from orientation test configs to prevent gear
+spring forces from correcting the initial attitude.
 
 ---
 
@@ -550,18 +675,35 @@ fire-and-forget UDP model naturally and requires no process management code.
 
 ### OQ-LS-9 — Aircraft mesh coordinate frame correction in Godot
 
-**Resolved — Option B.**
+**Resolved — layout-frame meshes with `rotation_degrees = Vector3(0, 180, 0)`.**
 
-The mesh body frame (nose=+X, right=+Y, up=+Z) is corrected by a fixed rotation on
-the `AircraftMesh` `MeshInstance3D` node in the Godot scene. No mesh re-export is
-required. The rotation is applied once in the scene and is visible and adjustable
-without touching the asset.
+Aircraft meshes are generated in the **layout frame** (+X=aft, +Y=right, +Z=up).
+`TerrainLoader` applies `mesh_node.rotation_degrees = Vector3(0, 180, 0)` — a pure
+Ry(180°) — which maps the layout frame to the NED body frame (+X=fwd, +Y=right,
++Z=down). The corrected mesh frame matches `q_b2n` exactly, producing correct
+attitude display for both static and live-simulation cases.
 
-The glTF forward=−Z convention is an artifact of historical OpenGL camera orientation
-and is not a meaningful property of the asset itself. Encoding a correction rotation in
-the scene node is the standard Godot workflow for imported assets whose axes differ from
-the scene convention. The exact `rotation_degrees` values are determined when the Godot
-scene is authored.
+This supersedes the earlier empirical `Vector3(-90, 0, 90)` approach, which was
+derived for a mesh assumed to be in a different convention and produced incorrect
+live-simulation attitude. The correct rotation has been verified with roll, pitch,
+yaw, and compound rotation test cases using `test_prism.glb`.
+
+---
+
+### OQ-LS-11 — Mesh Z-axis sign mismatch and live-simulation attitude error
+
+**Resolved — root cause eliminated by adopting layout-frame mesh convention.**
+
+The original problem arose because meshes were assumed to be in a body-like frame
+(+X=nose, +Y=right, +Z=up) which differs from the NED body frame (+Z=down) in Z
+sign, with no proper rotation able to reconcile them.
+
+**Resolution:** All aircraft meshes are now defined in the **layout frame**
+(+X=aft, +Y=right, +Z=up). The layout-to-body correction `Ry(180°)` maps this to
+exactly the NED body frame (+X=fwd, +Y=right, +Z=down). There is no axis mismatch
+and no residual attitude error in live simulation.
+
+This question is closed. See OQ-LS-9 for the resolved correction rotation.
 
 ---
 
@@ -661,5 +803,6 @@ determined by their own polling interval.
 | OQ-LS-6 | Float precision for ring buffer position | Deferred to SB-3 (ring buffer redesign) — not a SimRunner patch | No |
 | OQ-LS-7 | UDP datagram serialization format | Resolved → Option B (protobuf `SimulationFrameProto`) | No |
 | OQ-LS-8 | Godot scene launch mechanism | Resolved → Option C (developer opens Godot manually; Python/C++ broadcast regardless) | No |
-| OQ-LS-9 | Aircraft mesh coordinate frame correction | Resolved → Option B (fixed `rotation_degrees` on `AircraftMesh` node in Godot scene; no mesh re-export) | No |
+| OQ-LS-9 | Aircraft mesh coordinate frame correction | Resolved — layout-frame meshes + `rotation_degrees = Vector3(0, 180, 0)` correct for both static and live simulation | No |
 | OQ-LS-10 | Terrain wiring in `live_sim.cpp` for landing gear contact | Resolved → Option B (`TerrainMesh` from `.las_terrain`; error if absent — no `FlatTerrain` fallback) | No |
+| OQ-LS-11 | Mesh Z-axis sign mismatch: live-simulation attitude error | Resolved — eliminated by layout-frame mesh convention; see OQ-LS-9 | No |

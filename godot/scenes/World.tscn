@@ -1,23 +1,39 @@
-[gd_scene load_steps=3 format=3 uid="uid://world_scene"]
+[gd_scene format=3 uid="uid://ce0cdxtk6ac2"]
 
-[ext_resource type="Script" path="res://addons/liteaero_sim/SimulationReceiver.gd" id="1_recv"]
-[ext_resource type="Script" path="res://addons/liteaero_sim/TerrainLoader.gd" id="2_terrain"]
+[ext_resource type="Script" uid="uid://brrvhhbjvj0ci" path="res://addons/liteaero_sim/TerrainLoader.gd" id="2_terrain"]
 
-[node name="World" type="Node3D"]
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 1
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.1
 
-[node name="TerrainLoader" type="Node" parent="."]
+[node name="World" type="Node3D" unique_id=467618680]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=987654321]
+environment = SubResource("Environment_1")
+
+[node name="TerrainLoader" type="Node" parent="." unique_id=1810902133]
 script = ExtResource("2_terrain")
+terrain_transparency = 0.866
+camera_distance = 5.0
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 0, 100, 0)
-light_energy = 1.2
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1467213489]
+transform = Transform3D(-0.7682, 0, -0.6402, -0.3900, 0.7930, 0.4680, 0.5077, 0.6092, -0.6092, 0, 100, 0)
+light_energy = 1.5
 shadow_enabled = true
+directional_shadow_max_distance = 20.0
+directional_shadow_mode = 0
 
-[node name="Vehicle" type="Node3D" parent="."]
+[node name="DirectionalLight3D2" type="DirectionalLight3D" parent="." unique_id=1467213490]
+transform = Transform3D(0, 1, 0, -0.7071, 0, 0.7071, 0.7071, 0, 0.7071, 0, 100, 0)
+light_energy = 1.5
+shadow_enabled = false
 
-[node name="SimulationReceiver" type="Node3D" parent="Vehicle"]
-script = ExtResource("1_recv")
-broadcast_port = 14560
+[node name="Vehicle" type="Node3D" parent="." unique_id=1379560283]
 
-[node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.819152, 0.573576, 0, -0.573576, 0.819152, 0, 50, 150)
+[node name="SimulationReceiver" type="SimulationReceiver" parent="Vehicle" unique_id=477612894]
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1123197035]
+transform = Transform3D(1, 0, 0, 0, 0.92718357, 0.37460646, 0, -0.37460646, 0.92718357, 0, 52, 120)
+fov = 110.1

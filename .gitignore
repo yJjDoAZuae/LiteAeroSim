@@ -19,6 +19,8 @@ python/.ipynb_checkpoints/
 python/**/.ipynb_checkpoints/
 # Godot — generated, not configuration-managed
 godot/.godot/
+godot/**/*.import
+godot/**/*.uid
 godot/terrain/
 data/terrain/
 # GDExtension build output

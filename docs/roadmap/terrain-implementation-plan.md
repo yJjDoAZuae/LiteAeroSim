@@ -91,6 +91,53 @@ separate future steps.
 
 ---
 
+## Work Items
+
+### WORK-TB-1 — Parallelize terrain build pipeline
+
+**File:** `python/tools/terrain/build_terrain.py` — triangulation loop (Step 3)
+
+The triangulation loop over all LOD cells is single-threaded. At L0 a 12 km radius
+dataset produces 720 cells; serially this takes many minutes. The loop is embarrassingly
+parallel — each cell is independent.
+
+**Proposed fix:** Replace the serial loop with `concurrent.futures.ProcessPoolExecutor`
+(stdlib, no new dependency). Each worker calls `triangulate()` + `colorize()` + `check()`
+for one cell. Pool size defaults to `os.cpu_count()`.
+
+---
+
+## Known Defects
+
+### DEFECT-TB-1 — `_select_display_tiles` uses centroid distance, not coverage intersection ✅ Fixed
+
+**File:** `python/tools/terrain/build_terrain.py` — `_select_display_tiles()` and `_LOD_EXPORT_RADIUS_M`
+
+**Symptom:** L0 and L1 tiles are generated but not exported to the GLB. The Godot viewer
+shows no geometry at ground level — the aircraft sits in a featureless gray void.
+
+**Root cause:** `_select_display_tiles` filters tiles by the distance from the terrain center to
+the tile **centroid**. The L0 export radius is 345 m (the Godot visibility `end` threshold).
+L0 cells are 1 km wide (cell side 0.009 deg ≈ 1 km), so even the center tile has its centroid
+~500 m from the terrain center — beyond the 345 m cutoff. All L0 tiles are culled.
+
+**Workaround (current):** `_LOD_EXPORT_RADIUS_M[0]` inflated to 800 m to cover the full
+diagonal of a 1 km L0 cell (1 km × √2 / 2 ≈ 707 m, rounded up). Same inflation applied
+to L1 (cell side ~3 km, half-diagonal ~2121 m; export radius bumped from 1035 m to 2200 m).
+This is a hack — it over-exports tiles beyond the intended visibility cutoff.
+
+**Correct fix:** Replace centroid-distance filtering with tile **bounding-box intersection**
+against a circle of radius `_LOD_EXPORT_RADIUS_M[lod]` centered at the terrain center.
+A tile is included if any part of its geographic bbox overlaps the export circle, not just
+if its centroid falls inside. This is the correct geometric test and eliminates the
+cell-size dependency.
+
+**Impact:** Until fixed, datasets with small export radii relative to cell size (primarily
+L0 and L1) will under-export. For typical aircraft (radius 12 km), L0 and L1 are always
+affected.
+
+---
+
 ## Step 1 — Plain Data-Model Headers (no tests — pure structs) ✅
 
 No tests required. These are pure aggregate types with no behavior.

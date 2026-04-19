@@ -267,7 +267,24 @@ Open a non-blocking UDP socket and bind to `127.0.0.1:<broadcast_port>`.
 
 ```cpp
 void SimulationReceiver::_ready() {
+    // GDExtension _ready() is called in the Godot editor as well as at runtime.
+    // Opening a socket in the editor causes the game's bind() to silently fail.
+    if (Engine::get_singleton()->is_editor_hint()) return;
     _open_socket();
+}
+```
+
+The `is_editor_hint()` guard is mandatory. Without it, GDExtension `_ready()` runs
+when the scene is opened in the editor, binding the socket there. When the game then
+starts, the second `bind()` silently fails and no datagrams are received.
+
+The same guard must be applied to `_process()`:
+
+```cpp
+void SimulationReceiver::_process(double /*delta*/) {
+    if (Engine::get_singleton()->is_editor_hint()) return;
+    if (socket_fd_ < 0) return;
+    // ... polling loop ...
 }
 ```
 
@@ -322,9 +339,11 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
     //   [ 0  1  0 ]
     //   [ 0  0 -1 ]
     //   [-1  0  0 ]
-    // Quaternion representation: w=0.5, x=0.5, y=0.5, z=-0.5
-    Quaternion r_ned_to_godot(0.5f, 0.5f, 0.5f, -0.5f);
-    Quaternion q_b2n(frame.q_w(), frame.q_x(), frame.q_y(), frame.q_z());
+    // Godot Quaternion constructor is (x, y, z, w) — not (w, x, y, z).
+    // Quaternion for this matrix: x=0.5, y=0.5, z=-0.5, w=0.5.
+    Quaternion r_ned_to_godot(0.5f, 0.5f, -0.5f, 0.5f);
+    // Proto fields q_x/q_y/q_z/q_w map to Godot (x, y, z, w) — not (w, x, y, z).
+    Quaternion q_b2n(frame.q_x(), frame.q_y(), frame.q_z(), frame.q_w());
     q_b2n = q_b2n.normalized();
     get_parent()->set("quaternion", (r_ned_to_godot * q_b2n).normalized());
 }
@@ -334,9 +353,85 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
 
 ## TerrainLoader Integration
 
-`TerrainLoader.gd` performs three tasks in `_ready()`: load terrain, load the
-aircraft mesh, and set the world origin on `SimulationReceiver`. All three are
-driven by `terrain_config.json`.
+`TerrainLoader.gd` performs four tasks in `_ready()`: load terrain, load the
+aircraft mesh, set the world origin on `SimulationReceiver`, and apply appearance
+materials. All mesh loading is driven by `terrain_config.json`.
+
+### Scene Lighting
+
+`World.tscn` uses a `WorldEnvironment` node with ambient light plus two
+`DirectionalLight3D` nodes:
+
+| Light | Shadow | Energy | Purpose |
+| --- | --- | --- | --- |
+| Primary (sun) | Yes | 1.5 | Casts aircraft shadow toward camera |
+| Fill | No | 1.5 | Illuminates aft/underside faces for mesh readability |
+
+The shadow light is positioned so its shadow falls in front of the aircraft in the
+camera frame, not behind it. `directional_shadow_max_distance = 100.0` and
+`directional_shadow_mode = 0` (orthogonal) ensure the shadow is visible at typical
+low-altitude test altitudes.
+
+### Mesh Appearance Shader
+
+`TerrainLoader` creates two `ShaderMaterial` instances at startup. The shader is
+defined inline as a GDScript string constant (`_SHADER_CODE`) in `TerrainLoader.gd`
+and instantiated via `Shader.new()` — this avoids Godot's resource import pipeline
+and ensures the shader is always available without a file load step. The file
+`addons/liteaero_sim/mesh_appearance.gdshader` is kept as the authoritative readable
+copy but is not loaded at runtime. The shader provides saturation, brightness,
+contrast, and transparency controls as uniforms.
+
+| Material | Applied to | `use_vertex_color` | Base color |
+| --- | --- | --- | --- |
+| `_terrain_material` | All terrain tile `MeshInstance3D` nodes | `true` | — (reads vertex colors from GLB) |
+| `_aircraft_material` | All `MeshInstance3D` nodes in aircraft mesh | `false` | `#4A7FC1` (medium blue, PP-F25) |
+
+All terrain tiles share the **same** `ShaderMaterial` instance (not copies), so a
+single Inspector slider change propagates to the entire terrain simultaneously.
+
+**CULL_DISABLED shadow pitfall:** Terrain tile normals point downward in Godot (trimesh
+Z-up exports arrive in Godot Y-up space with faces that face away from the camera when
+viewed from above). The terrain material therefore uses `CULL_DISABLED` so both face
+orientations render. However, Godot has a known bug: meshes with `CULL_DISABLED`
+do not cast shadows regardless of the `cast_shadow` setting. The workaround is to set
+`cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF` on all terrain
+`MeshInstance3D` nodes (terrain receives shadows from the aircraft but does not cast
+its own). The aircraft uses the default `CULL_BACK` material and `cast_shadow = ON`.
+
+`_apply_material_to_tree()` takes an `is_terrain` flag to implement this:
+
+```gdscript
+func _apply_material_to_tree(node: Node, mat: Material, is_terrain: bool = false) -> void:
+    if node is MeshInstance3D:
+        var mi := node as MeshInstance3D
+        mi.material_override = mat
+        mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if is_terrain \
+            else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+    for child: Node in node.get_children():
+        _apply_material_to_tree(child, mat, is_terrain)
+```
+
+The controls are exposed as `@export` properties on the `TerrainLoader` node and
+are adjustable in the Godot Inspector while the scene is running, with no terrain
+rebuild required:
+
+| Property | Range | Default | Description |
+| --- | --- | --- | --- |
+| `terrain_saturation` | 0.0–2.0 | 1.0 | 0 = greyscale, 1 = source, 2 = double saturation |
+| `terrain_brightness` | 0.0–2.0 | 1.0 | 0 = black, 1 = source, 2 = double brightness |
+| `terrain_contrast` | 0.0–2.0 | 1.0 | 0 = flat grey, 1 = source, 2 = double contrast |
+| `terrain_transparency` | 0.0–1.0 | 1.0 | 0 = invisible, 1 = fully opaque |
+| `aircraft_saturation` | 0.0–2.0 | 1.0 | same scale as terrain |
+| `aircraft_brightness` | 0.0–2.0 | 1.0 | same scale as terrain |
+| `aircraft_contrast` | 0.0–2.0 | 1.0 | same scale as terrain |
+| `aircraft_transparency` | 0.0–1.0 | 1.0 | same scale as terrain |
+
+The shader applies operations in this order: brightness (multiplicative scale) →
+contrast (scale around mid-grey 0.5) → saturation (interpolate toward perceptual
+luminance using BT.709 weights). Alpha is set directly from the transparency
+uniform. `depth_draw_always` ensures depth is written even in the transparent
+render pass, preventing terrain from sorting behind the background clear color.
 
 ### Aircraft mesh loading
 
@@ -345,38 +440,72 @@ The aircraft mesh path is stored in `terrain_config.json` as `aircraft_mesh_path
 as a child of the `Vehicle` node at runtime. No static `AircraftMesh` node exists
 in `World.tscn` — the mesh is fully programmatic.
 
-The mesh body-frame correction (OQ-LS-9, Option B: nose=+X → Godot −Z forward)
-is applied by `TerrainLoader` when instantiating the node:
+#### Coordinate frame correction
 
-```gdscript
-func _load_aircraft_mesh(config: Dictionary) -> void:
-    var mesh_path: String = config.get("aircraft_mesh_path", "")
-    if mesh_path.is_empty():
-        push_warning("TerrainLoader: no aircraft_mesh_path in terrain_config.json")
-        return
-    var packed: Resource = ResourceLoader.load(mesh_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-    if packed == null or not (packed is PackedScene):
-        push_error("TerrainLoader: failed to load aircraft mesh from %s" % mesh_path)
-        return
-    var mesh_node: Node3D = (packed as PackedScene).instantiate() as Node3D
-    mesh_node.name = "AircraftMesh"
-    # Body-frame correction: nose=+X -> Godot -Z (forward). See OQ-LS-9.
-    mesh_node.rotation_degrees = Vector3(0, 90, 0)
-    var vehicle := _find_vehicle(get_tree().root)
-    if vehicle == null:
-        push_error("TerrainLoader: Vehicle node not found — cannot attach aircraft mesh")
-        return
-    vehicle.add_child(mesh_node)
+Aircraft GLBs are generated in the **layout frame**: +X = aft (increasing fuselage
+station), +Y = right (starboard buttline), +Z = up (waterline). Godot's GLTF
+importer reads vertex positions as-is without applying any axis conversion.
+
+`TerrainLoader` applies `mesh_node.rotation_degrees = Vector3(0, 180, 0)`.
+This is a pure Ry(180°) rotation, which maps layout→body (NED body): +X(aft)→-X(fwd),
++Y unchanged (right stays right), +Z(up)→-Z(down). The resulting rotation matrix is:
+
+$$R_\text{correction} = R_y(180°) = \begin{bmatrix} -1 & 0 & 0 \\ 0 & 1 & 0 \\ 0 & 0 & -1 \end{bmatrix}$$
+
+This rotation is applied to all layout-frame aircraft meshes. It is correct for both
+static display and live simulation:
+
+| Layout mesh axis | After Ry(180°) | Physical meaning |
+| --- | --- | --- |
+| +X (aft) | −X | Forward (nose direction) |
+| +Y (right) | +Y | Starboard (unchanged) |
+| +Z (up) | −Z | Down (NED body convention) |
+
+The corrected mesh local frame (+X=fwd, +Y=right, +Z=down) matches the NED body frame
+used by `q_b2n`, so no residual attitude error occurs during live simulation.
+
+**Pitfall — smooth shading:** Godot's GLTF importer shares vertices across faces and
+interpolates normals, producing rounded edges even on prismatic geometry. Aircraft GLBs
+must embed unshared vertices with explicit per-face normals to prevent this. In trimesh:
+
+```python
+flat_verts = mesh.vertices[mesh.faces].reshape(-1, 3)
+flat_faces = np.arange(len(flat_verts), dtype=np.int32).reshape(-1, 3)
+face_normals = np.repeat(mesh.face_normals, 3, axis=0)
+mesh = trimesh.Trimesh(vertices=flat_verts, faces=flat_faces,
+                       vertex_normals=face_normals, process=False)
 ```
 
-`aircraft_mesh_path` is written into `terrain_config.json` by `build_terrain.py`
-from the aircraft config's `visualization.mesh_res_path` field. See
-[§Aircraft Config Visualization Section](#aircraft-config-visualization-section)
-and [`terrain_build.md §Integration with Live Simulation`](terrain_build.md#integration-with-live-simulation).
+If a mesh is updated, delete `godot/.godot/imported/` cached `.scn` files — Godot
+will not re-import from a stale import cache.
 
-If `aircraft_mesh_path` is absent from `terrain_config.json` (e.g., generated by
-an older build), `TerrainLoader` warns and continues — the simulation runs without
-a visible aircraft mesh.
+#### Wingspan scaling
+
+`TerrainLoader` scales the mesh to real-world dimensions using `aircraft_wingspan_m`
+from `terrain_config.json`. The wingspan spans local Y (the right-wing axis as stored
+in the GLB); `aabb.size.y` (from the first `MeshInstance3D` child) gives the mesh's
+unscaled span. The uniform scale factor `target_wingspan_m / aabb.size.y` is applied
+before the AABB is used for positioning.
+
+`aircraft_wingspan_m` is written by `build_terrain.py` as `sqrt(S_ref_m2 * ar)` from
+the aircraft config's `aircraft` section. If the field is absent, no scaling is
+applied and the mesh is displayed at whatever size the GLB was generated with.
+
+#### terrain_config.json aircraft fields
+
+| Field | Type | Written by | Description |
+| --- | --- | --- | --- |
+| `aircraft_mesh_path` | string | `build_terrain.py` | `res://` path to the aircraft GLB |
+| `aircraft_wingspan_m` | float | `build_terrain.py` | Real wingspan in metres: `sqrt(S_ref_m2 * ar)` |
+
+`aircraft_mesh_path` is derived from `visualization.mesh_res_path` in the aircraft
+config (see [§Aircraft Config Visualization Section](#aircraft-config-visualization-section)).
+`aircraft_mesh_path` is the only field in `terrain_config.json` that is safe to edit
+by hand without a terrain rebuild — the world origin and GLB path must not be changed.
+
+If either aircraft field is absent (e.g., generated by an older `build_terrain.py`),
+`TerrainLoader` warns and continues — the simulation runs without a visible mesh or
+with an unscaled mesh respectively.
 
 ### Aircraft config visualization section
 
@@ -487,7 +616,7 @@ $$\text{up}_m    = h - h_0$$
 
 **ENU → Godot position:** $\text{pos} = (\text{east}, \text{up}, -\text{north})$
 
-**NED → Godot frame rotation quaternion:** $q_r = (w=0.5,\ x=0.5,\ y=0.5,\ z=-0.5)$
+**NED → Godot frame rotation quaternion:** $q_r = (x=0.5,\ y=0.5,\ z=-0.5,\ w=0.5)$ (Godot constructor order: `Quaternion(x, y, z, w)`)
 
 **Vehicle quaternion:** $q_\text{Godot} = q_r \otimes q_{b2n}$ (normalized)
 

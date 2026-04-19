@@ -7,7 +7,7 @@
 //
 // Coordinate mapping (design authority: live_sim_view.md §Coordinate System):
 //   ENU -> Godot:  X = East, Y = Up, Z = -North
-//   NED -> Godot rotation quaternion: w=0.5, x=0.5, y=0.5, z=-0.5
+//   NED -> Godot rotation quaternion: Quaternion(x=0.5, y=0.5, z=-0.5, w=0.5)
 
 #include "SimulationReceiver.hpp"
 
@@ -15,6 +15,7 @@
 #include "liteaerosim.pb.h"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <cmath>
@@ -98,10 +99,14 @@ void SimulationReceiver::set_world_origin(double lat_rad, double lon_rad, double
 // ---------------------------------------------------------------------------
 
 void SimulationReceiver::_ready() {
+    if (Engine::get_singleton()->is_editor_hint())
+        return;
     _open_socket();
 }
 
 void SimulationReceiver::_process(double /*delta*/) {
+    if (Engine::get_singleton()->is_editor_hint())
+        return;
     if (socket_fd_ < 0)
         return;
 
@@ -129,6 +134,11 @@ void SimulationReceiver::_open_socket() {
         socket_fd_ = -1;
         return;
     }
+
+    // Allow immediate rebind after Godot restarts (avoids EADDRINUSE / Error 10048).
+    int reuse = 1;
+    setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR,
+               reinterpret_cast<const char*>(&reuse), sizeof(reuse));
 
     // Bind to loopback so only local traffic is received.
     sockaddr_in addr{};
@@ -171,7 +181,8 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
         return;
 
     if (!world_origin_set_) {
-        ERR_PRINT("SimulationReceiver: world origin not set — call set_world_origin() first");
+        // Packets arriving before TerrainLoader calls set_world_origin() are
+        // expected during startup — drop silently.
         return;
     }
 
@@ -191,8 +202,9 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
     // Body-to-NED quaternion -> body-to-Godot quaternion.
     // NED->Godot frame rotation: w=0.5, x=0.5, y=0.5, z=-0.5
     // (encodes the matrix [[0,1,0],[0,0,-1],[-1,0,0]]).
-    Quaternion r_ned_to_godot(0.5f, 0.5f, 0.5f, -0.5f);
-    Quaternion q_b2n(frame.q_w(), frame.q_x(), frame.q_y(), frame.q_z());
+    // Godot Quaternion(x,y,z,w) constructor — note z=-0.5, w=+0.5.
+    Quaternion r_ned_to_godot(0.5f, 0.5f, -0.5f, 0.5f);
+    Quaternion q_b2n(frame.q_x(), frame.q_y(), frame.q_z(), frame.q_w());
     q_b2n = q_b2n.normalized();
     get_parent()->set("quaternion", (r_ned_to_godot * q_b2n).normalized());
 }

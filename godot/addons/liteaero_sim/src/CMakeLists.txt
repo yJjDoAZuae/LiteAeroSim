@@ -25,8 +25,13 @@ include(FetchContent)
 #
 # godot/project.godot is written by the Godot editor and is the authoritative
 # source for the engine version.  The tag derived here must match the installed
-# Godot editor version exactly — a mismatch causes Godot to disable the plugin
-# at startup with "GDExtension API mismatch".
+# Godot editor version.
+#
+# Tag scheme (godot-cpp changed versioning at Godot 4.6):
+#   Godot <= 4.5  →  godot-cpp tag: godot-X.Y(.Z)-stable
+#   Godot >= 4.6  →  godot-cpp uses independent versioning (10.x).
+#                    The tag is specified by GODOT_CPP_TAG_46_PLUS below.
+#                    See: https://docs.godotengine.org/en/stable/tutorials/scripting/cpp/about_godot_cpp.html
 #
 # Failure modes handled with informative errors:
 #   1. project.godot not found at expected path.
@@ -35,6 +40,10 @@ include(FetchContent)
 #   4. Version string contains non-stable identifiers (rc, beta, alpha, dev).
 #   5. FetchContent fails (network unavailable or tag absent from godot-cpp).
 # ---------------------------------------------------------------------------
+
+# godot-cpp release to use for Godot 4.6+.
+# Check https://github.com/godotengine/godot-cpp/releases for the latest tag.
+set(GODOT_CPP_TAG_46_PLUS "10.0.0-rc1")
 
 set(_GODOT_PROJECT_FILE "${CMAKE_SOURCE_DIR}/godot/project.godot")
 
@@ -85,7 +94,7 @@ if(NOT GODOT_VERSION)
         "    ${_godot_features_line}\n"
         "\n"
         "  Expected the first quoted entry to be a stable version string of\n"
-        "  the form \"X.Y\" or \"X.Y.Z\" (e.g. \"4.6\" or \"4.6.1\").\n"
+        "  the form \"X.Y\" or \"X.Y.Z\" (e.g. \"4.5\" or \"4.6\").\n"
         "\n"
         "  The file may have been hand-edited, or written by an unsupported\n"
         "  Godot version.  Open the project in a stable Godot 4 release and\n"
@@ -108,7 +117,18 @@ if(NOT GODOT_VERSION MATCHES "^[0-9]+(\\.[0-9]+)+$")
         "  Godot 4 release and re-run CMake.\n")
 endif()
 
-set(GODOT_CPP_TAG "godot-${GODOT_VERSION}-stable")
+# Derive godot-cpp tag.
+# Godot 4.6+ uses godot-cpp independent versioning (10.x); earlier releases
+# used per-Godot tags (godot-X.Y-stable).
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)" _v_match "${GODOT_VERSION}")
+set(_godot_major "${CMAKE_MATCH_1}")
+set(_godot_minor "${CMAKE_MATCH_2}")
+
+if(_godot_major GREATER_EQUAL 4 AND _godot_minor GREATER_EQUAL 6)
+    set(GODOT_CPP_TAG "${GODOT_CPP_TAG_46_PLUS}")
+else()
+    set(GODOT_CPP_TAG "godot-${GODOT_VERSION}-stable")
+endif()
 
 message(STATUS
     "[liteaero_sim_gdext] Godot version from project.godot: "
@@ -178,7 +198,7 @@ if(NOT EXISTS "${_PROTO_SRC}")
         "    ${_PROTO_SRC}\n"
         "\n"
         "  Build the main project first to generate liteaerosim.pb.cc:\n"
-        "    mingw32-make -C build proto\n"
+        "    cmake --build build --target proto\n"
         "  Then re-run cmake with -DLITEAERO_SIM_BUILD_GODOT_PLUGIN=ON.\n")
 endif()
 
@@ -199,17 +219,47 @@ target_include_directories(liteaero_sim_gdext PRIVATE
 target_link_libraries(liteaero_sim_gdext PRIVATE
     godot-cpp
     protobuf::libprotobuf
+    $<$<BOOL:${WIN32}>:ws2_32>
 )
 
-# On MinGW, statically link winpthread so the .dll is self-contained.
-target_link_options(liteaero_sim_gdext PRIVATE
-    $<$<BOOL:${MINGW}>:-Wl,-Bstatic,-lwinpthread,-Bdynamic>
-)
+# On MinGW, copy libwinpthread-1.dll into the bin/ directory so Godot can find
+# it at load time.  Godot is a regular Windows application; ucrt64/bin is not
+# on its PATH, so the DLL must live beside the plugin or in a system directory.
+if(MINGW)
+    find_file(WINPTHREAD_DLL "libwinpthread-1.dll"
+        HINTS "${CMAKE_CXX_COMPILER_OBJECT_REG_HINT}"
+              "C:/msys64/ucrt64/bin"
+              "C:/msys64/mingw64/bin"
+        NO_DEFAULT_PATH
+    )
+    if(WINPTHREAD_DLL)
+        add_custom_command(TARGET liteaero_sim_gdext POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${WINPTHREAD_DLL}"
+                "${CMAKE_SOURCE_DIR}/godot/addons/liteaero_sim/bin/libwinpthread-1.dll"
+            COMMENT "[liteaero_sim_gdext] Copying ${WINPTHREAD_DLL} -> bin/"
+        )
+    else()
+        message(WARNING
+            "[liteaero_sim_gdext] libwinpthread-1.dll not found — "
+            "Godot will fail to load the plugin with Error 126. "
+            "Copy libwinpthread-1.dll from ucrt64/bin into "
+            "godot/addons/liteaero_sim/bin/ manually.")
+    endif()
+endif()
 
-# Output the .dll into the bin/ directory declared in liteaero_sim.gdextension.
+# Output the shared library into the bin/ directory declared in liteaero_sim.gdextension.
 set_target_properties(liteaero_sim_gdext PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY
         "${CMAKE_SOURCE_DIR}/godot/addons/liteaero_sim/bin"
     LIBRARY_OUTPUT_DIRECTORY
         "${CMAKE_SOURCE_DIR}/godot/addons/liteaero_sim/bin"
 )
+
+# On Windows (MinGW), strip the default "lib" prefix so the output is
+# liteaero_sim_gdext.dll — matching the path in the .gdextension manifest.
+# On Linux and macOS the "lib" prefix is conventional for .so/.dylib and is kept
+# (manifest entries for those platforms use the lib-prefixed name).
+if(WIN32)
+    set_target_properties(liteaero_sim_gdext PROPERTIES PREFIX "")
+endif()
