@@ -4,11 +4,12 @@
 // so the Godot rendering / camera / coordinate chain can be verified without
 // aerodynamic model involvement.
 //
-// Attitude mapping (all linear):
-//   nz    → pitch:  1g→0°, 4g→+40°, -1g→-10°   (pull = nose up)
-//   roll  → roll:   ±max_roll_rate_rad_s → ±30°
-//   ny    → yaw rate: ±max_ny → ±5 deg/s
-//   throttle → forward speed: 0→0.1 m/s, 1→1.0 m/s (horizontal only)
+// Kinematic mapping:
+//   nz       → pitch / flight path angle: 1g→0°, max_nz→+40°, min_nz→-10°
+//   roll     → bank angle: ±max_roll_rate_rad_s → ±30°
+//   throttle → airspeed: 0→10 m/s, 1→25 m/s
+//   bank     → track rate: g·tan(roll)/V  (coordinated turn kinematics)
+//   ny       → heading offset from track: ±max_ny_g → ±10° (rudder sideslip)
 //
 // Usage (from liteaero-sim root):
 //   build\tools\mock_sim.exe --joystick python\gx12_config.json
@@ -155,23 +156,24 @@ int main(int argc, char** argv) {
     const float dt = args.dt_s;
 
     // Joystick config limits — read from config for consistent scaling.
-    const float max_nz          = joy_json.value("max_nz_g",           4.0f);
-    const float min_nz          = joy_json.value("min_nz_g",          -2.0f);  // actually min_nz_g
-    const float max_roll_rad_s  = joy_json.value("max_roll_rate_rad_s", static_cast<float>(M_PI / 2.0));
+    const float max_nz         = joy_json.value("max_nz_g",           4.0f);
+    const float min_nz         = joy_json.value("min_nz_g",          -2.0f);
+    const float max_roll_rad_s = joy_json.value("max_roll_rate_rad_s", static_cast<float>(M_PI / 2.0));
+    const float max_ny_g       = joy_json.value("max_ny_g", 1.0f);
 
-    // Attitude mapping parameters.
-    // nz=1 → 0°, nz=max_nz → +40°, nz=min_nz → -10°
-    // Positive nz above 1 maps linearly to positive pitch (pull = nose up).
-    // nz below 1 maps to negative pitch down to -10°.
-    const float pitch_per_nz_pos = 40.0f * k_deg2rad / (max_nz - 1.0f);  // rad per g above 1
-    const float pitch_per_nz_neg = 10.0f * k_deg2rad / (1.0f - min_nz);  // rad per g below 1
+    // Pitch: nz=1 → 0°, nz=max_nz → +40°, nz=min_nz → -10°
+    const float pitch_per_nz_pos = 40.0f * k_deg2rad / (max_nz - 1.0f);
+    const float pitch_per_nz_neg = 10.0f * k_deg2rad / (1.0f - min_nz);
 
-    // Roll: full roll stick → ±30°
-    const float roll_per_rate    = 30.0f * k_deg2rad / max_roll_rad_s;
+    // Roll: full stick → ±30°
+    const float roll_per_rate = 30.0f * k_deg2rad / max_roll_rad_s;
 
-    // Yaw: max ny_g → ±5 deg/s
-    const float max_ny_g         = joy_json.value("max_ny_g", 1.0f);
-    const float yaw_rate_per_ny  = 5.0f * k_deg2rad / max_ny_g;   // rad/s per g
+    // Rudder: full stick → ±10° heading offset from track angle
+    const float max_rudder_offset_rad = 10.0f * k_deg2rad;
+
+    static constexpr float k_g_mps2 = 9.80665f;
+
+    float track_rad = heading_rad;  // velocity direction (NED heading of ground track)
 
     using Clock    = std::chrono::steady_clock;
     using Duration = std::chrono::duration<double>;
@@ -183,53 +185,59 @@ int main(int argc, char** argv) {
         const ManualInputFrame frame = joystick.read();
         const AircraftCommand& cmd   = frame.command;
 
-        // --- Attitude update ---
+        // --- Speed: throttle ∈ [0,1] → 10–25 m/s ---
+        const float speed_mps = 10.0f + cmd.throttle_nd * 15.0f;
 
-        // Pitch: direct map from nz, no integration.
+        // --- Pitch: direct map from nz → flight path angle ---
         if (cmd.n_z >= 1.0f)
             pitch_rad = (cmd.n_z - 1.0f) * pitch_per_nz_pos;
         else
             pitch_rad = -(1.0f - cmd.n_z) * pitch_per_nz_neg;
 
-        // Roll: direct map from roll rate command.
+        // --- Roll: direct map from roll rate command → bank angle ---
         roll_rad = cmd.rollRate_Wind_rps * roll_per_rate;
 
-        // Heading: integrate yaw rate from ny.
-        heading_rad += cmd.n_y * yaw_rate_per_ny * dt;
-        // Wrap to [-π, +π].
-        while (heading_rad >  static_cast<float>(M_PI)) heading_rad -= 2.0f * static_cast<float>(M_PI);
-        while (heading_rad < -static_cast<float>(M_PI)) heading_rad += 2.0f * static_cast<float>(M_PI);
+        // --- Track rate: kinematically correct coordinated turn ---
+        // track_rate = g * tan(roll) / V
+        const float track_rate_rad_s = k_g_mps2 * std::tan(roll_rad) / speed_mps;
+        track_rad += track_rate_rad_s * dt;
+        while (track_rad >  static_cast<float>(M_PI)) track_rad -= 2.0f * static_cast<float>(M_PI);
+        while (track_rad < -static_cast<float>(M_PI)) track_rad += 2.0f * static_cast<float>(M_PI);
+
+        // --- Heading: track + rudder offset ---
+        // ny stick commands a heading offset from the track angle (±10°).
+        const float rudder_offset_rad = (cmd.n_y / max_ny_g) * max_rudder_offset_rad;
+        heading_rad = track_rad + rudder_offset_rad;
 
         // --- Position update ---
-        // Speed in horizontal plane only, in nose direction.
-        // throttle ∈ [0, 1] → speed ∈ [0.1, 1.0] m/s
-        const float speed_mps = 0.1f + cmd.throttle_nd * 0.9f;
-        // Horizontal nose direction in NED: heading_rad measured from North.
-        const float v_north = speed_mps * std::cos(heading_rad);
-        const float v_east  = speed_mps * std::sin(heading_rad);
+        // Horizontal velocity along track direction; altitude rate from pitch (flight path angle).
+        const float horiz_speed = speed_mps * std::cos(pitch_rad);
+        const float v_north     = horiz_speed * std::cos(track_rad);
+        const float v_east      = horiz_speed * std::sin(track_rad);
+        const float v_down      = -speed_mps  * std::sin(pitch_rad);  // NED: up = negative down
 
         const double lat_rate = v_north / k_earth_radius_m;
         const double lon_rate = v_east  / (k_earth_radius_m * std::cos(lat_rad));
         lat_rad += lat_rate * static_cast<double>(dt);
         lon_rad += lon_rate * static_cast<double>(dt);
-        // Altitude stays fixed — no vertical motion from throttle.
+        alt_m   -= v_down * dt;  // alt_m is up-positive; v_down is NED (down-positive)
 
-        // --- Build q_nb ---
+        // --- Build q_nb (ZYX: heading, pitch, roll) ---
         const Eigen::Quaternionf q_nb = euler_zyx_to_qnb(heading_rad, pitch_rad, roll_rad);
 
         // --- Broadcast ---
         SimulationFrame sf{};
-        sf.timestamp_s       = sim_time_s;
-        sf.latitude_rad      = lat_rad;
-        sf.longitude_rad     = lon_rad;
-        sf.height_wgs84_m    = alt_m;
-        sf.q_w               = q_nb.w();
-        sf.q_x               = q_nb.x();
-        sf.q_y               = q_nb.y();
-        sf.q_z               = q_nb.z();
+        sf.timestamp_s        = sim_time_s;
+        sf.latitude_rad       = lat_rad;
+        sf.longitude_rad      = lon_rad;
+        sf.height_wgs84_m     = alt_m;
+        sf.q_w                = q_nb.w();
+        sf.q_x                = q_nb.x();
+        sf.q_y                = q_nb.y();
+        sf.q_z                = q_nb.z();
         sf.velocity_north_mps = v_north;
         sf.velocity_east_mps  = v_east;
-        sf.velocity_down_mps  = 0.0f;
+        sf.velocity_down_mps  = v_down;
         broadcaster.broadcast(sf);
 
         sim_time_s += static_cast<double>(dt);
