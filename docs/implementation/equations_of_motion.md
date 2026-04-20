@@ -182,6 +182,31 @@ predictor is guarded by two conditions:
 Call `reset()` before a discontinuous change in demand.  All four fields are included
 in both JSON and proto serialization.
 
+### Alpha Limit Box Constraint
+
+`alpha_max_rad` and `alpha_min_rad` (`AirframePerformance` fields from the `airframe`
+config section) are enforced as a box constraint **inside** the Newton iteration, not as
+a post-solve clamp.  After each Newton step the iterate is projected:
+
+```cpp
+alpha_new = std::clamp(alpha_k - f(alpha_k) / f_prime(alpha_k),
+                       airframe.alpha_min_rad, airframe.alpha_max_rad);
+```
+
+**Boundary exit condition.** If the projected iterate is pinned at a boundary and the
+residual at that boundary still has the sign that would push Newton further outside the
+domain, the solver accepts the boundary as the constrained solution and sets an
+alpha-limit flag:
+
+- Pinned at `alpha_max_rad` with `f(alpha_max) > 0` → return `alpha_max_rad`, set flag.
+- Pinned at `alpha_min_rad` with `f(alpha_min) < 0` → return `alpha_min_rad`, set flag.
+
+The alpha-limit flag is separate from the stall flag.  Both can be set simultaneously
+(e.g., if `alpha_max_rad` falls past the fold point and the fold guard also fires).
+
+See [docs/algorithms/equations_of_motion.md §Alpha Limits as a Box Constraint](../algorithms/equations_of_motion.md) for the full mathematical treatment and
+interaction with the fold/overshoot guards.
+
 ### Stall Warm-Start Limitation
 
 When the fold guard or overshoot guard clamps α at the stall ceiling, `_alpha_prev` is left

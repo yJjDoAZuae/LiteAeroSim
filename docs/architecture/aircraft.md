@@ -72,6 +72,9 @@ For `i` in `[0, integration_substeps)`, executing at the finer timestep `integra
    commands and compute derivatives analytically from filter state.
 5. Solve for angle of attack (`α`) and sideslip (`β`) using `LoadFactorAllocator::solve()`
    with the shaped load factors and their analytically derived time derivatives.
+   `alpha_min_rad` and `alpha_max_rad` are passed to the solver as a box constraint
+   applied at every Newton iteration — a hard physical limit independent of the lift curve
+   stall boundary.
 6. Evaluate `CL = LiftCurveModel::evaluate(α)`.
 7. Compute aerodynamic forces in the Wind frame via `AeroPerformance::compute()`.
 8. Advance propulsion: `thrust_n = Propulsion::step(throttle, V_air, rho)`.
@@ -382,6 +385,8 @@ classDiagram
         +g_min_nd : float
         +tas_max_mps : float
         +mach_max_nd : float
+        +alpha_max_rad : float
+        +alpha_min_rad : float
         +serializeJson() json
         +deserializeJson(j) void
         +serializeProto() bytes
@@ -661,6 +666,7 @@ its full configuration and internal state.
        .n_z_dot  = n_z_dot,
        .n_y_dot  = n_y_dot
    }
+   // alpha_min_rad / alpha_max_rad enforced as box constraint inside solve():
    LoadFactorOutputs lf = _allocator->solve(lf_in)
 
 7. float CL = _liftCurve->evaluate(lf.alpha_rad)
@@ -801,6 +807,8 @@ step (`runner_dt_s`) is **not** in the JSON — it is passed as a separate param
 | `airframe.g_min_nd` | `float` | `_airframe.g_min_nd` |
 | `airframe.tas_max_mps` | `float` | `_airframe.tas_max_mps` |
 | `airframe.mach_max_nd` | `float` | `_airframe.mach_max_nd` |
+| `airframe.alpha_max_rad` | `float` | Hard upper alpha limit passed to `LoadFactorAllocator` |
+| `airframe.alpha_min_rad` | `float` | Hard lower alpha limit passed to `LoadFactorAllocator` |
 | `aircraft.S_ref_m2` | `float` | `AeroPerformance`, `LoadFactorAllocator` |
 | `aircraft.cl_y_beta` | `float` | `AeroPerformance`, `LoadFactorAllocator` |
 | `aircraft.ar` | `float` | `AeroPerformance` — wing aspect ratio |
@@ -910,7 +918,7 @@ steady-state backsolve.
 | `ny_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
 | `roll_rate_wn_rad_s * cmd_filter_dt_s >= π` | `initialize()` | throws `std::invalid_argument` (Nyquist violation) |
 | Any malformed field | `initialize()` | throws `std::invalid_argument` |
-| Any command, any airspeed | `step()` | No throw; allocator clamps to envelope |
+| Any command, any airspeed | `step()` | No throw; load factors clamped to g envelope; α box-constrained to `[alpha_min_rad, alpha_max_rad]` within the Newton solve |
 | After `reset()` | `state()` | Returns initial `KinematicState` from `initialize()` |
 | Valid self-contained snapshot | `deserializeJson()` / `deserializeProto()` | Fully reconstituted; `step()` may be called without `initialize()` |
 | Snapshot `"type"` ≠ `"Aircraft"` | `deserializeJson()` | throws `std::runtime_error` |

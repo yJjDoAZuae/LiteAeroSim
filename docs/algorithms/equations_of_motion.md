@@ -749,6 +749,53 @@ $$
 
 In the linear regime ($\alpha \leq \alpha_*$), $f'(\alpha) = q_\infty S C_{L_\alpha} + T\cos\alpha > 0$: the equation is strictly monotone and Newton converges in 2–3 iterations. In the stall transition and fully-separated regimes the behavior is more complex — see Issues 3 and 4 below.
 
+### Alpha Limits as a Box Constraint
+
+`alpha_min_rad` and `alpha_max_rad` (from the `airframe` config section) are hard
+physical ceilings on angle of attack imposed by geometry, structural load paths, or
+control authority.  They are **independent of the lift curve** — the lift curve
+determines the aerodynamic shape of the load-factor envelope; the alpha limits
+determine the physical domain within which the solver is permitted to operate.
+
+The limits are enforced as a **box constraint inside the Newton iteration**, not as a
+post-solve clamp.  After each Newton step the iterate is projected onto
+$[\alpha_{\min},\ \alpha_{\max}]$:
+
+$$
+\alpha_{k+1} \leftarrow \text{clamp}\!\left(\alpha_k - \frac{f(\alpha_k)}{f'(\alpha_k)},\ \alpha_{\min},\ \alpha_{\max}\right)
+$$
+
+**Boundary recognition.** If the projected iterate reaches a boundary and the residual
+$f(\alpha_{\text{boundary}})$ still has the sign that would push Newton further outside
+the domain, the boundary is the constrained solution — the solver accepts it and exits.
+Specifically:
+
+- At $\alpha_{\max}$: if $f(\alpha_{\max}) > 0$ (lift + thrust still exceeds demand at
+  the upper limit), the demanded load factor is unachievable within the physical
+  envelope.  Return $\alpha_{\max}$ and set the alpha-limit flag.
+- At $\alpha_{\min}$: if $f(\alpha_{\min}) < 0$ (lift + thrust is below demand at the
+  lower limit), return $\alpha_{\min}$ and set the alpha-limit flag.
+
+When neither boundary is active the projected Newton iteration converges normally;
+the alpha-limit flag is clear.
+
+**Interaction with the fold/overshoot guards.** The alpha limits and the stall fold
+guards are independent.  The fold guard fires when $f'(\alpha_k) \approx 0$ (the
+aerodynamic ceiling); the alpha limit fires when the physical domain boundary is
+reached.  Either can be binding first, depending on the aircraft configuration:
+
+- If $\alpha_{\max} < \alpha_{\text{fold}}$: the alpha limit is always binding before
+  the aerodynamic fold point is reached.
+- If $\alpha_{\max} \geq \alpha_{\text{fold}}$: the fold guard may fire first; the
+  alpha limit is a secondary ceiling that applies to whatever alpha the fold guard
+  produces.
+
+In both cases the two guards compose correctly because the alpha-limit projection is
+applied at every Newton step, including steps taken after the fold guard triggers a
+bisection fallback.
+
+---
+
 ### Branch Continuation and Root Tracking
 
 To resolve root ambiguity across timesteps, the solver carries the previously accepted angle of attack $\alpha_{prev}$ as persistent state, initialized to zero.

@@ -25,6 +25,8 @@ Flight* (3rd ed.).
 | $\Delta\alpha_{\text{stall}_{neg}}$ | `delta_alpha_stall_neg` | `LiftCurveParams` | Negative stall region half-width (rad) |
 | $C_{L_\text{sep}}$ | `cl_sep` | `LiftCurveParams` | Positive post-stall plateau |
 | $C_{L_{\text{sep}_{neg}}}$ | `cl_sep_neg` | `LiftCurveParams` | Negative post-stall plateau |
+| $\alpha_{\max}$ | `alpha_max_rad` | `AirframePerformance` → `LoadFactorAllocator` | Hard upper alpha limit enforced as a box constraint inside the Newton solve (rad) |
+| $\alpha_{\min}$ | `alpha_min_rad` | `AirframePerformance` → `LoadFactorAllocator` | Hard lower alpha limit enforced as a box constraint inside the Newton solve (rad) |
 | $C_{L_q}$ | `cl_q_nd` | `AeroPerformance` *(proposed)* | Pitch-rate damping derivative (rad⁻¹) |
 | $\bar{c}$ | `mac_m` | `AeroPerformance` *(proposed)* | Mean aerodynamic chord (m) |
 | $C_{Y_r}$ | `cy_r_nd` | `AeroPerformance` *(proposed)* | Yaw-rate lateral force derivative (rad⁻¹) |

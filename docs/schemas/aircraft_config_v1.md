@@ -85,6 +85,8 @@ before passing them to `LoadFactorAllocator`.
 | `g_min_nd` | float | g | < 0 | Maximum negative load factor (structural limit). |
 | `tas_max_mps` | float | m/s | > 0 | Never-exceed true airspeed. |
 | `mach_max_nd` | float | — | > 0 | Never-exceed Mach number. |
+| `alpha_max_rad` | float | rad | > 0; > `alpha_min_rad` | Hard upper limit on angle of attack, enforced as a box constraint inside the `LoadFactorAllocator` Newton solve.  Independent of the lift curve stall boundary — represents a physical ceiling from geometry, structural load paths, or control authority. |
+| `alpha_min_rad` | float | rad | < 0; < `alpha_max_rad` | Hard lower limit on angle of attack, enforced as a box constraint inside the `LoadFactorAllocator` Newton solve.  Symmetric with `alpha_max_rad`. |
 
 ---
 
