@@ -245,34 +245,36 @@ full algorithm design.
 **New state in `LoadFactorAllocator`:**
 
 ```cpp
-float _alpha_dot_max_rad_s;   // from AirframePerformance; default π/2 (non-binding)
+float _alpha_dot_max_rad_s;   // LoadFactorAllocator constructor parameter
 ```
 
-**New field in `AirframePerformance`:**
+Added to the `LoadFactorAllocator` constructor signature alongside `S_ref_m2`, `cl_y_beta`,
+`alpha_min_rad`, `alpha_max_rad`.  Serialized in `LoadFactorAllocatorState`.
 
-```cpp
-float alpha_dot_max_rad_s = kHalfPi;   // rad/s; pass-through default
-```
+**New proto field:**
 
-**New proto fields:**
-
-- `AirframePerformanceParams`: field 8 `alpha_dot_max_rad_s`
 - `LoadFactorAllocatorState`: field 10 `alpha_dot_max_rad_s`
 
 **Algorithm change in `LoadFactorAllocator::solve()`:**
 
-After the existing Newton solve produces `alpha_eq` (the unconstrained equilibrium), apply
-the rate limit before storing `_alpha_prev`:
+The bridge applies only when the stall flag is set from the *previous* step.  After the
+Newton solve (or explicit stall solve) produces `alpha_eq`, gate the rate limit:
 
 ```cpp
-const float max_step = _alpha_dot_max_rad_s * in.dt_s;
-const float alpha_out = _alpha_prev
-    + std::clamp(alpha_eq - _alpha_prev, -max_step, +max_step);
+float alpha_out;
+if (_stalled || _stalled_neg) {
+    // stall bridge: step toward alpha_eq at pitch-authority rate
+    const float max_step = _alpha_dot_max_rad_s * in.dt_s;
+    alpha_out = _alpha_prev + std::clamp(alpha_eq - _alpha_prev, -max_step, +max_step);
+} else {
+    // not stalled: use Newton solution exactly — no rate constraint
+    alpha_out = alpha_eq;
+}
 _alpha_prev = alpha_out;
 ```
 
 `alpha_out` replaces `alpha_eq` in the output struct and in the realized-Nz computation.
-The `dt_s` field must be added to `LoadFactorInputs`.
+The `dt_s` field must be added to `LoadFactorInputs` (OQ-3).
 
 **Introduce `_cl_recovering` in Item 1:**
 
@@ -297,34 +299,27 @@ aerodynamic force computation in `Aircraft.cpp` uses `cl_eff` in place of
 `_liftCurve->evaluate(alpha_out)` — this is the only change needed in `Aircraft.cpp`
 for the stall dynamics to propagate correctly through to `KinematicState`.
 
-**New fields in `LoadFactorOutputs`:**
+**New field in `LoadFactorOutputs`:**
 
 ```cpp
-float n_z_realized = 0.f;   // load factor actually delivered (may differ from commanded during bridge)
-bool  alpha_bridging = false; // true while the rate limiter is active
+float n_z_realized = 0.f;   // load factor actually delivered (equals commanded when not stalled)
 ```
+
+(`alpha_bridging` is not added: the `stalled` / `stalled_neg` flags from Item 2 already
+convey bridge state; callers use `stalled || stalled_neg`.)
 
 **Tests to write (in `LoadFactorAllocator_test.cpp`):**
 
-1. `AlphaBridge_Inactive_InNormalPreStall` — small step demand, `alpha_out == alpha_eq`
-2. `AlphaBridge_LimitsStepSize` — large discontinuous demand step; verify
-   `|alpha_out - alpha_prev| == alpha_dot_max * dt` and `alpha_bridging == true`
-3. `AlphaBridge_ConvergesAndDeactivates` — run several steps; bridge clears when
-   `alpha_out` reaches `alpha_eq`
+1. `AlphaBridge_Inactive_InNormalPreStall` — non-stalled call with any step size; verify
+   `alpha_out == alpha_eq` exactly
+2. `AlphaBridge_LimitsStepSizeWhileStalled` — enter stall, then issue a large Nz step;
+   verify `|alpha_out - alpha_prev| == alpha_dot_max * dt` while `_stalled == true`
+3. `AlphaBridge_ConvergesAndDeactivates` — run stall-recovery steps to completion;
+   verify `alpha_out` reaches `alpha_eq` and bridge is inactive once stall flag clears
 4. `AlphaBridge_NRealizedComputedFromAlphaOut` — confirm `n_z_realized` is computed from
    `alpha_out`, not commanded `n`
-5. `AlphaBridge_DefaultPassthrough` — default `alpha_dot_max = π/2` with `dt = 0.01s`;
-   verify bridge never activates for typical pre-stall steps
-6. `AirframePerformance` serialization round-trip tests extended to cover
-   `alpha_dot_max_rad_s` (JSON and proto)
-
-**Config change (`airframe` section):**
-
-```json
-"alpha_dot_max_rad_s": 0.52
-```
-
-Update all fixture files and inline test configs.
+5. `LoadFactorAllocator` serialization round-trip extended to cover `alpha_dot_max_rad_s`
+   (JSON and proto)
 
 ---
 
@@ -532,7 +527,7 @@ The following questions were raised during planning and resolved as documented.
 
 | # | Question | Decision |
 | --- | --- | --- |
-| OQ-1 | Alpha bridge activation scope (unconditional vs. stall-conditional) | **Unconditional.** Apply the rate limit to all alpha steps. Physics are always correct; with a generous `alpha_dot_max_rad_s` default (π/2 rad/s) the bridge is transparent in normal pre-stall operation. |
+| OQ-1 | Alpha bridge activation scope (unconditional vs. stall-conditional) | **Stall-conditional.** The rate limit applies only while `_stalled` or `_stalled_neg` is true (using the previous-step value). In non-stalled operation `alpha_out = alpha_eq` exactly — no rate constraint is imposed. |
 | OQ-2 | Newton residual while `_stalled` is true (nominal CL vs. recovering CL) | **Explicit solve using recovering CL.** While `_stalled`, Newton is replaced by `α_eq = arcsin((n·mg − qS·_cl_recovering) / T)`. The alpha bridge is the only mechanism moving alpha; it drives toward this target. Realized Nz uses `_cl_recovering`. |
 | OQ-3 | `dt_s` delivery to `solve()` | **Add `dt_s` to `LoadFactorInputs`.** Explicit per-call field; supports variable-rate stepping; no constructor or serialization changes to `LoadFactorAllocator`. |
 | OQ-4 | `LiftCurveModel` accessors needed | **Add `alphaStar()`, `alphaStarNeg()`, `clAlpha()` as public accessors.** Consistent with the existing `alphaPeak()`, `alphaSep()` interface; no design trade-off. |
@@ -567,8 +562,8 @@ All questions from OQ-10 through OQ-16 have been resolved; see Design Decisions 
 | Step | Action |
 | --- | --- |
 | 1 | Add `alphaStar()`, `alphaStarNeg()`, `alphaTrough()`, `clAlpha()`, `clSep()`, `clSepNeg()` accessors to `LiftCurveModel` (with tests) |
-| 2 | Add `alpha_dot_max_rad_s` to `AirframePerformance` (proto, JSON, round-trip tests) |
-| 3 | Update all fixture files and inline configs for new `alpha_dot_max_rad_s` field |
+| 2 | Add `alpha_dot_max_rad_s` as constructor parameter and serialized field to `LoadFactorAllocator` (proto, JSON, round-trip tests) |
+| 3 | Update `LoadFactorAllocator` test fixtures for new `alpha_dot_max_rad_s` serialized field |
 | 4 | Add `dt_s` to `LoadFactorInputs` |
 | 5 | Implement Item 1 (alpha rate bridge) — tests first |
 | 6 | Implement Item 2 (hysteresis flags) — tests first |

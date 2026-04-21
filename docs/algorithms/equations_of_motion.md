@@ -853,13 +853,13 @@ A real FBW aircraft with finite pitch authority cannot change $\alpha$ instantan
 
 #### Design Concept: Bridge, Not Filter
 
-This mechanism is **not** a continuous lag filter on $\alpha$.  It is a **bridge**: a transient device that applies only when the Newton equilibrium $\alpha_{eq}$ is not reachable in a single timestep at the configured pitch authority.  The moment $\alpha$ converges to $\alpha_{eq}$, the bridge deactivates and the solver is solution-locked at the Newton equilibrium.
+This mechanism is **not** a continuous lag filter on $\alpha$.  It is a **bridge**: a transient device that applies only while the stall hysteresis flag `_stalled` is set.  In all non-stalled operation, $\alpha_{k+1} = \alpha_{eq}$ exactly — the Newton solution is used without any rate constraint.
 
-The distinction is critical: a continuous lag filter would slow down normal pre-stall maneuvers — every pull-up would be sluggish.  The bridge activates only when alpha would otherwise jump discontinuously (across the fold or away from a post-fold operating point).
+The distinction is critical: a continuous lag filter would slow down normal pre-stall maneuvers — every pull-up would be sluggish.  The bridge activates only during the stalled phase (`_stalled == true`), walking $\alpha$ back toward the pre-stall equilibrium at the configured pitch authority rate.
 
 #### Mechanism
 
-Let $\alpha_{k}$ be the current alpha (from the previous timestep), $\alpha_{eq}$ be the Newton equilibrium target computed by the existing solver, and $\dot\alpha_{\max}$ be the maximum pitch authority rate (rad/s), a new aircraft configuration parameter.
+Let $\alpha_{k}$ be the current alpha (from the previous timestep), $\alpha_{eq}$ be the Newton equilibrium target computed by the existing solver, and $\dot\alpha_{\max}$ be the maximum pitch authority rate (rad/s), a `LoadFactorAllocator` constructor parameter.
 
 The rate-limited output $\alpha_{k+1}$ is:
 
@@ -883,15 +883,15 @@ This saturation of $n_{\text{realized}}$ is physically correct and acceptable: t
 
 #### When the Bridge Is Active
 
-The bridge is active if and only if:
+The bridge is active if and only if the stall hysteresis flag is set from the previous timestep:
 
 $$
-|\alpha_{eq} - \alpha_k| > \dot\alpha_{\max}\Delta t
+\texttt{\_stalled}_k = \text{true} \quad\text{or}\quad \texttt{\_stalled\_neg}_k = \text{true}
 $$
 
-In normal pre-stall operation this condition is never true: each Newton step produces an $\alpha_{eq}$ that is only slightly different from $\alpha_k$ (the predictor places the warm-start near the solution), and $\dot\alpha_{\max}\Delta t$ is much larger than the inter-timestep change.  The bridge imposes no cost on normal operation.
+In all non-stalled operation — regardless of how large the Newton step is — $\alpha_{k+1} = \alpha_{eq}$ exactly.  The bridge imposes no constraint on normal flight.
 
-The bridge activates only when the Newton equilibrium target has moved by more than one step of pitch authority from the current alpha — which occurs precisely in the scenarios described above: post-fold operating points under reduced thrust, or large step demands that sweep alpha across the fold.
+When `_stalled` is true, Newton is bypassed and an explicit solve computes $\alpha_{eq}$ (see [Stall Hysteresis and CL Recovery](#stall-hysteresis-and-cl-recovery)).  The bridge then steps $\alpha$ toward $\alpha_{eq}$ at $\dot\alpha_{\max}$ per timestep.  When $|\alpha_{eq} - \alpha_k| \leq \dot\alpha_{\max}\Delta t$, the clamp is inactive and $\alpha_{k+1} = \alpha_{eq}$.  The bridge deactivates as soon as the stall flag clears.
 
 #### Relationship to the Thrust-Reduction Branch Switch
 
@@ -904,9 +904,9 @@ Without the rate limiter, the branch switch produces an instantaneous jump.  Wit
 
 #### Configuration Parameter
 
-`alpha_dot_max_rad_s` — maximum pitch authority rate (rad/s).  Resides in the `airframe` section of the aircraft configuration (alongside `alpha_max_rad` and `alpha_min_rad`).  Represents the combined effect of pitch control authority and pitch moment of inertia: how fast the FBW system can drive $\alpha$ given pitch damping and available control moment.
+`alpha_dot_max_rad_s` — maximum pitch authority rate (rad/s).  A constructor parameter of `LoadFactorAllocator`, serialized with the allocator state.  `alpha_max_rad` and `alpha_min_rad` are `LiftCurveModel` parameters and are unrelated.  `alpha_dot_max_rad_s` represents the combined effect of pitch control authority and pitch moment of inertia: how fast the FBW system can drive $\alpha$ during stall recovery given pitch damping and available control moment.
 
-A default of $\pi/2$ rad/s is a generous upper bound that makes the bridge effectively inactive for most configurations; operators with specific authority models should set this to the achievable pitch rate at the maneuver Nz condition.
+This parameter has no effect in normal pre-stall flight — the bridge is inactive whenever `_stalled` is false.  Set it to the achievable nose-down pitch rate during stall recovery for the aircraft configuration.
 
 ### Stall Hysteresis and CL Recovery
 
