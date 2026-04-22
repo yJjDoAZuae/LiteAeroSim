@@ -53,16 +53,26 @@ public:
     float derivative(float alpha_rad) const; // dC_L/dα
 
     // Angle (rad) at which the positive quadratic reaches cl_max.
-    float alphaPeak() const;
+    float alphaPeak()    const;
+
+    // Angle (rad) at which the linear region meets the positive quadratic (C¹ join).
+    float alphaStar()    const;
 
     // Angle (rad) at which the negative quadratic reaches cl_min.
-    float alphaTrough() const;
+    float alphaTrough()  const;
+
+    // Angle (rad) at which the linear region meets the negative quadratic (C¹ join).
+    float alphaStarNeg() const;
 
     // Angle (rad) at which the positive descending parabola meets the flat plateau (cl_sep).
-    float alphaSep() const;
+    float alphaSep()     const;
 
     // Angle (rad) at which the negative descending parabola meets the flat plateau (cl_sep_neg).
-    float alphaSepNeg() const;
+    float alphaSepNeg()  const;
+
+    float clAlpha()      const;  // pre-stall lift-curve slope C_Lα (rad⁻¹)
+    float clSep()        const;  // positive post-stall plateau CL
+    float clSepNeg()     const;  // negative post-stall plateau CL
 
     // Returns which piecewise segment contains alpha_rad.
     LiftCurveSegment classify(float alpha_rad) const;

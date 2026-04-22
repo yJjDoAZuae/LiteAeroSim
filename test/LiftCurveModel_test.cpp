@@ -123,6 +123,31 @@ TEST(LiftCurveModelTest, AlphaPeakReturnsExpectedAngle) {
     EXPECT_NEAR(m.alphaPeak(), expected, 1e-5f);
 }
 
+TEST(LiftCurveModelTest, AlphaStarReturnsExpectedAngle) {
+    LiftCurveModel m(gaParams());
+    EXPECT_NEAR(m.alphaStar(), alphaStarFromParams(gaParams()), 1e-5f);
+}
+
+TEST(LiftCurveModelTest, AlphaStarNegReturnsExpectedAngle) {
+    LiftCurveModel m(gaParams());
+    EXPECT_NEAR(m.alphaStarNeg(), alphaStarNegFromParams(gaParams()), 1e-5f);
+}
+
+TEST(LiftCurveModelTest, ClAlphaReturnsInputParam) {
+    LiftCurveModel m(gaParams());
+    EXPECT_NEAR(m.clAlpha(), gaParams().cl_alpha, 1e-6f);
+}
+
+TEST(LiftCurveModelTest, ClSepReturnsInputParam) {
+    LiftCurveModel m(gaParams());
+    EXPECT_NEAR(m.clSep(), gaParams().cl_sep, 1e-6f);
+}
+
+TEST(LiftCurveModelTest, ClSepNegReturnsInputParam) {
+    LiftCurveModel m(gaParams());
+    EXPECT_NEAR(m.clSepNeg(), gaParams().cl_sep_neg, 1e-6f);
+}
+
 // ── Negative-stall side ──────────────────────────────────────────────────────
 
 TEST(LiftCurveModelTest, LinearRegionNegative) {

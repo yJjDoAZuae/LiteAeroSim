@@ -35,11 +35,11 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
     _inertia.Izz_kgm2  = in_sec.at("Izz_kgm2").get<float>();
 
     // 2. Airframe performance — same pattern
-    const auto& af_sec    = config.at("airframe");
-    _airframe.g_max_nd    = af_sec.at("g_max_nd").get<float>();
-    _airframe.g_min_nd    = af_sec.at("g_min_nd").get<float>();
-    _airframe.tas_max_mps = af_sec.at("tas_max_mps").get<float>();
-    _airframe.mach_max_nd = af_sec.at("mach_max_nd").get<float>();
+    const auto& af_sec      = config.at("airframe");
+    _airframe.g_max_nd      = af_sec.at("g_max_nd").get<float>();
+    _airframe.g_min_nd      = af_sec.at("g_min_nd").get<float>();
+    _airframe.tas_max_mps   = af_sec.at("tas_max_mps").get<float>();
+    _airframe.mach_max_nd   = af_sec.at("mach_max_nd").get<float>();
 
     // 3. Lift curve
     const auto& lc = config.at("lift_curve");
@@ -52,6 +52,8 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
     lcp.cl_sep                = lc.at("cl_sep").get<float>();
     lcp.cl_sep_neg            = lc.at("cl_sep_neg").get<float>();
     _liftCurve.emplace(lcp);
+    const float alpha_max_rad = lc.at("alpha_max_rad").get<float>();
+    const float alpha_min_rad = lc.at("alpha_min_rad").get<float>();
 
     // 4. Aerodynamic performance and command-derivative filter config
     const auto& ac = config.at("aircraft");
@@ -91,7 +93,11 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
     _roll_rate_filter.setLowPassSecondIIR(_cmd_filter_dt_s, _roll_rate_wn_rad_s, _roll_rate_zeta_nd, 0.f);
 
     // 5. Load factor allocator (references _liftCurve — must be emplaced after step 3)
-    _allocator.emplace(*_liftCurve, S_ref_m2, cl_y_beta);
+    const auto& lfa_sec = config.at("load_factor_allocator");
+    const float alpha_dot_max_rad_s = lfa_sec.value("alpha_dot_max_rad_s", 0.0f);
+    _allocator.emplace(*_liftCurve, S_ref_m2, cl_y_beta,
+                       alpha_min_rad, alpha_max_rad,
+                       alpha_dot_max_rad_s);
 
     // 6. Initial kinematic state from initial_state section
     const auto& is = config.at("initial_state");
@@ -194,10 +200,11 @@ void Aircraft::step(double time_sec,
     lfa_in.mass_kg  = _inertia.mass_kg;
     lfa_in.n_z_dot  = n_z_dot;
     lfa_in.n_y_dot  = n_y_dot;
+    lfa_in.dt_s     = _outer_dt_s;
     const LoadFactorOutputs lfa_out = _allocator->solve(lfa_in);
 
-    // 6. Lift coefficient
-    const float cl = _liftCurve->evaluate(lfa_out.alpha_rad);
+    // 6. Lift coefficient (effective CL accounts for stall and recovery)
+    const float cl = lfa_out.cl_eff;
 
     // 7. Aerodynamic forces in Wind frame
     const AeroForces F =
@@ -295,7 +302,7 @@ void Aircraft::deserializeJson(const nlohmann::json& j) {
     _liftCurve.emplace(LiftCurveModel::deserializeJson(j.at("lift_curve")));
     _aeroPerf.emplace(AeroPerformance::deserializeJson(j.at("aero_performance")));
 
-    // Emplace allocator with placeholder config — deserializeJson overwrites _S and _cl_y_beta.
+    // Emplace allocator with placeholder config — deserializeJson overwrites all scalar fields.
     // The reference to _liftCurve is set at construction and is the only field not restored.
     _allocator.emplace(*_liftCurve, 1.0f, -0.1f);
     _allocator->deserializeJson(j.at("allocator"));

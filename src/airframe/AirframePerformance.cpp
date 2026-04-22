@@ -8,10 +8,10 @@ nlohmann::json AirframePerformance::serializeJson() const {
     return {
         {"schema_version", 1},
         {"type",           "AirframePerformance"},
-        {"g_max_nd",       g_max_nd},
-        {"g_min_nd",       g_min_nd},
-        {"tas_max_mps",    tas_max_mps},
-        {"mach_max_nd",    mach_max_nd},
+        {"g_max_nd",    g_max_nd},
+        {"g_min_nd",    g_min_nd},
+        {"tas_max_mps", tas_max_mps},
+        {"mach_max_nd", mach_max_nd},
     };
 }
 

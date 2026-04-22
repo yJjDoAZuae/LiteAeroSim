@@ -65,13 +65,20 @@ message LiftCurveParams {
 // deserializeProto().
 // ---------------------------------------------------------------------------
 message LoadFactorAllocatorState {
-    int32 schema_version = 1;
-    float s_ref_m2       = 2;
-    float cl_y_beta      = 3;
-    float alpha_prev_rad = 4;
-    float beta_prev_rad  = 5;
-    float n_z_prev_nd    = 6;
-    float n_y_prev_nd    = 7;
+    int32 schema_version       = 1;
+    float s_ref_m2             = 2;
+    float cl_y_beta            = 3;
+    float alpha_prev_rad       = 4;
+    float beta_prev_rad        = 5;
+    float n_z_prev_nd          = 6;
+    float n_y_prev_nd          = 7;
+    float alpha_min_rad        = 8;
+    float alpha_max_rad        = 9;
+    float alpha_dot_max_rad_s  = 10;
+    bool  stalled              = 11;
+    bool  stalled_neg          = 12;
+    float cl_recovering        = 13;
+    float cl_recovering_neg    = 14;
 }
 
 // ---------------------------------------------------------------------------

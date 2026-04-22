@@ -65,10 +65,13 @@ static nlohmann::json makeConfig() {
             "roll_rate_zeta_nd": 0.7
         },
         "airframe": {
-            "g_max_nd":    3.8,
-            "g_min_nd":   -1.52,
+            "g_max_nd":     3.8,
+            "g_min_nd":    -1.52,
             "tas_max_mps": 82.3,
-            "mach_max_nd": 0.25
+            "mach_max_nd":  0.25
+        },
+        "load_factor_allocator": {
+            "alpha_dot_max_rad_s": 0.0
         },
         "inertia": {
             "mass_kg":   1045.0,
@@ -77,13 +80,15 @@ static nlohmann::json makeConfig() {
             "Izz_kgm2":  2667.0
         },
         "lift_curve": {
-            "cl_alpha":             5.1,
-            "cl_max":               1.80,
-            "cl_min":              -1.20,
-            "delta_alpha_stall":    0.262,
-            "delta_alpha_stall_neg":0.262,
-            "cl_sep":               1.05,
-            "cl_sep_neg":          -0.80
+            "cl_alpha":              5.1,
+            "cl_max":                1.80,
+            "cl_min":               -1.20,
+            "delta_alpha_stall":     0.262,
+            "delta_alpha_stall_neg": 0.262,
+            "cl_sep":                1.05,
+            "cl_sep_neg":           -0.80,
+            "alpha_max_rad":         0.42,
+            "alpha_min_rad":        -0.26
         },
         "initial_state": {
             "latitude_rad":        0.0,
