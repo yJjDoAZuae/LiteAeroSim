@@ -47,7 +47,9 @@
         "pyproj",
         "pytest",
         "ksba",
-        "KSBA"
+        "KSBA",
+        "mathbf",
+        "bmatrix"
     ],
     "ignorePaths": [
         "build/**",

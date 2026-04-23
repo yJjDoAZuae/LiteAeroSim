@@ -102,7 +102,7 @@ specific upstream subsystem and passed in each simulation step:
 | Parameter | Source | Meaning |
 | --- | --- | --- |
 | `time_sec` | Simulation clock | Absolute simulation time |
-| `acceleration_Wind_mps` | Aerodynamic / propulsion model | Net Wind-frame acceleration (lift + drag + thrust + gravity expressed in Wind frame) |
+| `acceleration_Wind_mps` | Aerodynamic / propulsion model | Net Wind-frame acceleration (lift + drag + thrust + gravity expressed in Wind frame). **Note:** the gravity term is currently absent from `Aircraft.cpp` step 10 — see [Aircraft.cpp → KinematicState Acceleration Interface](#aircraftcpp--kinematicstate-acceleration-interface). |
 | `rollRate_Wind_rps` | Roll-control model | Wind-axis roll rate $p_W$ — drives `_q_nw` propagation |
 | `alpha_rad` | Aerodynamic model | Angle of attack — used to propagate `_q_nb` and stored in `_alpha_rad` |
 | `beta_rad` | Aerodynamic model | Sideslip angle — same uses as above |
@@ -184,13 +184,13 @@ in both JSON and proto serialization.
 
 ### Alpha Limit Box Constraint
 
-`alpha_max_rad` and `alpha_min_rad` (`AirframePerformance` fields from the `airframe`
+`alpha_max_rad` and `alpha_min_rad` (`LiftCurveModel` parameters from the `lift_curve`
 config section) are enforced as a box constraint **inside** the Newton iteration, not as
 a post-solve clamp.  After each Newton step the iterate is projected:
 
 ```cpp
 alpha_new = std::clamp(alpha_k - f(alpha_k) / f_prime(alpha_k),
-                       airframe.alpha_min_rad, airframe.alpha_max_rad);
+                       liftCurve.alpha_min_rad, liftCurve.alpha_max_rad);
 ```
 
 **Boundary exit condition.** If the projected iterate is pinned at a boundary and the
@@ -230,6 +230,212 @@ command evolves continuously within one step, so the warm-start stays near the t
 and this limitation does not arise in practice.
 
 See `AllocatorFixture.StallRecovery_RequiresReset` in `test/LoadFactorAllocator_test.cpp`.
+
+---
+
+## Aircraft.cpp → KinematicState Acceleration Interface
+
+### Intended Interface
+
+`KinematicState::step()` receives `acceleration_Wind_mps` — the net Wind-frame specific force vector produced by the aerodynamic and propulsion models.  Per the interface table in the KinematicState section, this vector must include all forces acting on the aircraft expressed in the Wind frame, **including gravity**:
+
+$$
+\mathbf{a}_W = \frac{\mathbf{F}_{aero} + \mathbf{F}_{thrust}}{m} + C_{WN}\,\mathbf{g}_{NED}
+$$
+
+where $\mathbf{g}_{NED} = [0,\;0,\;g]^\top$ ($g = 9.80665\;\text{m/s}^2$, positive down in NED) and $C_{WN} = C_{NW}^\top$ is the NED-to-Wind DCM.  `KinematicState` then integrates:
+
+$$
+\dot{\mathbf{v}}_{NED} = C_{NW}\,\mathbf{a}_W
+$$
+
+For straight-and-level flight at load factor $n_z = 1$, the load-factor constraint gives:
+
+$$
+q\,S\,C_L + T\sin\alpha = n_z\,m\,g = m\,g
+\quad\Rightarrow\quad
+F^W_z = -q\,S\,C_L = -(m\,g - T\sin\alpha)
+$$
+
+The Wind-Z component of the total specific force is therefore:
+
+$$
+a^W_z = \frac{-T\sin\alpha + F^W_z}{m} + (C_{WN}\,\mathbf{g}_{NED})_z
+= -g + g\cos\gamma \approx 0 \quad (\gamma \to 0)
+$$
+
+which produces $a_{NED,D} \approx 0$ — no altitude drift at trim.
+
+### Current Implementation Gap
+
+`Aircraft.cpp` step 10 computes:
+
+```cpp
+const float ax = (T * ca * cb + F.x_n + F_gear_wind.x()) / m;
+const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m;
+const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m;
+```
+
+with the comment: *"Gravity is embedded in the load-factor constraint — must not be added here."*
+
+The Wind-frame gravity term $C_{WN}\,\mathbf{g}_{NED}$ is absent.  At trim ($n_z = 1$) the aerodynamic forces produce:
+
+$$
+a^W_z = \frac{-T\sin\alpha - q\,S\,C_L}{m} = -g
+$$
+
+This results in $a_{NED,D} \approx -g$ — a 1 g upward NED acceleration — so the aircraft climbs even at exact trim thrust.  The comment is incorrect: the load-factor constraint determines the magnitude of the aerodynamic reaction to gravity; it does not introduce a gravity term into `acceleration_Wind_mps`.
+
+### Observed Failure Mode
+
+`AircraftTest.StraightAndLevel_AllFixtures_100s` runs each example aircraft for 100 s at drag-balanced trim thrust with $n_z = 1, n_y = 0$, roll rate $= 0$, and fixed ISA density.  All three fixtures fail the 50 m altitude-change bound (see [Test Coverage](#test-coverage)):
+
+| Fixture | Initial speed (m/s) | Altitude drift (m, 100 s) |
+| --- | --- | --- |
+| `aircraft/general_aviation.json` | 55 | ~200 |
+| `aircraft/jet_trainer.json` | 150 | ~300 |
+| `aircraft/small_uas.json` | 20 | ~100 |
+
+A fix was attempted (adding `g_wind = R_nw_mat.transpose() * {0, 0, g}` to step 10); this produced a ~17 800 m descent and broke `AircraftTest.ZeroThrottle_AircraftDecelerates`.  The root cause of the sign reversal is not yet understood; see [OQ-17](#oq-17--root-cause-of-the-gravity-fix-reversal), [OQ-18](#oq-18--where-to-add-the-gravity-term), and [OQ-19](#oq-19--does-the-load-factor-constraint-already-account-for-gravity).
+
+---
+
+## Open Questions
+
+### Resolved — OQ-1 through OQ-16 (Stall Dynamics)
+
+OQ-1 through OQ-16 arose during the stall dynamics design and are fully resolved.
+
+| # | Question | Decision |
+| --- | --- | --- |
+| OQ-1 | Alpha bridge activation scope | **Stall-conditional.** Rate limit applies only while `_stalled` or `_stalled_neg` is true. In non-stalled operation `alpha_out = alpha_eq` exactly. |
+| OQ-2 | Newton solver while `_stalled` (nominal CL vs. recovering CL) | **Explicit solve using recovering CL.** Newton is replaced by `α_eq = arcsin((n·mg − qS·_cl_recovering) / T)`. Realized Nz uses `_cl_recovering`. |
+| OQ-3 | `dt_s` delivery to `solve()` | **Add `dt_s` to `LoadFactorInputs`.** Explicit per-call field; supports variable-rate stepping. |
+| OQ-4 | `LiftCurveModel` accessors needed | **Add `alphaStar()`, `alphaStarNeg()`, `clAlpha()`.** Consistent with the existing `alphaPeak()`, `alphaSep()` interface. |
+| OQ-5 | Hysteresis flag serialization | **Serialize `_stalled` and `_stalled_neg`.** Recomputing from `_alpha_prev` fails in the hysteretic region where `alphaStar < alpha_prev < alphaSep`. |
+| OQ-6 | CL recovery state serialization | **Serialize `_cl_recovering` and `_cl_recovering_neg`.** Recomputing from stall flags loses in-progress recovery position. |
+| OQ-7 | Newton residual while stalled — contradiction with OQ-2 | **Explicit solve using recovering CL** (see OQ-2). Algorithm doc §"Interaction with the Newton Solver" is correct as written. |
+| OQ-8 | Hysteresis entry condition (`alphaSep()` vs. `alphaPeak()`) | **Entry when alpha passes `alphaPeak()` and begins to decrease**, not at `alphaSep()`. |
+| OQ-9 | Re-entry behavior when alpha rises while `_stalled` is true | **Effective CL is `min(clSep(), clNom(alpha))` throughout the stalled phase.** Snaps to nominal at the intersection with no discontinuity; CL recovery bridge activates once below `alphaStar()`. |
+| OQ-10 | When to introduce `_cl_recovering` | **Introduce in Item 1.** The realized-Nz formula is written once; Items 2/3 add only the stalled update branch. |
+| OQ-11 | `_cl_recovering` initialization value | **Initialize to zero.** Every non-stalled `solve()` overwrites it before first use. |
+| OQ-12 | Hysteresis entry check — one-step delay | **Accept one-step delay.** At 100 Hz the error is one step of the nominal parabola; negligible and self-correcting. |
+| OQ-13 | `clSep()` / `clSepNeg()` vs. `params()` accessor | **Add `clSep()` and `clSepNeg()` as individual accessors.** Consistent with `alphaPeak()`, `alphaSep()` pattern. |
+| OQ-14 | `cl_eff` delivery to `Aircraft.cpp` | **Add `cl_eff` to `LoadFactorOutputs`.** `Aircraft.cpp` uses `lfa_out.cl_eff` in place of `_liftCurve->evaluate(lfa_out.alpha_rad)`. |
+| OQ-15 | `alphaDot` computation during stall | **While `_stalled`, substitute `fprime_alpha = T * cos(alpha_out)`.** Exact IFT derivative for the flat-CL explicit solve. |
+| OQ-16 | Stalled and negative-side CL formulas | **Stalled: `_cl_recovering = min(clSep(), clNom)`.** Instant snap to nominal when nominal falls below `clSep`. Non-stalled recovery: `min(clNom, _cl_recovering + clDotMax * dt)`. Negative side mirrors with inverted direction throughout. |
+
+---
+
+### OQ-17 — Root Cause of the Gravity Fix Reversal
+
+**Question:** `Aircraft.cpp` step 10 omits the Wind-frame gravity term.  A fix was attempted by adding `g_wind = R_nw_mat.transpose() * {0.f, 0.f, kGravity}` to each acceleration component.  For level flight the math predicts $a^W_z = -g + g = 0$, which should correct the altitude drift.  Instead the aircraft descended ~17 800 m and gained ~152 m/s in 100 s, and `AircraftTest.ZeroThrottle_AircraftDecelerates` failed.  Why?
+
+---
+
+**Alternative A: `KinematicState::step()` adds gravity internally.**
+
+*Implication:* If `pvDerivative()` in `KinematicState.cpp` appends `{0, 0, g}` to `a_NED` before integrating, then the original step 10 (aero+thrust only, az = −g) is correct as written: `KinematicState` adds +g, yielding a_NED_D = 0 at trim.  The fix would then double-count gravity — az after fix = 0, plus KinematicState's internal +g → a_NED_D = +g — driving a 1 g downward acceleration.  Over 100 s this predicts ~49 000 m of altitude loss; the observed ~17 800 m is smaller, consistent with a strong drag increase during the resulting high-speed dive.  Under Alternative A, `StraightAndLevel_AllFixtures_100s` should already pass without any fix, which means the test failure has a different cause (possibly the filter transient or a thrust-accounting offset).
+
+*Recommendation:* **Verify first.** Read `KinematicState.cpp` `pvDerivative()` and confirm whether a gravity term appears.  This is the highest-priority check because it resolves all three OQs and determines whether any code change is needed in `Aircraft.cpp` at all.
+
+---
+
+**Alternative B: `_q_nw` stores NED-to-Wind (opposite of the documented Wind-to-NED convention).**
+
+*Implication:* If `_q_nw.toRotationMatrix()` produces $C_{WN}$ (NED → Wind) rather than the documented $C_{NW}^{-1}$ (Wind → NED), then `R_nw_mat.transpose()` maps Wind → NED.  Evaluating `R_nw_mat.transpose() * {0, 0, g}_NED` uses a Wind → NED matrix applied to an NED vector — a frame mismatch.  For near-identity rotation (level flight) the numerical result is still approximately `{0, 0, g}`, so the first step would appear correct.  As the aircraft attitude changes during subsequent steps, the mismatch compounds.  This alternative cannot be the sole cause of the first-step error for level flight, but it could contribute to instability over longer runs.  It would also invalidate the existing landing-gear wind-frame transform (`F_gear_wind = R_nw_mat.transpose() * (R_nb_mat * F_body)`), which appears to work correctly in tests — evidence against Alternative B.
+
+*Recommendation:* **Check by examining `KinematicState::velocity_Wind_mps()`.**  The implementation doc states this returns `C_{WN} * (v_NED − wind_NED)`.  If `q_nw.toRotationMatrix()` is used there without transposition, the convention is NED → Wind (Alternative B is confirmed).  If it is used with transposition, the convention is Wind → NED (Alternative B is refuted).
+
+---
+
+**Alternative C: The fix introduces a frame inconsistency with the allocator's implicit assumption.**
+
+*Implication:* The load-factor allocator solves `q·S·C_L + T·sinα = n_z·mg` under the implicit assumption that the resulting aerodynamic forces fully satisfy the load-factor demand — i.e., that the net NED-Z acceleration is zero.  Adding a gravity term to step 10 changes the actual NED-Z acceleration to zero (correct physically), but the allocator's target $n_z$ was computed relative to a model that assumed az = −g is the entire story.  In subsequent steps the allocator receives a different kinematic state (velocity unchanged by the fix on the first step, so no first-step effect), meaning this alternative cannot explain the first-step failure.  Over many steps it could produce a feedback interaction where the allocator over-corrects CL, causing a transient.  It is not a plausible explanation for a systematic 17 800 m dive.
+
+*Recommendation:* **Rule out after confirming Alternative A.** If Alternative A explains the dive, Alternative C is moot.  If Alternative A is refuted, write a two-step test: observe whether the second-step CL changes unexpectedly after the fix is applied.
+
+---
+
+**Resolution path:** Before modifying any production code, write a single-step instrumented unit test:
+
+1. Initialize `KinematicState` with level-flight trim conditions.
+2. Call `step()` with `az_wind = 0` (zero Wind-Z acceleration) and zero roll rate.
+3. Assert that `velocity_NED_mps().z()` has not changed (verifying that `KinematicState` does not add gravity internally).
+4. If the assertion holds, Alternative A is refuted; proceed to test the gravity fix.
+5. If the assertion fails (velocity changes even with az = 0), Alternative A is confirmed; read `pvDerivative()` and document the gravity addition.
+
+---
+
+### OQ-18 — Where to Add the Gravity Term
+
+**Question:** Once OQ-17 is resolved and the gravity omission is confirmed as the root cause, where should the gravity term be inserted: in `Aircraft.cpp` step 10 (expressed in Wind frame) or inside `KinematicState::step()` (appended as an NED vector after rotating `acceleration_Wind_mps`)?
+
+---
+
+**Alternative A: `Aircraft.cpp` step 10, Wind frame.**
+
+```cpp
+const Eigen::Vector3f g_wind = R_nw_mat.transpose() * Eigen::Vector3f{0.f, 0.f, kGravity};
+const float ax = (T * ca * cb + F.x_n + F_gear_wind.x()) / m + g_wind.x();
+const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m + g_wind.y();
+const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m + g_wind.z();
+```
+
+*Implication:* Matches the stated `step()` interface ("Net Wind-frame acceleration including gravity").  `KinematicState` remains a pure frame-transform integrator with no physics knowledge — it rotates whatever vector it receives and integrates.  Any future force model calling `step()` must supply gravity itself; failing to do so silently produces the same bug.  The gravity computation requires one matrix-vector product per step.
+
+*Recommendation:* **Prefer this if the interface contract must remain as documented** and if `KinematicState` is intended to be physics-free.  The interface table in the implementation doc stays correct as written.
+
+---
+
+**Alternative B: Inside `KinematicState::step()`, appended in NED.**
+
+```cpp
+// Inside pvDerivative(), after computing a_NED:
+a_NED += Eigen::Vector3f{0.f, 0.f, kGravity};
+```
+
+*Implication:* `Aircraft.cpp` step 10 passes only the aero+thrust acceleration (the current behavior, az = −g at trim).  `KinematicState` adds gravity in NED, yielding a_NED_D = 0 at level-flight trim — correct.  Gravity is in exactly one location; any caller of `step()` gets gravity automatically.  The interface contract must be updated: `acceleration_Wind_mps` becomes "aero + propulsion specific force in Wind frame, excluding gravity."  The `step()` parameter table in this document and the algorithm doc table must both be corrected.
+
+*Recommendation:* **Prefer this if `KinematicState` should encapsulate all integration physics** and if reducing per-caller error risk is valued.  No changes to `Aircraft.cpp` step 10.  Document update is required in both the KinematicState `step()` parameter table (this file, line ~105) and the algorithm doc.
+
+---
+
+**Overall recommendation:** Resolve OQ-17 first.  If Alternative A of OQ-17 is confirmed (KinematicState already adds gravity), OQ-18 is moot — the current step 10 is correct.  If the gravity omission is confirmed, Alternative B of OQ-18 is lower risk for the codebase: gravity is in one place, callers cannot accidentally omit it, and `Aircraft.cpp` step 10 needs no change.  The documentation cost is a one-line parameter table update.
+
+---
+
+### OQ-19 — Does the Load-Factor Constraint Already Account for Gravity?
+
+**Question:** The load-factor constraint `q·S·C_L + T·sinα = n_z·mg` relates aerodynamic and thrust forces to the commanded load factor.  Does this constraint implicitly embed gravity in `acceleration_Wind_mps`, making any additional gravity term a double-count?
+
+---
+
+**Alternative A: The constraint fully accounts for gravity — no separate gravity term is needed.**
+
+*Implication:* Under this reading the constraint is a force-to-acceleration identity: the left-hand side equals the right-hand side, and `acceleration_Wind_mps` computed from it already equals the total specific force including gravity.  This requires `KinematicState` to add gravity internally (i.e., Alternative A of OQ-17 must be true).  The two alternatives are linked: if gravity is added inside `KinematicState`, then the constraint does play the role of encoding the gravity reaction, and no explicit gravity term is needed in `Aircraft.cpp`.
+
+*Recommendation:* **Contingent on OQ-17 Alternative A.** If `KinematicState.cpp` is found to add gravity, this interpretation is self-consistent.  If not, this interpretation is wrong regardless of how the constraint is read.
+
+---
+
+**Alternative B: The constraint is an allocator setpoint equation; gravity must still be added to the integration.**
+
+*Implication:* The constraint determines what value of $C_L$ and $\alpha$ the allocator should target — it is derived from the level-flight force balance but does not itself add gravity to `acceleration_Wind_mps`.  Newton's second law in NED says:
+
+$$m\,\dot{\mathbf{v}}_{NED} = \mathbf{F}_{aero} + \mathbf{F}_{thrust} + \mathbf{F}_{gravity}$$
+
+Step 10 computes only the first two right-hand terms.  Substituting the constraint into the Wind-Z component gives:
+
+$$m\,a_{NED,D} \approx F^W_z + F^W_{thrust,z} + m\,g = -n_z\,m\,g + m\,g = m\,g\,(1 - n_z)$$
+
+For $n_z = 1$: $a_{NED,D} = 0$ — but only when the gravity term $m\,g$ is included in the right-hand side.  Without it, $a_{NED,D} = -n_z\,g = -g$ (upward) at every step, matching the observed climb.
+
+*Recommendation:* **This is the correct interpretation.** The constraint is a setpoint; the gravity term in Newton's second law is separate.  The step 10 comment "Gravity is embedded in the load-factor constraint" is incorrect and should be removed when the fix is applied.
+
+---
+
+**Overall recommendation:** Alternative B is correct.  Resolve OQ-17 to determine where the missing gravity term should be inserted (OQ-18).  Once the fix location is decided, remove the incorrect step 10 comment.
 
 ---
 
@@ -521,54 +727,21 @@ serialization.
 
 ---
 
-### Design Decisions
-
-The following questions were raised during planning and resolved as documented.
-
-| # | Question | Decision |
-| --- | --- | --- |
-| OQ-1 | Alpha bridge activation scope (unconditional vs. stall-conditional) | **Stall-conditional.** The rate limit applies only while `_stalled` or `_stalled_neg` is true (using the previous-step value). In non-stalled operation `alpha_out = alpha_eq` exactly — no rate constraint is imposed. |
-| OQ-2 | Newton residual while `_stalled` is true (nominal CL vs. recovering CL) | **Explicit solve using recovering CL.** While `_stalled`, Newton is replaced by `α_eq = arcsin((n·mg − qS·_cl_recovering) / T)`. The alpha bridge is the only mechanism moving alpha; it drives toward this target. Realized Nz uses `_cl_recovering`. |
-| OQ-3 | `dt_s` delivery to `solve()` | **Add `dt_s` to `LoadFactorInputs`.** Explicit per-call field; supports variable-rate stepping; no constructor or serialization changes to `LoadFactorAllocator`. |
-| OQ-4 | `LiftCurveModel` accessors needed | **Add `alphaStar()`, `alphaStarNeg()`, `clAlpha()` as public accessors.** Consistent with the existing `alphaPeak()`, `alphaSep()` interface; no design trade-off. |
-| OQ-5 | Hysteresis flag serialization | **Serialize `_stalled` and `_stalled_neg`.** Recomputing from `_alpha_prev` fails in the hysteretic region where `alphaStar < alpha_prev < alphaSep` but the flag should still be set. |
-| OQ-6 | CL recovery state serialization | **Serialize `_cl_recovering` and `_cl_recovering_neg`.** Recomputing from stall flags loses the in-progress recovery position; two additional floats in the serialization block is negligible cost. |
-
-The OQ-2 decision in the table above has been revised (was two-pass; corrected to explicit
-solve using recovering CL).  OQ-7 through OQ-9 were raised and resolved as follows and
-incorporated into the Design Decisions table:
-
-| # | Question | Decision |
-| --- | --- | --- |
-| OQ-7 | Newton residual while stalled — contradiction with OQ-2 | **B: explicit solve using recovering CL** (see OQ-2 row above). OQ-2 revised accordingly. Algorithm doc §"Interaction with the Newton Solver" is correct as written. |
-| OQ-8 | Hysteresis entry condition (`alphaSep()` vs. `alphaPeak()`) | **Entry when alpha has passed `alphaPeak()` and begins to reduce**, not at `alphaSep()`. |
-| OQ-9 | Re-entry behavior when alpha increases while `_stalled` is true | **Effective CL is `min(clSep(), clNom(alpha))` throughout the stalled phase** (see OQ-16). If the nominal descends below C_L_sep before alphaStar(), CL snaps to nominal at that crossing with no discontinuity. Once below alphaStar(), the CL recovery bridge activates. If alpha rises back into the transition and CL overshoots nominal, it snaps instantly to nominal. If alpha rises past alphaPeak() and decreases again, `_stalled` re-enters. |
-| OQ-10 | When to introduce `_cl_recovering` | **B: Introduce in Item 1.** The realized-Nz formula is written once and never replaced; Items 2/3 add only the stalled update branch. |
-| OQ-11 | `_cl_recovering` initialization value | **Initialize to zero.** Under OQ-10-B, every non-stalled `solve()` call sets `_cl_recovering = _lift.evaluate(alpha_out)` before computing `n_realized`; the initial value is overwritten before first use. |
-| OQ-12 | Hysteresis entry check — one-step delay | **A: Accept one-step delay.** At 100 Hz the error is one step of the nominal parabola; negligible and self-correcting. |
-| OQ-13 | `clSep()` / `clSepNeg()` vs. `params()` accessor | **A: Add `clSep()` and `clSepNeg()` as individual accessors.** Consistent with `alphaPeak()`, `alphaSep()` pattern. Added to Implementation Order Step 1. |
-| OQ-14 | `cl_eff` delivery to `Aircraft.cpp` | **A: Add `cl_eff` to `LoadFactorOutputs`.** `Aircraft.cpp` replaces `_liftCurve->evaluate(lfa_out.alpha_rad)` at line 203 with `lfa_out.cl_eff`. |
-| OQ-15 | `alphaDot` computation during stall | **A: While `_stalled`, substitute `fprime_alpha = T * cos(alpha_out)`.** Exact IFT derivative for the flat-CL explicit solve; zero if T ≈ 0. Same substitution applies for `_stalled_neg`. |
-| OQ-16 | Stalled and negative-side CL formulas | **Stalled branch: `_cl_recovering = min(clSep(), clNom)`.** Allows instant snap to nominal when nominal descends below C_L_sep — no discontinuity at the intersection, recovery can begin above alphaStar(). Non-stalled recovery: `min(clNom, _cl_recovering + clDotMax * dt)`. Negative side mirrors with inverted sign throughout: stalled `max(clSepNeg(), clNom)`; recovery `max(clNom, _cl_recovering_neg - clDotMax * dt)`. |
-
-### Open Questions
-
-All questions from OQ-10 through OQ-16 have been resolved; see Design Decisions above.  No open questions remain before implementation.
-
----
+Design decisions for this section are recorded in [Open Questions — OQ-1 through OQ-16](#open-questions) (all resolved).
 
 ### Implementation Order
 
-| Step | Action |
-| --- | --- |
-| 1 | Add `alphaStar()`, `alphaStarNeg()`, `alphaTrough()`, `clAlpha()`, `clSep()`, `clSepNeg()` accessors to `LiftCurveModel` (with tests) |
-| 2 | Add `alpha_dot_max_rad_s` as constructor parameter and serialized field to `LoadFactorAllocator` (proto, JSON, round-trip tests) |
-| 3 | Update `LoadFactorAllocator` test fixtures for new `alpha_dot_max_rad_s` serialized field |
-| 4 | Add `dt_s` to `LoadFactorInputs` |
-| 5 | Implement Item 1 (alpha rate bridge) — tests first |
-| 6 | Implement Item 2 (hysteresis flags) — tests first |
-| 7 | Implement Item 3 (CL recovery) — tests first |
-| 8 | Update `Aircraft.cpp` to pass `alpha_dot_max_rad_s` and `dt_s` through |
+| Step | Status | Action |
+| --- | --- | --- |
+| 1 | Done | Add `alphaStar()`, `alphaStarNeg()`, `alphaTrough()`, `clAlpha()`, `clSep()`, `clSepNeg()` accessors to `LiftCurveModel` (with tests) |
+| 2 | Done | Add `alpha_dot_max_rad_s` as constructor parameter and serialized field to `LoadFactorAllocator` (proto, JSON, round-trip tests) |
+| 3 | Done | Update `LoadFactorAllocator` test fixtures for new `alpha_dot_max_rad_s` serialized field |
+| 4 | Done | Add `dt_s` to `LoadFactorInputs` |
+| 5 | Done | Implement Item 1 (alpha rate bridge) — tests first |
+| 6 | Done | Implement Item 2 (hysteresis flags) — tests first |
+| 7 | Done | Implement Item 3 (CL recovery) — tests first |
+| 8 | Done | Update `Aircraft.cpp` to read `alpha_dot_max_rad_s` from `load_factor_allocator` config, pass `dt_s` to `solve()`, and use `lfa_out.cl_eff` for the aerodynamic force computation |
+| 9 | Blocked on OQ-17 | Resolve OQ-17 through OQ-19, then add the missing gravity term to the force–acceleration integration and remove the incorrect step 10 comment |
 
 ---
 
@@ -576,9 +749,20 @@ All questions from OQ-10 through OQ-16 have been resolved; see Design Decisions 
 
 | Suite | Tests | File |
 | --- | --- | --- |
-| KinematicState | 52 | `test/KinematicState_test.cpp` |
-| LiftCurveModel | 16 | `test/LiftCurveModel_test.cpp` |
-| LoadFactorAllocator | 30 | `test/LoadFactorAllocator_test.cpp` |
+| KinematicState | 58 | `test/KinematicState_test.cpp` |
+| LiftCurveModel | 36 | `test/LiftCurveModel_test.cpp` |
+| LoadFactorAllocator | 65 | `test/LoadFactorAllocator_test.cpp` |
+| Aircraft | 20 | `test/Aircraft_test.cpp` |
+
+### Known Failing Tests
+
+| Test | Reason |
+| --- | --- |
+| `AircraftTest.StraightAndLevel_AllFixtures_100s` | Gravity omission in `Aircraft.cpp` step 10 (see [Aircraft.cpp → KinematicState Acceleration Interface](#aircraftcpp--kinematicstate-acceleration-interface)) causes ~100–300 m altitude drift in 100 s. Blocked on resolution of OQ-17. |
+
+### Coverage Gap
+
+No test verified altitude stability over multi-second simulation runs before `StraightAndLevel_AllFixtures_100s` was added.  The existing `AircraftTest.ZeroThrottle_AircraftDecelerates` runs for 0.5 s and checks speed only; it does not catch steady-state altitude drift.  `StraightAndLevel_AllFixtures_100s` fills this gap and is expected to pass once OQ-17 through OQ-19 are resolved and the gravity term is correctly integrated.
 
 ---
 

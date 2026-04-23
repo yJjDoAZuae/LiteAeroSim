@@ -2,12 +2,15 @@
 //                      5 (serialization), 1 (JSON initialization from fixture files).
 
 #include "Aircraft.hpp"
+#include "environment/Atmosphere.hpp"
 #include "propulsion/Propulsion.hpp"
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <memory>
+#include <string>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -324,6 +327,98 @@ TEST(AircraftTest, InitializeWithMissingField_Throws) {
 
     auto ac = std::make_unique<liteaero::simulation::Aircraft>(std::make_unique<StubPropulsion>());
     EXPECT_THROW(ac->initialize(config, 0.02f), std::exception);
+}
+
+// ---------------------------------------------------------------------------
+// Straight-and-level trim test — all example aircraft configs
+//
+// For each fixture, compute ISA density at the initial altitude, then compute
+// the drag-balanced trim thrust:
+//   q   = 0.5 * rho * V²
+//   CL  = m*g / (q*S)
+//   CD  = cd0 + CL² / (π * AR * e)
+//   T   = q * S * CD
+//
+// A 5 % margin is added above trim to ensure the thrust is strictly above
+// minimum (avoiding the edge case where thrust exactly equals drag but
+// numerical error causes a slow descent).
+//
+// The aircraft is then stepped for 100 s with n_z = 1 g, n_y = 0, roll rate
+// = 0, and the computed thrust. Tolerances are intentionally generous:
+//   - altitude change < 50 m   (net drift, not per-step error)
+//   - speed change   < 10 %    (allow filter transients to settle)
+// ---------------------------------------------------------------------------
+
+struct TrimCase {
+    std::string fixture;        // relative path under LAS_TEST_DATA_DIR
+    float       initial_speed;  // m/s — must match initial_state in fixture
+    float       initial_alt;    // m   — must match initial_state in fixture
+};
+
+static float computeTrimThrust(const nlohmann::json& cfg, float rho_kgm3) {
+    const auto& ac  = cfg.at("aircraft");
+    const auto& in  = cfg.at("inertia");
+    const float S   = ac.at("S_ref_m2").get<float>();
+    const float ar  = ac.at("ar").get<float>();
+    const float e   = ac.at("e").get<float>();
+    const float cd0 = ac.at("cd0").get<float>();
+    const float m   = in.at("mass_kg").get<float>();
+    const float V   = cfg.at("initial_state").at("velocity_north_mps").get<float>();
+
+    constexpr float kG  = 9.80665f;
+    constexpr float kPi = 3.14159265f;
+    const float q  = 0.5f * rho_kgm3 * V * V;
+    const float CL = m * kG / (q * S);
+    const float CD = cd0 + CL * CL / (kPi * ar * e);
+    return q * S * CD;
+}
+
+TEST(AircraftTest, StraightAndLevel_AllFixtures_100s) {
+    const TrimCase cases[] = {
+        {"aircraft/general_aviation.json",  55.0f,  300.0f},
+        {"aircraft/jet_trainer.json",      150.0f, 3000.0f},
+        {"aircraft/small_uas.json",         20.0f,  100.0f},
+    };
+
+    liteaero::simulation::Atmosphere atm;
+
+    for (const auto& tc : cases) {
+        SCOPED_TRACE(tc.fixture);
+
+        const nlohmann::json cfg = loadFixture(tc.fixture);
+        const float rho = atm.density_kgm3(tc.initial_alt);
+
+        // Trim thrust: drag-balanced at initial speed and altitude.
+        // The trim thrust is above the minimum (zero thrust) by construction — it
+        // is the exact thrust required to maintain level flight at this condition.
+        const float T_actual = computeTrimThrust(cfg, rho);
+
+        auto ac = std::make_unique<liteaero::simulation::Aircraft>(
+            std::make_unique<StubPropulsion>(T_actual));
+        ac->initialize(cfg, 0.02f);
+
+        const float alt0   = ac->state().positionDatum().height_WGS84_m();
+        const float speed0 = ac->state().velocity_NED_mps().norm();
+
+        liteaero::simulation::AircraftCommand cmd;
+        cmd.n_z             = 1.0f;
+        cmd.n_y             = 0.0f;
+        cmd.rollRate_Wind_rps = 0.0f;
+
+        constexpr float kDt     = 0.02f;
+        constexpr int   kSteps  = static_cast<int>(100.0f / kDt); // 5000 steps
+        for (int i = 1; i <= kSteps; ++i) {
+            ac->step(i * static_cast<double>(kDt), cmd, Eigen::Vector3f::Zero(), rho);
+        }
+
+        const float alt_final   = ac->state().positionDatum().height_WGS84_m();
+        const float speed_final = ac->state().velocity_NED_mps().norm();
+
+        EXPECT_NEAR(alt_final, alt0, 50.0f)
+            << "altitude drifted more than 50 m over 100 s";
+        EXPECT_NEAR(speed_final, speed0, 0.1f * speed0)
+            << "speed changed more than 10% over 100 s";
+    }
 }
 
 // ---------------------------------------------------------------------------
