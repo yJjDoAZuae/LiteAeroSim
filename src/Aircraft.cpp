@@ -91,6 +91,7 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
     _nz_filter.setLowPassSecondIIR(_cmd_filter_dt_s, _nz_wn_rad_s, _nz_zeta_nd, 0.f);
     _ny_filter.setLowPassSecondIIR(_cmd_filter_dt_s, _ny_wn_rad_s, _ny_zeta_nd, 0.f);
     _roll_rate_filter.setLowPassSecondIIR(_cmd_filter_dt_s, _roll_rate_wn_rad_s, _roll_rate_zeta_nd, 0.f);
+    _nz_filter.resetToInput(1.f);
 
     // 5. Load factor allocator (references _liftCurve — must be emplaced after step 3)
     const auto& lfa_sec = config.at("load_factor_allocator");
@@ -226,12 +227,13 @@ void Aircraft::step(double time_sec,
     // 9. Advance propulsion
     const float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3);
 
-    // 10. Wind-frame acceleration.
+    // 10. Wind-frame specific force = aero + thrust + gravity.
     //    Thrust decomposition (Wind frame, X forward, Y right, Z down):
     //      Tx =  T·cos(α)·cos(β)
     //      Ty = -T·cos(α)·sin(β)
     //      Tz = -T·sin(α)
-    //    Gravity is embedded in the load-factor constraint — must not be added here.
+    //    Gravity in Wind frame: C_WN · g_NED = R_nw_mat^T · {0, 0, g}
+    //    (R_nw_mat is already computed below for the landing gear transform.)
     const float m  = _inertia.mass_kg;
     const float ca = std::cos(lfa_out.alpha_rad);
     const float sa = std::sin(lfa_out.alpha_rad);
@@ -244,9 +246,12 @@ void Aircraft::step(double time_sec,
     const Eigen::Matrix3f R_nw_mat = _state.q_nw().toRotationMatrix();
     const Eigen::Vector3f F_gear_wind = R_nw_mat.transpose() * (R_nb_mat * contact_forces.force_body_n);
 
-    const float ax = (T * ca * cb + F.x_n + F_gear_wind.x()) / m;
-    const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m;
-    const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m;
+    constexpr float kGravity_mps2 = 9.80665f;
+    const Eigen::Vector3f g_wind = R_nw_mat.transpose() * Eigen::Vector3f{0.f, 0.f, kGravity_mps2};
+
+    const float ax = (T * ca * cb + F.x_n + F_gear_wind.x()) / m + g_wind.x();
+    const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m + g_wind.y();
+    const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m + g_wind.z();
 
     // 11. Advance kinematic state
     _state.step(time_sec,

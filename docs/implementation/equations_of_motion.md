@@ -786,7 +786,7 @@ const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m + g_wind.z();
 | 6 | Done | Implement Item 2 (hysteresis flags) — tests first |
 | 7 | Done | Implement Item 3 (CL recovery) — tests first |
 | 8 | Done | Update `Aircraft.cpp` to read `alpha_dot_max_rad_s` from `load_factor_allocator` config, pass `dt_s` to `solve()`, and use `lfa_out.cl_eff` for the aerodynamic force computation |
-| 9 | Ready | OQ-17, OQ-18, and OQ-19 resolved; failing test `StraightAndLevel_AllFixtures_100s` already exists; implement gravity fix in `Aircraft.cpp` step 10 per [Step 9](#step-9--gravity-fix-aircraftcpp-step-10) |
+| 9 | Done | Add Wind-frame gravity term to `Aircraft.cpp` step 10; remove incorrect comment |
 
 ---
 

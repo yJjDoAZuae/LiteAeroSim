@@ -212,14 +212,20 @@ LoadFactorOutputs LoadFactorAllocator::solve(const LoadFactorInputs& in) {
         // Hold plateau, snap instantly to nominal if nominal descends below clSep
         _cl_recovering = std::min(_lift.clSep(), cl_nom);
     } else {
-        _cl_recovering = std::min(cl_nom, _cl_recovering + cl_dot_max * in.dt_s);
+        // Non-stalled: track nominal directly when no stall dynamics are configured,
+        // or rate-limit the upward return after stall clears.
+        _cl_recovering = (cl_dot_max > 0.0f)
+            ? std::min(cl_nom, _cl_recovering + cl_dot_max * in.dt_s)
+            : cl_nom;
     }
 
     if (_stalled_neg) {
         // Hold plateau, snap instantly to nominal if nominal rises above clSepNeg
         _cl_recovering_neg = std::max(_lift.clSepNeg(), cl_nom);
     } else {
-        _cl_recovering_neg = std::max(cl_nom, _cl_recovering_neg - cl_dot_max * in.dt_s);
+        _cl_recovering_neg = (cl_dot_max > 0.0f)
+            ? std::max(cl_nom, _cl_recovering_neg - cl_dot_max * in.dt_s)
+            : cl_nom;
     }
 
     const float cl_eff       = _cl_recovering;
