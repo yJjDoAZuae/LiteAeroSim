@@ -339,6 +339,8 @@ OQ-1 through OQ-16 arose during the stall dynamics design and are fully resolved
 
 *Recommendation:* **Verify first.** Read `KinematicState.cpp` `pvDerivative()` and confirm whether a gravity term appears.  This is the highest-priority check because it resolves all three OQs and determines whether any code change is needed in `Aircraft.cpp` at all.
 
+*Finding:* [`src/KinematicState.cpp:28–38`](../../src/KinematicState.cpp) passes `accel_NED(0)`, `accel_NED(1)`, `accel_NED(2)` directly to the velocity derivatives with no additional term.  No gravity is added internally.  **Alternative A is refuted.**
+
 ---
 
 **Alternative B: `_q_nw` stores NED-to-Wind (opposite of the documented Wind-to-NED convention).**
@@ -346,6 +348,15 @@ OQ-1 through OQ-16 arose during the stall dynamics design and are fully resolved
 *Implication:* If `_q_nw.toRotationMatrix()` produces $C_{WN}$ (NED → Wind) rather than the documented $C_{NW}^{-1}$ (Wind → NED), then `R_nw_mat.transpose()` maps Wind → NED.  Evaluating `R_nw_mat.transpose() * {0, 0, g}_NED` uses a Wind → NED matrix applied to an NED vector — a frame mismatch.  For near-identity rotation (level flight) the numerical result is still approximately `{0, 0, g}`, so the first step would appear correct.  As the aircraft attitude changes during subsequent steps, the mismatch compounds.  This alternative cannot be the sole cause of the first-step error for level flight, but it could contribute to instability over longer runs.  It would also invalidate the existing landing-gear wind-frame transform (`F_gear_wind = R_nw_mat.transpose() * (R_nb_mat * F_body)`), which appears to work correctly in tests — evidence against Alternative B.
 
 *Recommendation:* **Check by examining `KinematicState::velocity_Wind_mps()`.**  The implementation doc states this returns `C_{WN} * (v_NED − wind_NED)`.  If `q_nw.toRotationMatrix()` is used there without transposition, the convention is NED → Wind (Alternative B is confirmed).  If it is used with transposition, the convention is Wind → NED (Alternative B is refuted).
+
+*Finding:* The landing gear force transform in [`src/Aircraft.cpp:243–245`](../../src/Aircraft.cpp) is:
+
+```cpp
+const Eigen::Matrix3f R_nw_mat = _state.q_nw().toRotationMatrix();
+const Eigen::Vector3f F_gear_wind = R_nw_mat.transpose() * (R_nb_mat * contact_forces.force_body_n);
+```
+
+`R_nw_mat.transpose()` is applied as the NED-to-Wind transform (body force rotated to NED by `R_nb_mat`, then to Wind by `R_nw_mat.transpose()`).  This definitively establishes that `q_nw.toRotationMatrix()` = $C_{NW}$ (Wind-to-NED), confirming the documented convention.  **Alternative B is refuted.**  No check of `velocity_Wind_mps()` is required.
 
 ---
 
@@ -357,13 +368,7 @@ OQ-1 through OQ-16 arose during the stall dynamics design and are fully resolved
 
 ---
 
-**Resolution path:** Before modifying any production code, write a single-step instrumented unit test:
-
-1. Initialize `KinematicState` with level-flight trim conditions.
-2. Call `step()` with `az_wind = 0` (zero Wind-Z acceleration) and zero roll rate.
-3. Assert that `velocity_NED_mps().z()` has not changed (verifying that `KinematicState` does not add gravity internally).
-4. If the assertion holds, Alternative A is refuted; proceed to test the gravity fix.
-5. If the assertion fails (velocity changes even with az = 0), Alternative A is confirmed; read `pvDerivative()` and document the gravity addition.
+**Resolution:** Both Alternative A and Alternative B are refuted by direct code inspection (see *Finding* notes above).  Alternative C is not a plausible explanation for the observed failure — as its analysis notes, it cannot produce a systematic first-step error.  The 17 800 m descent produced by the historical fix attempt was an implementation error; the specific error is not recoverable from the available record.  The mathematical derivation of the fix is correct: adding the Wind-frame gravity vector to step 10 yields $a_{NED,D} = 0$ at level-flight trim.  Proceed to [OQ-18](#oq-18--where-to-add-the-gravity-term) to decide where the gravity term belongs.
 
 ---
 
@@ -401,7 +406,7 @@ a_NED += Eigen::Vector3f{0.f, 0.f, kGravity};
 
 ---
 
-**Overall recommendation:** Resolve OQ-17 first.  If Alternative A of OQ-17 is confirmed (KinematicState already adds gravity), OQ-18 is moot — the current step 10 is correct.  If the gravity omission is confirmed, Alternative B of OQ-18 is lower risk for the codebase: gravity is in one place, callers cannot accidentally omit it, and `Aircraft.cpp` step 10 needs no change.  The documentation cost is a one-line parameter table update.
+**Resolution:** Git history confirms that `KinematicState::step()` has received `acceleration_Wind_mps` and rotated it to NED without adding gravity since the first implementation commit.  The parameter name, semantics, and absence of internal gravity are unchanged across every commit.  **Alternative A is correct.**  `KinematicState` has always been a physics-free frame-transform integrator; the caller is responsible for supplying the complete acceleration vector including gravity.  `Aircraft.cpp` has simply never fulfilled that contract.  No interface change is required; no documentation update to the `step()` parameter table is needed.  Gravity belongs in `Aircraft.cpp` step 10.
 
 ---
 
@@ -435,7 +440,7 @@ For $n_z = 1$: $a_{NED,D} = 0$ — but only when the gravity term $m\,g$ is incl
 
 ---
 
-**Overall recommendation:** Alternative B is correct.  Resolve OQ-17 to determine where the missing gravity term should be inserted (OQ-18).  Once the fix location is decided, remove the incorrect step 10 comment.
+**Resolution:** Alternative B is correct.  The load-factor constraint is a setpoint equation that determines the aerodynamic reaction to a commanded load factor; it does not introduce a gravity term into `acceleration_Wind_mps`.  The step 10 comment *"Gravity is embedded in the load-factor constraint — must not be added here"* is incorrect and must be removed when the fix is applied.  OQ-17 is resolved; proceed to [OQ-18](#oq-18--where-to-add-the-gravity-term) to decide where to insert the gravity term.
 
 ---
 
@@ -729,6 +734,46 @@ serialization.
 
 Design decisions for this section are recorded in [Open Questions — OQ-1 through OQ-16](#open-questions) (all resolved).
 
+---
+
+### Step 9 — Gravity Fix (`Aircraft.cpp` Step 10)
+
+All open questions (OQ-17 through OQ-19) are resolved.  The failing test `AircraftTest.StraightAndLevel_AllFixtures_100s` already exists and is failing, satisfying the TDD precondition.  Proceed directly to the production code fix.
+
+**Production code change — `src/Aircraft.cpp` step 10:**
+
+Remove the incorrect comment:
+
+```text
+Gravity is embedded in the load-factor constraint — must not be added here.
+```
+
+Replace the step 10 block with:
+
+```cpp
+// 10. Wind-frame specific force = aero + thrust + gravity.
+//    Thrust decomposition (Wind frame, X forward, Y right, Z down):
+//      Tx =  T·cos(α)·cos(β)
+//      Ty = -T·cos(α)·sin(β)
+//      Tz = -T·sin(α)
+//    Gravity in Wind frame: C_WN · g_NED = R_nw_mat^T · {0, 0, g}
+//    (R_nw_mat is already computed above for the landing gear transform.)
+constexpr float kGravity_mps2 = 9.80665f;
+const Eigen::Vector3f g_wind = R_nw_mat.transpose() * Eigen::Vector3f{0.f, 0.f, kGravity_mps2};
+
+const float ax = (T * ca * cb + F.x_n + F_gear_wind.x()) / m + g_wind.x();
+const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m + g_wind.y();
+const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m + g_wind.z();
+```
+
+**Verification — all must pass after the fix:**
+
+| Test | Expected outcome |
+| --- | --- |
+| `AircraftTest.StraightAndLevel_AllFixtures_100s` | Altitude drift < 50 m in 100 s for all three fixtures |
+| `AircraftTest.ZeroThrottle_AircraftDecelerates` | Unchanged — must continue to pass |
+| All other `AircraftTest` tests | Unchanged — must continue to pass |
+
 ### Implementation Order
 
 | Step | Status | Action |
@@ -741,7 +786,7 @@ Design decisions for this section are recorded in [Open Questions — OQ-1 throu
 | 6 | Done | Implement Item 2 (hysteresis flags) — tests first |
 | 7 | Done | Implement Item 3 (CL recovery) — tests first |
 | 8 | Done | Update `Aircraft.cpp` to read `alpha_dot_max_rad_s` from `load_factor_allocator` config, pass `dt_s` to `solve()`, and use `lfa_out.cl_eff` for the aerodynamic force computation |
-| 9 | Blocked on OQ-17 | Resolve OQ-17 through OQ-19, then add the missing gravity term to the force–acceleration integration and remove the incorrect step 10 comment |
+| 9 | Ready | OQ-17, OQ-18, and OQ-19 resolved; failing test `StraightAndLevel_AllFixtures_100s` already exists; implement gravity fix in `Aircraft.cpp` step 10 per [Step 9](#step-9--gravity-fix-aircraftcpp-step-10) |
 
 ---
 
@@ -758,11 +803,11 @@ Design decisions for this section are recorded in [Open Questions — OQ-1 throu
 
 | Test | Reason |
 | --- | --- |
-| `AircraftTest.StraightAndLevel_AllFixtures_100s` | Gravity omission in `Aircraft.cpp` step 10 (see [Aircraft.cpp → KinematicState Acceleration Interface](#aircraftcpp--kinematicstate-acceleration-interface)) causes ~100–300 m altitude drift in 100 s. Blocked on resolution of OQ-17. |
+| `AircraftTest.StraightAndLevel_AllFixtures_100s` | Gravity omission in `Aircraft.cpp` step 10 (see [Aircraft.cpp → KinematicState Acceleration Interface](#aircraftcpp--kinematicstate-acceleration-interface)) causes ~100–300 m altitude drift in 100 s. Fix is specified in [Step 9](#step-9--gravity-fix-aircraftcpp-step-10); all open questions resolved. |
 
 ### Coverage Gap
 
-No test verified altitude stability over multi-second simulation runs before `StraightAndLevel_AllFixtures_100s` was added.  The existing `AircraftTest.ZeroThrottle_AircraftDecelerates` runs for 0.5 s and checks speed only; it does not catch steady-state altitude drift.  `StraightAndLevel_AllFixtures_100s` fills this gap and is expected to pass once OQ-17 through OQ-19 are resolved and the gravity term is correctly integrated.
+No test verified altitude stability over multi-second simulation runs before `StraightAndLevel_AllFixtures_100s` was added.  The existing `AircraftTest.ZeroThrottle_AircraftDecelerates` runs for 0.5 s and checks speed only; it does not catch steady-state altitude drift.  `StraightAndLevel_AllFixtures_100s` fills this gap and is expected to pass once Step 9 is implemented.
 
 ---
 
