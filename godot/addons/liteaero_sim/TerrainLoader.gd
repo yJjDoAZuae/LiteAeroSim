@@ -222,7 +222,7 @@ func _find_camera(node: Node) -> Camera3D:
 func _create_materials() -> void:
 	_terrain_material = StandardMaterial3D.new()
 	_terrain_material.vertex_color_use_as_albedo = true
-	_terrain_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_terrain_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	_terrain_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	_aircraft_material = StandardMaterial3D.new()

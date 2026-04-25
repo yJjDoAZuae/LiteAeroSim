@@ -11,6 +11,8 @@
 
 namespace godot {
 
+class Label;
+
 class SimulationReceiver : public Node3D {
     GDCLASS(SimulationReceiver, Node3D)
 
@@ -40,6 +42,8 @@ private:
     void _open_socket();
     void _close_socket();
     void _decode_frame(const uint8_t* data, int size);
+    void _create_hud();
+    void _update_hud();
 
     // A decoded sim frame in Godot world space.
     struct GodotFrame {
@@ -61,6 +65,14 @@ private:
     // frame_prev_ is one sim step behind frame_curr_.
     GodotFrame frame_prev_;
     GodotFrame frame_curr_;
+
+    // Latest received HUD data (not interpolated — display raw sim values).
+    float latest_height_wgs84_m_ = 0.f;
+    float latest_airspeed_mps_   = 0.f;
+    float latest_agl_m_          = -1.f;  // -1 = no terrain
+
+    // HUD overlay label created programmatically in _ready().
+    Label* hud_label_ = nullptr;
 
     // POSIX / WinSock UDP socket file descriptor; -1 when not open.
     int socket_fd_ = -1;

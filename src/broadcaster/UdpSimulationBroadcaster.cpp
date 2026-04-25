@@ -80,6 +80,8 @@ void UdpSimulationBroadcaster::broadcast(const SimulationFrame& frame)
     proto.set_velocity_north_mps(frame.velocity_north_mps);
     proto.set_velocity_east_mps(frame.velocity_east_mps);
     proto.set_velocity_down_mps(frame.velocity_down_mps);
+    proto.set_airspeed_mps(frame.airspeed_mps);
+    proto.set_agl_m(frame.agl_m);
 
     const std::string serialized = proto.SerializeAsString();
 

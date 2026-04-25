@@ -468,4 +468,13 @@ void Aircraft::deserializeProto(const std::vector<uint8_t>& bytes) {
     }
 }
 
+// ---------------------------------------------------------------------------
+
+float Aircraft::agl_m() const {
+    if (_terrain == nullptr) return -1.f;
+    const auto& pos = _state.positionDatum();
+    return pos.height_WGS84_m() -
+           _terrain->elevation_m(pos.latitudeGeodetic_rad(), pos.longitude_rad());
+}
+
 } // namespace liteaero::simulation

@@ -81,6 +81,10 @@ public:
     // True when any wheel unit was in contact with terrain on the most recent step().
     bool weightOnWheels() const { return _landing_gear.contactForces().weight_on_wheels; }
 
+    // Height above terrain at the current position (m).
+    // Returns -1 if no terrain has been set via setTerrain().
+    float agl_m() const;
+
     // Serialize / deserialize warm-start state.
     // Note: deserializeJson() restores _propulsion state via _propulsion->deserializeJson()
     // but does not reconstruct the propulsion model itself — the correct Propulsion

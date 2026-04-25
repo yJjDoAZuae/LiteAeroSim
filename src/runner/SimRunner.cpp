@@ -207,6 +207,8 @@ void SimRunner::runLoop()
                 frame.velocity_north_mps = s.velocity_NED_mps()(0);
                 frame.velocity_east_mps  = s.velocity_NED_mps()(1);
                 frame.velocity_down_mps  = s.velocity_NED_mps()(2);
+                frame.airspeed_mps       = s.velocity_Wind_mps()(0);
+                frame.agl_m              = aircraft_->agl_m();
                 broadcaster_->broadcast(frame);
             }
         }

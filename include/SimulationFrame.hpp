@@ -17,6 +17,8 @@ struct SimulationFrame {
     float  velocity_north_mps;
     float  velocity_east_mps;
     float  velocity_down_mps;
+    float  airspeed_mps;      // true airspeed (wind-frame speed, m/s)
+    float  agl_m;             // altitude above terrain (m); -1 if no terrain set
 };
 
 } // namespace liteaero::simulation

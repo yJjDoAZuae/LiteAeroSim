@@ -372,6 +372,8 @@ message SimulationFrameProto {
     float  velocity_north_mps  = 9;
     float  velocity_east_mps   = 10;
     float  velocity_down_mps   = 11;
+    float  airspeed_mps        = 12;  // true airspeed (wind-frame speed, m/s)
+    float  agl_m               = 13;  // altitude above terrain (m); -1 if no terrain
 }
 
 // ---------------------------------------------------------------------------

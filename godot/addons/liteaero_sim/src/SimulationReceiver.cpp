@@ -14,8 +14,13 @@
 #include "liteaerosim.pb.h"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/memory.hpp>
+#include <godot_cpp/classes/canvas_layer.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/label.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <cmath>
@@ -102,6 +107,7 @@ void SimulationReceiver::_ready() {
     if (Engine::get_singleton()->is_editor_hint())
         return;
     _open_socket();
+    _create_hud();
 }
 
 void SimulationReceiver::_process(double /*delta*/) {
@@ -152,6 +158,7 @@ void SimulationReceiver::_process(double /*delta*/) {
 
     get_parent()->set("position",   pos);
     get_parent()->set("quaternion", rot);
+    _update_hud();
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +210,51 @@ void SimulationReceiver::_close_socket() {
 }
 
 // ---------------------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------------------
+
+void SimulationReceiver::_create_hud() {
+    CanvasLayer* canvas = memnew(CanvasLayer);
+    canvas->set_name("HudOverlay");
+    get_tree()->get_root()->add_child(canvas);
+
+    Label* label = memnew(Label);
+    label->set_name("HudLabel");
+    label->add_theme_font_size_override("font_size", 20);
+    label->add_theme_color_override("font_color", Color(0.0f, 1.0f, 0.2f, 1.0f));
+    // Anchor to top-right corner.
+    label->set_anchor(SIDE_LEFT,   1.0f);
+    label->set_anchor(SIDE_RIGHT,  1.0f);
+    label->set_anchor(SIDE_TOP,    0.0f);
+    label->set_anchor(SIDE_BOTTOM, 0.0f);
+    label->set_offset(SIDE_LEFT,  -230.0f);
+    label->set_offset(SIDE_RIGHT, -10.0f);
+    label->set_offset(SIDE_TOP,    20.0f);
+    label->set_offset(SIDE_BOTTOM, 110.0f);
+    label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_RIGHT);
+    canvas->add_child(label);
+    hud_label_ = label;
+}
+
+void SimulationReceiver::_update_hud() {
+    if (hud_label_ == nullptr)
+        return;
+
+    const int spd_kt = static_cast<int>(latest_airspeed_mps_ * 1.94384f);
+    const int alt_ft = static_cast<int>(latest_height_wgs84_m_ * 3.28084f);
+
+    String text = String("SPD  ") + String::num_int64(spd_kt) + " kt\n";
+    text       += String("ALT  ") + String::num_int64(alt_ft) + " ft\n";
+    if (latest_agl_m_ >= 0.f) {
+        const int agl_ft = static_cast<int>(latest_agl_m_ * 3.28084f);
+        text += String("AGL  ") + String::num_int64(agl_ft) + " ft";
+    } else {
+        text += String("AGL  ---");
+    }
+    hud_label_->set_text(text);
+}
+
+// ---------------------------------------------------------------------------
 // Frame decoding
 // ---------------------------------------------------------------------------
 
@@ -236,6 +288,11 @@ void SimulationReceiver::_decode_frame(const uint8_t* data, int size) {
     Quaternion q_b2n(frame.q_x(), frame.q_y(), frame.q_z(), frame.q_w());
     q_b2n = q_b2n.normalized();
     const Quaternion rot = (r_ned_to_godot * q_b2n).normalized();
+
+    // Store latest HUD data from this received frame.
+    latest_height_wgs84_m_ = frame.height_wgs84_m();
+    latest_airspeed_mps_   = frame.airspeed_mps();
+    latest_agl_m_          = frame.agl_m();
 
     // Shift curr -> prev, store new frame in curr.
     frame_prev_ = frame_curr_;

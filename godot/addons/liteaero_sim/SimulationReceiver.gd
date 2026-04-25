@@ -39,6 +39,7 @@ var world_origin_set: bool      = false
 const EARTH_RADIUS_M := 6371000.0
 
 var _socket: PacketPeerUDP = null
+var _hud_label: Label = null
 
 # ---------------------------------------------------------------------------
 
@@ -50,6 +51,29 @@ func _ready() -> void:
 		_socket = null
 	else:
 		print("SimulationReceiver: listening on port %d" % broadcast_port)
+	_create_hud()
+
+
+func _create_hud() -> void:
+	var canvas := CanvasLayer.new()
+	canvas.name = "HudOverlay"
+	get_tree().root.add_child(canvas)
+
+	var label := Label.new()
+	label.name = "HudLabel"
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(0.0, 1.0, 0.2, 1.0))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.set_anchor(SIDE_LEFT,   1.0)
+	label.set_anchor(SIDE_RIGHT,  1.0)
+	label.set_anchor(SIDE_TOP,    0.0)
+	label.set_anchor(SIDE_BOTTOM, 0.0)
+	label.set_offset(SIDE_LEFT,  -230.0)
+	label.set_offset(SIDE_RIGHT, -10.0)
+	label.set_offset(SIDE_TOP,    20.0)
+	label.set_offset(SIDE_BOTTOM, 110.0)
+	canvas.add_child(label)
+	_hud_label = label
 
 # ---------------------------------------------------------------------------
 
@@ -89,10 +113,12 @@ func _apply_frame(data: PackedByteArray) -> void:
 	var lat_rad: float  = parsed.get(2, 0.0)
 	var lon_rad: float  = parsed.get(3, 0.0)
 	var h_m: float      = parsed.get(4, 0.0)
-	var q_w: float      = parsed.get(5, 1.0)
-	var q_x: float      = parsed.get(6, 0.0)
-	var q_y: float      = parsed.get(7, 0.0)
-	var q_z: float      = parsed.get(8, 0.0)
+	var q_w: float          = parsed.get(5, 1.0)
+	var q_x: float          = parsed.get(6, 0.0)
+	var q_y: float          = parsed.get(7, 0.0)
+	var q_z: float          = parsed.get(8, 0.0)
+	var airspeed_mps: float = parsed.get(12, 0.0)
+	var agl_m: float        = parsed.get(13, -1.0)
 
 	# World origin must be set by TerrainLoader before any frame is processed.
 	if not world_origin_set:
@@ -120,6 +146,16 @@ func _apply_frame(data: PackedByteArray) -> void:
 	var r := Quaternion(0.5, 0.5, 0.5, -0.5)
 	var q_b2n := Quaternion(q_w, q_x, q_y, q_z).normalized()
 	get_parent().quaternion = (r * q_b2n).normalized()
+
+	if _hud_label != null:
+		var spd_kt := int(airspeed_mps * 1.94384)
+		var alt_ft := int(h_m * 3.28084)
+		var agl_line: String
+		if agl_m >= 0.0:
+			agl_line = "AGL  %d ft" % int(agl_m * 3.28084)
+		else:
+			agl_line = "AGL  ---"
+		_hud_label.text = "SPD  %d kt\nALT  %d ft\n%s" % [spd_kt, alt_ft, agl_line]
 
 # ---------------------------------------------------------------------------
 ## Minimal proto3 varint + wire-type decoder.
