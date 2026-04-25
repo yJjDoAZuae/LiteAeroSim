@@ -6,6 +6,7 @@
 #include "aerodynamics/LoadFactorAllocator.hpp"
 #include "airframe/AirframePerformance.hpp"
 #include "airframe/Inertia.hpp"
+#include "collision/BodyCollider.hpp"
 #include "landing_gear/LandingGear.hpp"
 #include <liteaero/control/FilterSS2Clip.hpp>
 #include <liteaero/terrain/Terrain.hpp>
@@ -99,8 +100,10 @@ private:
     Inertia                                           _inertia;
     std::unique_ptr<Propulsion>                       _propulsion;
     LandingGear                                       _landing_gear;
-    const liteaero::terrain::Terrain*               _terrain          = nullptr;
-    bool                                              _has_landing_gear = false;
+    BodyCollider                                      _body_collider;
+    const liteaero::terrain::Terrain*               _terrain            = nullptr;
+    bool                                              _has_landing_gear   = false;
+    bool                                              _has_body_collider  = false;
 
     // 2nd-order LP command response filters (Nz, Ny, roll rate).
     liteaero::control::FilterSS2Clip _nz_filter;

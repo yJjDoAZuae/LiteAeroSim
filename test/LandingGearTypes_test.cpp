@@ -1,7 +1,7 @@
 // Tests for ContactForces, StrutState, and WheelUnit data types — Step A.
 // Design authority: docs/architecture/landing_gear.md
 
-#include "landing_gear/ContactForces.hpp"
+#include "physics/ContactForces.hpp"
 #include "landing_gear/StrutState.hpp"
 #include "landing_gear/WheelUnit.hpp"
 #include <gtest/gtest.h>

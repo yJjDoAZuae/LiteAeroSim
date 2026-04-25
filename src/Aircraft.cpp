@@ -139,6 +139,14 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
     } else {
         _has_landing_gear = false;
     }
+
+    // 8. Body collider (optional — only initialized when "body_collider" section is present)
+    if (config.contains("body_collider")) {
+        _body_collider.initialize(config.at("body_collider"));
+        _has_body_collider = true;
+    } else {
+        _has_body_collider = false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +160,8 @@ void Aircraft::reset() {
     _roll_rate_filter.resetToInput(0.f);
     _allocator->reset();
     _propulsion->reset();
-    if (_has_landing_gear) _landing_gear.reset();
+    if (_has_landing_gear)  _landing_gear.reset();
+    if (_has_body_collider) _body_collider.reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +233,14 @@ void Aircraft::step(double time_sec,
             _outer_dt_s);
     }
 
+    // 8b. Body collider contact forces (accumulated into contact_forces for dynamics)
+    if (_has_body_collider && _terrain != nullptr) {
+        const auto bc = _body_collider.step(_state.snapshot(), *_terrain);
+        contact_forces.force_body_n   += bc.force_body_n;
+        contact_forces.moment_body_nm += bc.moment_body_nm;
+        contact_forces.weight_on_wheels |= bc.weight_on_wheels;
+    }
+
     // 9. Advance propulsion
     const float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3);
 
@@ -291,7 +308,8 @@ nlohmann::json Aircraft::serializeJson() const {
     if (_aeroPerf)        j["aero_performance"] = _aeroPerf->serializeJson();
     if (_allocator)       j["allocator"]         = _allocator->serializeJson();
     if (_propulsion)      j["propulsion"]         = _propulsion->serializeJson();
-    if (_has_landing_gear) j["landing_gear_state"] = _landing_gear.serializeJson();
+    if (_has_landing_gear)  j["landing_gear_state"]   = _landing_gear.serializeJson();
+    if (_has_body_collider) j["body_collider_config"]  = _body_collider.serializeJson();
     return j;
 }
 
@@ -331,6 +349,9 @@ void Aircraft::deserializeJson(const nlohmann::json& j) {
     }
     if (_has_landing_gear && j.contains("landing_gear_state")) {
         _landing_gear.deserializeJson(j.at("landing_gear_state"));
+    }
+    if (_has_body_collider && j.contains("body_collider_config")) {
+        _body_collider.deserializeJson(j.at("body_collider_config"));
     }
 }
 

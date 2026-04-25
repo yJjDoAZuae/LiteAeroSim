@@ -43,6 +43,14 @@ void LandingGear::initialize(const nlohmann::json& config) {
         _wheel_units.push_back(std::move(wu));
     }
 
+    // Worst-case reach: for any orientation, no contact point can be further
+    // below the CG than attach_point.norm() + travel_max + tyre_radius.
+    _max_reach_m = 0.f;
+    for (const auto& p : _config.wheel_units) {
+        const float reach = p.attach_point_body_m.norm() + p.travel_max_m + p.tyre_radius_m;
+        _max_reach_m = std::max(_max_reach_m, reach);
+    }
+
     _contact_forces = ContactForces{};
     _initialized    = true;
 }
@@ -75,9 +83,14 @@ ContactForces LandingGear::step(const liteaero::nav::KinematicStateSnapshot& sna
     const Eigen::Vector3f v_body = R_bn * snap.velocity_ned_mps;
     const Eigen::Vector3f omega  = snap.rates_body_rps;
 
-    // Terrain query once per outer step (performance: 3 queries for tricycle gear)
+    // Single terrain query at CG; also used for AGL early-exit.
     const float terrain_h = terrain.elevation_m(snap.position.latitude_rad,
                                                  snap.position.longitude_rad);
+
+    if (h_ac - terrain_h > _max_reach_m) {
+        _contact_forces = ContactForces{};
+        return _contact_forces;
+    }
 
     const float inner_dt_s = outer_dt_s / static_cast<float>(_config.substeps);
     const int   n          = static_cast<int>(_wheel_units.size());

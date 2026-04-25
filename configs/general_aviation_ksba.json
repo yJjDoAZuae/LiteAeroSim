@@ -90,6 +90,31 @@
             }
         ]
     },
+    "body_collider": {
+        "volumes": [
+            {
+                "name": "fuselage",
+                "half_extents_body_m":  [2.20, 0.55, 0.55],
+                "center_offset_body_m": [0.0, 0.0, 0.25],
+                "stiffness_npm": 30000.0,
+                "damping_nspm":  1500.0
+            },
+            {
+                "name": "wing",
+                "half_extents_body_m":  [0.70, 5.0, 0.09],
+                "center_offset_body_m": [0.0, 0.0, 0.05],
+                "stiffness_npm": 20000.0,
+                "damping_nspm":  800.0
+            },
+            {
+                "name": "horizontal_tail",
+                "half_extents_body_m":  [0.40, 1.65, 0.06],
+                "center_offset_body_m": [-5.0, 0.0, 0.05],
+                "stiffness_npm": 15000.0,
+                "damping_nspm":  600.0
+            }
+        ]
+    },
     "terrain": {
         "_comment": "Coverage half-side for terrain build — independent of initial_state",
         "radius_km": 33.0

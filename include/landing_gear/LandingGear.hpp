@@ -1,6 +1,6 @@
 #pragma once
 
-#include <landing_gear/ContactForces.hpp>
+#include <physics/ContactForces.hpp>
 #include <landing_gear/SurfaceFrictionUniform.hpp>
 #include <landing_gear/WheelUnit.hpp>
 #include <liteaero/nav/KinematicStateSnapshot.hpp>
@@ -50,7 +50,8 @@ private:
     std::vector<WheelUnit>   _wheel_units;
     ContactForces            _contact_forces;
     SurfaceFrictionUniform   _surface_friction{SurfaceFrictionUniform::pavement()};
-    bool                     _initialized = false;
+    float                    _max_reach_m  = 0.f;
+    bool                     _initialized  = false;
 };
 
 }  // namespace liteaero::simulation

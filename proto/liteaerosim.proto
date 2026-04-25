@@ -317,6 +317,22 @@ message AirDataStateProto {
 }
 
 // ---------------------------------------------------------------------------
+// BodyCollider — one collision volume and the top-level config
+// ---------------------------------------------------------------------------
+message CollisionVolumeParams {
+    string   name                 = 1;
+    Vector3f half_extents_body_m  = 2;
+    Vector3f center_offset_body_m = 3;
+    float    stiffness_npm        = 4;
+    float    damping_nspm         = 5;
+}
+
+message BodyColliderParams {
+    int32                          schema_version = 1;
+    repeated CollisionVolumeParams volumes        = 2;
+}
+
+// ---------------------------------------------------------------------------
 // Landing Gear — per-wheel state, contact forces, and full gear state
 // ---------------------------------------------------------------------------
 

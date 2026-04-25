@@ -35,6 +35,17 @@
         "cl_sep": 0.9,
         "cl_sep_neg": -0.5
     },
+    "body_collider": {
+        "volumes": [
+            {
+                "name": "prism",
+                "half_extents_body_m":  [0.55, 0.85, 0.70],
+                "center_offset_body_m": [0.15, 0.0, 0.35],
+                "stiffness_npm": 15000.0,
+                "damping_nspm":  750.0
+            }
+        ]
+    },
     "visualization": {
         "mesh_res_path": "res://assets/test_prism.glb"
     },
