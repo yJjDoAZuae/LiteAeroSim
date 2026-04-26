@@ -108,6 +108,134 @@ detailed design specification in
 implementation that replaces it. The GDScript placeholder is not blocking for
 the first live-sim run.
 
+### Issue 6 — Terrain DEM heights are orthometric (EGM96) but consumed as WGS84 ellipsoidal
+
+**Status:** Open — root cause of "aircraft reacts at higher AGL than rendered
+terrain shows" symptoms reported during live-sim flight tests.
+
+The terrain build pipeline downloads Copernicus GLO-30 DEM via the Sentinel Hub
+Process API. The evalscript in
+[`python/tools/terrain/download.py`](../../python/tools/terrain/download.py)
+documents the returned values explicitly:
+
+```text
+DEM — FLOAT32 elevation GeoTIFF (metres, MSL-adjusted via EGM96)
+```
+
+Copernicus GLO-30 publishes heights against the **EGM2008 geoid** (orthometric,
+mean-sea-level). The Sentinel Hub `dem_2018` instance returns values referenced to
+EGM96. Either way, the source values are **orthometric**, not ellipsoidal. This
+contradicts the comment in
+[`python/tools/terrain/geoid_correct.py`](../../python/tools/terrain/geoid_correct.py)
+that claims "Copernicus DEM is already ellipsoidal."
+
+Downstream the pipeline labels these heights as `height_wgs84_m`:
+
+| Stage | File | Field name |
+| --- | --- | --- |
+| Triangulation | `triangulate.py` | `centroid_height_m` (passed as ellipsoidal to ECEF/ENU math) |
+| Serialization | `las_terrain.py` | `centroid.height_wgs84_m` (metadata JSON) |
+| C++ tile | `TerrainTile::centroid().height_wgs84_m` | (proto field name) |
+| Elevation query | `TerrainMesh::elevation_m()` | returns `centroid.height_wgs84_m + interpolated_up_offset` |
+
+The `apply_geoid_correction()` helper exists in `geoid_correct.py` and converts
+orthometric → ellipsoidal heights via PROJ EPSG:9518 → EPSG:4979. **It is never
+called.** A grep of `apply_geoid_correction` finds the definition, its tests, and
+documentation references — but no invocation in `build_terrain.py` or any other
+build-pipeline module.
+
+`Aircraft.cpp:108` reads `initial_state.altitude_m` and stores it directly as
+`setHeight_WGS84_m()`. The simulation's `KinematicState`, `SimulationFrame`, and
+`SimulationFrameProto` all carry `height_wgs84_m` as ellipsoidal. So:
+
+- **Aircraft state** is treated as **WGS84 ellipsoidal** throughout the simulation.
+- **Terrain elevations** in `TerrainMesh` are **orthometric (EGM96)** but the field
+  names assert ellipsoidal.
+
+The geoid undulation $N$ at KSBA is approximately **−33 m** (geoid below ellipsoid).
+The two datums therefore disagree by ~33 m at that location. Whether the
+disagreement manifests as a visible AGL error depends on what the user types into
+`initial_state.altitude_m`:
+
+- If the user types the **chart MSL** elevation (typical aviator practice — KSBA
+  is published as 13 ft MSL ≈ 4 m), the value is stored as `h_WGS84 = 4 m`, and the
+  terrain DEM at that location reads ≈ 4 m orthometric (also stored as
+  `h_WGS84 = 4 m`). The two values match numerically by accident; AGL = 0 on the
+  runway. The labels are wrong, but the simulation works.
+- If the user types the **true WGS84 ellipsoidal** height (≈ −29 m at KSBA), the
+  aircraft is initialized 33 m below the terrain — `agl_m()` returns −33 m and the
+  landing gear penetrates from the start.
+
+**Required fix:** call `apply_geoid_correction()` in `build_terrain.py` between
+the `mosaic_dem` step and the `triangulate` step, producing an ellipsoidal DEM.
+After the fix, terrain heights truly are WGS84 ellipsoidal and the field names are
+honest. The user must then supply `initial_state.altitude_m` as a WGS84 ellipsoidal
+value — for KSBA this is ≈ −29 m, not the chart MSL value. A documentation note
+or an `initial_state.altitude_msl_m` config field with automatic geoid lookup
+would prevent surprises.
+
+### Issue 7 — Earth curvature treated inconsistently between aircraft position and terrain placement
+
+**Status:** Open — secondary contributor to visual/sim AGL mismatch, magnitude grows
+with horizontal distance from world origin.
+
+Terrain GLB tile placement uses **full ECEF→ENU math** in
+[`python/tools/terrain/export_gltf.py`](../../python/tools/terrain/export_gltf.py)
+(`_enu_offset_between` goes through ECEF). Per-vertex up-offsets within each tile
+are likewise computed via ECEF in `triangulate.py:_geodetic_to_enu_vec`. Both are
+curvature-aware: at 25 km horizontal distance the ECEF "up" component drops by
+$d^2/(2R) \approx 49\ \text{m}$ relative to a flat-Earth approximation.
+
+The aircraft side, by contrast, uses a **flat-Earth tangent-plane approximation**.
+[`SimulationReceiver.cpp:_decode_frame`](../../godot/addons/liteaero_sim/src/SimulationReceiver.cpp)
+and the GDScript placeholder both compute:
+
+```cpp
+double dlat    = lat_rad - world_origin_lat_rad_;
+double dlon    = lon_rad - world_origin_lon_rad_;
+double north_m = dlat * k_earth_radius_m;
+double east_m  = dlon * k_earth_radius_m * std::cos(world_origin_lat_rad_);
+double up_m    = h_WGS84_m - world_origin_h_m_;     // pure subtraction, no curvature
+```
+
+The aircraft `up_m` is a flat vertical subtraction; no curvature correction is
+applied. So the rendered aircraft Y position sits on the **tangent plane at the
+world origin**, while the rendered terrain sits on the **WGS84 ellipsoid** (via the
+ECEF math in the GLB). The two surfaces diverge with horizontal distance from
+origin:
+
+| Distance from world origin | Curvature drop $d^2/(2R)$ |
+| --- | --- |
+| 5 km | 2 m |
+| 10 km | 8 m |
+| 25 km | 49 m |
+| 50 km | 196 m |
+| 100 km | 785 m |
+
+The aircraft is rendered **above** where the terrain actually sits (the rendered
+ground appears to drop away as the aircraft flies away from origin), while the
+simulation's `Aircraft::agl_m()` is curvature-correct because it never goes
+through `world_origin` — it queries `terrain.elevation_m()` at the aircraft's own
+lat/lon and subtracts from `h_WGS84`. Result: at 25 km from origin the simulation
+says `AGL = 0` (gear-contact triggered) when the visual scene shows the aircraft
+~49 m above the rendered terrain. This matches the symptom report.
+
+`TerrainMesh::elevation_m()` itself uses tile-local tangent-plane math
+(`return centroid.height_wgs84_m + u*v0.up_m + v*v1.up_m + w*v2.up_m`) which
+combines a tile-centroid-frame ENU offset with the centroid's absolute height.
+This produces a small in-tile curvature error (~13 m at the corner of a 25 km
+tile) but does not contribute the dominant 49 m+ visual mismatch — that comes
+entirely from the aircraft side.
+
+**Required fix:** make `SimulationReceiver` compute the aircraft Godot position via
+the same ECEF→ENU transform used by `export_gltf.py`. The transform is exactly
+`_enu_offset_between(aircraft_geodetic, world_origin_geodetic)` followed by the
+glTF axis permutation `(east, up, −north)`. After the fix, the aircraft and
+terrain share the same tangent-plane treatment and visual AGL matches simulation
+AGL at all distances. The reference implementation already exists in
+[`src/environment/TerrainMesh.cpp`](../../src/environment/TerrainMesh.cpp)
+(`geodeticToEcef` + `ecefOffsetToEnu`).
+
 ---
 
 ## C++ Component Design
