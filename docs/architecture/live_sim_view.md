@@ -1488,23 +1488,23 @@ can be undertaken in parallel.
 
 **Phase 2 — New modules built on the foundations:**
 
-4. LS-T4 — Projection module (requires LS-T1).
-5. LS-T6 — Atmosphere conversion (requires LS-T2).
+1. LS-T4 — Projection module (requires LS-T1).
+2. LS-T6 — Atmosphere conversion (requires LS-T2).
 
 **Phase 3 — Wire format and broadcaster integration:**
 
-6. LS-T5 — Extend `SimulationFrameProto` and wire the projector into the
+1. LS-T5 — Extend `SimulationFrameProto` and wire the projector into the
    broadcaster (requires LS-T4).
 
 **Phase 4 — Consumer integration (parallel-able):**
 
-7. LS-T7 — `live_sim` launcher composes a projector (requires LS-T5).
-8. LS-T8 — Receiver simplification (requires LS-T5).
+1. LS-T7 — `live_sim` launcher composes a projector (requires LS-T5).
+2. LS-T8 — Receiver simplification (requires LS-T5).
 
 **Phase 5 — Closeout:**
 
-9. LS-T9 — Documentation cross-references.
-10. LS-T10 — End-to-end validation flight.
+1. LS-T9 — Documentation cross-references.
+2. LS-T10 — End-to-end validation flight.
 
 ### Risks and mitigations
 
