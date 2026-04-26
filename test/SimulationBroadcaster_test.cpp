@@ -12,8 +12,10 @@
 #include "SimulationFrame.hpp"
 #include "broadcaster/ISimulationBroadcaster.hpp"
 #include "broadcaster/UdpSimulationBroadcaster.hpp"
+#include "projection/IViewerProjector.hpp"
 #include "runner/SimRunner.hpp"
 #include "Aircraft.hpp"
+#include "liteaerosim.pb.h"
 #include "propulsion/Propulsion.hpp"
 
 #include <gtest/gtest.h>
@@ -147,12 +149,13 @@ static std::unique_ptr<Aircraft> make_aircraft(float dt_s = 0.02f)
 TEST(SimulationBroadcaster, test_simulation_frame_size)
 {
     // SimulationFrame: timestamp_s, latitude_rad, longitude_rad (3 doubles = 24 B)
-    //                  + height_wgs84_m, q_w/x/y/z, velocity N/E/D (8 floats = 32 B)
-    //                  = 56 bytes (all members naturally aligned; no padding).
+    //                  + height_wgs84_m, q_w/x/y/z, velocity N/E/D,
+    //                    airspeed_mps, agl_m (10 floats = 40 B)
+    //                  = 64 bytes (all members naturally aligned; no padding).
     static_assert(sizeof(double) == 8, "unexpected double size");
     static_assert(sizeof(float)  == 4, "unexpected float size");
 
-    constexpr size_t expected = 3 * sizeof(double) + 8 * sizeof(float);  // 56
+    constexpr size_t expected = 3 * sizeof(double) + 10 * sizeof(float);  // 64
     EXPECT_EQ(sizeof(SimulationFrame), expected);
 
     // Verify field offsets are consistent with the protobuf schema field order.
@@ -193,6 +196,82 @@ TEST(SimulationBroadcaster, test_udp_broadcaster_sends_datagram)
     close_socket(recv_sock);
 
     EXPECT_GT(received, 0) << "No datagram received on loopback port " << kTestPort;
+}
+
+// ---------------------------------------------------------------------------
+// LS-T5: viewer-projected position (proto fields 14-16)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Stub projector that emits fixed values regardless of input.
+class StubProjector final : public liteaero::projection::IViewerProjector {
+public:
+    StubProjector(float x, float y, float z) : x_(x), y_(y), z_(z) {}
+    liteaero::projection::ViewerPosition project(double, double, float) const override {
+        return {x_, y_, z_};
+    }
+private:
+    float x_, y_, z_;
+};
+
+}  // namespace
+
+TEST(SimulationBroadcaster, test_broadcaster_with_projector_populates_viewer_fields)
+{
+    constexpr uint16_t kPort = 14571;
+    socket_t recv_sock = open_recv_socket(kPort);
+    ASSERT_NE(recv_sock, kInvalidSocket) << "Could not bind loopback receiver socket";
+
+    StubProjector projector(11.f, 22.f, 33.f);
+    {
+        UdpSimulationBroadcaster broadcaster(kPort, &projector);
+        SimulationFrame frame{};
+        frame.timestamp_s    = 1.0;
+        frame.latitude_rad   = 0.1;
+        frame.longitude_rad  = 0.2;
+        frame.height_wgs84_m = 100.f;
+        frame.q_w = 1.f;
+        broadcaster.broadcast(frame);
+    }
+
+    std::array<char, 4096> buf{};
+    const int received = static_cast<int>(
+        recv(recv_sock, buf.data(), static_cast<int>(buf.size()), 0));
+    close_socket(recv_sock);
+    ASSERT_GT(received, 0);
+
+    las_proto::SimulationFrameProto proto;
+    ASSERT_TRUE(proto.ParseFromArray(buf.data(), received));
+    EXPECT_FLOAT_EQ(proto.viewer_x_m(), 11.f);
+    EXPECT_FLOAT_EQ(proto.viewer_y_m(), 22.f);
+    EXPECT_FLOAT_EQ(proto.viewer_z_m(), 33.f);
+}
+
+TEST(SimulationBroadcaster, test_broadcaster_without_projector_zeros_viewer_fields)
+{
+    constexpr uint16_t kPort = 14572;
+    socket_t recv_sock = open_recv_socket(kPort);
+    ASSERT_NE(recv_sock, kInvalidSocket) << "Could not bind loopback receiver socket";
+
+    {
+        UdpSimulationBroadcaster broadcaster(kPort);  // no projector
+        SimulationFrame frame{};
+        frame.q_w = 1.f;
+        broadcaster.broadcast(frame);
+    }
+
+    std::array<char, 4096> buf{};
+    const int received = static_cast<int>(
+        recv(recv_sock, buf.data(), static_cast<int>(buf.size()), 0));
+    close_socket(recv_sock);
+    ASSERT_GT(received, 0);
+
+    las_proto::SimulationFrameProto proto;
+    ASSERT_TRUE(proto.ParseFromArray(buf.data(), received));
+    EXPECT_FLOAT_EQ(proto.viewer_x_m(), 0.f);
+    EXPECT_FLOAT_EQ(proto.viewer_y_m(), 0.f);
+    EXPECT_FLOAT_EQ(proto.viewer_z_m(), 0.f);
 }
 
 // ---------------------------------------------------------------------------

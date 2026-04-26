@@ -44,8 +44,7 @@ typedef int socklen_t;
 using namespace godot;
 
 namespace {
-    constexpr double k_earth_radius_m = 6371000.0;
-    constexpr int    k_recv_buf_size  = 512;
+    constexpr int k_recv_buf_size = 512;
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -77,9 +76,8 @@ void SimulationReceiver::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "max_datagrams_per_frame"),
                  "set_max_datagrams_per_frame", "get_max_datagrams_per_frame");
 
-    ClassDB::bind_method(
-        D_METHOD("set_world_origin", "lat_rad", "lon_rad", "h_m"),
-        &SimulationReceiver::set_world_origin);
+    // LS-T8: world-origin awareness moved to the simulation side
+    // (GodotEnuProjector); the receiver is no longer aware of the origin.
 }
 
 // ---------------------------------------------------------------------------
@@ -91,13 +89,6 @@ int  SimulationReceiver::get_broadcast_port() const   { return broadcast_port_; 
 
 void SimulationReceiver::set_max_datagrams_per_frame(int n) { max_datagrams_per_frame_ = n; }
 int  SimulationReceiver::get_max_datagrams_per_frame() const { return max_datagrams_per_frame_; }
-
-void SimulationReceiver::set_world_origin(double lat_rad, double lon_rad, double h_m) {
-    world_origin_lat_rad_ = lat_rad;
-    world_origin_lon_rad_ = lon_rad;
-    world_origin_h_m_     = h_m;
-    world_origin_set_     = true;
-}
 
 // ---------------------------------------------------------------------------
 // Godot lifecycle
@@ -265,22 +256,12 @@ void SimulationReceiver::_decode_frame(const uint8_t* data, int size) {
         return;
     }
 
-    if (!world_origin_set_) {
-        UtilityFunctions::print("SimulationReceiver: world origin not set — dropping frame");
-        return;
-    }
-
-    // Geodetic -> ENU offset from world origin (flat-Earth approximation).
-    double dlat    = frame.latitude_rad()  - world_origin_lat_rad_;
-    double dlon    = frame.longitude_rad() - world_origin_lon_rad_;
-    double north_m = dlat * k_earth_radius_m;
-    double east_m  = dlon * k_earth_radius_m * std::cos(world_origin_lat_rad_);
-    double up_m    = static_cast<double>(frame.height_wgs84_m()) - world_origin_h_m_;
-
-    // ENU -> Godot position: X=East, Y=Up, Z=-North.
-    const Vector3 pos(static_cast<float>(east_m),
-                      static_cast<float>(up_m),
-                      static_cast<float>(-north_m));
+    // LS-T8: read the simulation-side viewer-projected position directly
+    // (curvature-aware, computed by liteaero::projection::GodotEnuProjector
+    // in the broadcaster).  This eliminates the visual/sim AGL mismatch that
+    // came from this receiver applying a flat-Earth approximation while the
+    // terrain GLB was placed via ECEF -> ENU.  See live_sim_view.md Issue 7.
+    const Vector3 pos(frame.viewer_x_m(), frame.viewer_y_m(), frame.viewer_z_m());
 
     // Body-to-NED quaternion -> body-to-Godot quaternion.
     // NED->Godot frame rotation: Quaternion(x=0.5, y=0.5, z=-0.5, w=0.5)

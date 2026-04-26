@@ -110,8 +110,16 @@ the first live-sim run.
 
 ### Issue 6 — Terrain DEM heights are orthometric (EGM96) but consumed as WGS84 ellipsoidal
 
-**Status:** Open — root cause of "aircraft reacts at higher AGL than rendered
-terrain shows" symptoms reported during live-sim flight tests.
+**Status:** Resolved — LS-T3 wired `apply_geoid_correction()` into
+`build_terrain.py` between mosaicking and triangulation, with a per-source
+geoid table (`copernicus_dem_glo30 → egm2008`, `nasadem → egm96`,
+`srtm → egm96`).  `metadata.json` now records the `dem_geoid` used.  LS-T2
+adds a runtime EGM2008 lookup (`liteaero::geodesy::Egm2008Geoid`) and LS-T6
+wires it into `SimRunner` so atmospheric density queries convert
+h_WGS84 → h_MSL via the geoid undulation at the aircraft's lat/lon.  Aircraft
+config `initial_state.altitude_m` continues to be interpreted as WGS84
+ellipsoidal (OQ-LS-12 Option A); chart-MSL values must be converted by the
+user before authoring.
 
 The terrain build pipeline downloads Copernicus GLO-30 DEM via the Sentinel Hub
 Process API. The evalscript in
@@ -176,8 +184,16 @@ would prevent surprises.
 
 ### Issue 7 — Earth curvature treated inconsistently between aircraft position and terrain placement
 
-**Status:** Open — secondary contributor to visual/sim AGL mismatch, magnitude grows
-with horizontal distance from world origin.
+**Status:** Resolved — LS-T4 created `liteaero::projection::GodotEnuProjector`
+which performs full curvature-aware ECEF → ENU at the configured world origin
+and applies the glTF axis permutation.  LS-T5 extended `SimulationFrameProto`
+with `viewer_x_m / viewer_y_m / viewer_z_m` (fields 14–16); the broadcaster
+invokes the projector once per frame to populate them.  LS-T7 wires the
+projector into `live_sim.cpp` from `terrain_config.json`.  LS-T8 strips the
+flat-Earth math from `SimulationReceiver` (both GDExtension and GDScript) so
+it now reads `viewer_x/y/z_m` directly into `Vehicle.position`.  The aircraft
+and terrain GLB now share the same ECEF-based projection from the same
+origin; visual AGL matches simulation AGL at all horizontal distances.
 
 Terrain GLB tile placement uses **full ECEF→ENU math** in
 [`python/tools/terrain/export_gltf.py`](../../python/tools/terrain/export_gltf.py)
@@ -398,20 +414,24 @@ World (Node3D)
 └── Camera3D
 ```
 
-### `SimulationReceiver` behaviour per `_process()` frame
+### `SimulationReceiver` behavior per `_process()` frame
+
+Post-LS-T8, the receiver is a thin pass-through.  All curvature-aware projection
+math lives simulation-side in
+[`liteaero::projection::GodotEnuProjector`](../../include/projection/GodotEnuProjector.hpp);
+the receiver no longer carries a world origin or any geodetic transforms.
 
 1. Read all pending UDP datagrams (non-blocking socket; up to `max_datagrams_per_frame`).
 2. For the latest datagram: deserialize `SimulationFrameProto` (via protobuf C++ runtime
    in GDExtension; via hand-rolled parser in GDScript placeholder).
-3. Compute ENU offset from world origin (set by `TerrainLoader._ready()`):
+3. Read viewer-projected position from proto fields 14–16:
 
    ```text
-   east_m  = (lon - lon_0) * R_earth * cos(lat_0)
-   north_m = (lat - lat_0) * R_earth
-   up_m    = height_wgs84_m - h_0
+   Vehicle.position = Vector3(viewer_x_m, viewer_y_m, viewer_z_m)
    ```
 
-   Godot position: `Vector3(east_m, up_m, -north_m)`.
+   These values are in Godot/glTF axis convention (X=East, Y=Up, Z=−North)
+   and were computed simulation-side using full ECEF→ENU at the world origin.
 4. Convert body-to-NED quaternion to body-to-Godot quaternion using the
    NED→Godot rotation quaternion $(x=0.5,\ y=0.5,\ z=-0.5,\ w=0.5)$
    (Godot `Quaternion` constructor order is `(x, y, z, w)`).
@@ -419,9 +439,14 @@ World (Node3D)
 
 ### World origin
 
-`TerrainLoader._ready()` reads `terrain_config.json` and sets the world origin
-on `SimulationReceiver` before any UDP packet arrives. If terrain is not loaded,
-`SimulationReceiver` logs an error on the first received frame.
+The world origin is owned by the simulation side: `live_sim.cpp` reads
+`world_origin_lat_rad / lon_rad / height_m` from `terrain_config.json` and
+constructs a `GodotEnuProjector` with it.  `TerrainLoader.gd` no longer
+pushes the origin into the receiver — the field stays in `terrain_config.json`
+purely for the simulation to consume.  If `terrain_config.json` is missing
+or omits the world-origin fields, `live_sim.cpp` warns and the broadcaster
+emits zero `viewer_*` fields; the Godot scene then renders the vehicle at
+its scene-tree origin until the broadcaster is reconfigured.
 
 ---
 

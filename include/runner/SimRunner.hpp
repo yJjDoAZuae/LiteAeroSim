@@ -2,6 +2,7 @@
 
 #include "Aircraft.hpp"
 #include "broadcaster/ISimulationBroadcaster.hpp"
+#include "environment/Atmosphere.hpp"
 #include "input/ManualInput.hpp"
 #include "runner/ChannelRegistry.hpp"
 
@@ -10,6 +11,8 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+
+namespace liteaero::geodesy { class Egm2008Geoid; }
 
 namespace liteaero::simulation {
 
@@ -43,6 +46,15 @@ public:
     // ownership; the broadcaster must outlive the run.
     void set_broadcaster(ISimulationBroadcaster* broadcaster);
 
+    // Inject the EGM2008 geoid lookup (LS-T6 / OQ-LS-14).  When set, the
+    // runner converts the aircraft's WGS84 ellipsoidal height to MSL via
+    // geoid.wgs84ToMsl_m(lat, lon, h) before each atmosphere query — making
+    // atmospheric density physically correct.  When nullptr (default) the
+    // runner treats h_WGS84 as MSL directly, accepting a bias of order N
+    // (the local geoid undulation, ~ -33 m at KSBA).  SimRunner does not
+    // take ownership; the geoid must outlive the run.
+    void setGeoid(const liteaero::geodesy::Egm2008Geoid* geoid);
+
     // Returns a mutex-protected snapshot of the ManualInputFrame produced on
     // the most recent tick.  Returns a neutral frame when no adapter is set or
     // before the first tick.  Safe to call from any thread.
@@ -60,6 +72,8 @@ private:
     Aircraft*                  aircraft_     = nullptr;
     ManualInput*               manual_input_ = nullptr;
     ISimulationBroadcaster*    broadcaster_  = nullptr;
+    Atmosphere                 atmosphere_;  // ISA, default config
+    const liteaero::geodesy::Egm2008Geoid* geoid_ = nullptr;
     std::atomic<bool>     stop_flag_    {false};
     std::atomic<bool>     running_      {false};
     std::atomic<uint64_t> step_count_   {0};

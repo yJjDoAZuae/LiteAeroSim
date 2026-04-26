@@ -30,11 +30,6 @@ public:
     void set_max_datagrams_per_frame(int n);
     int  get_max_datagrams_per_frame() const;
 
-    // Called by TerrainLoader._ready() before any UDP packet arrives.
-    // Sets the geodetic world origin used to convert absolute geodetic
-    // coordinates in each datagram to a local ENU offset.
-    void set_world_origin(double lat_rad, double lon_rad, double h_m);
-
 protected:
     static void _bind_methods();
 
@@ -55,11 +50,6 @@ private:
 
     int broadcast_port_          = 14560;
     int max_datagrams_per_frame_ = 64;
-
-    double world_origin_lat_rad_ = 0.0;
-    double world_origin_lon_rad_ = 0.0;
-    double world_origin_h_m_     = 0.0;
-    bool   world_origin_set_     = false;
 
     // Two most recently received frames for interpolation.
     // frame_prev_ is one sim step behind frame_curr_.

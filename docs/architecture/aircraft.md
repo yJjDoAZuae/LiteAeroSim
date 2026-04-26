@@ -831,7 +831,7 @@ step (`runner_dt_s`) is **not** in the JSON — it is passed as a separate param
 | `lift_curve.cl_sep_neg` | `float` | `LiftCurveParams::cl_sep_neg` |
 | `initial_state.latitude_rad` | `double` | `WGS84_Datum` → `KinematicState` |
 | `initial_state.longitude_rad` | `double` | `WGS84_Datum` → `KinematicState` |
-| `initial_state.altitude_m` | `float` | `WGS84_Datum` → `KinematicState` |
+| `initial_state.altitude_m` | `float` | `WGS84_Datum` → `KinematicState` (**WGS84 ellipsoidal height**, m; NOT chart MSL — see live_sim_view.md OQ-LS-12) |
 | `initial_state.velocity_north_mps` | `float` | `velocity_NED_mps(0)` |
 | `initial_state.velocity_east_mps` | `float` | `velocity_NED_mps(1)` |
 | `initial_state.velocity_down_mps` | `float` | `velocity_NED_mps(2)` |

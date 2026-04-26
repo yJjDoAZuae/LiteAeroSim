@@ -374,6 +374,12 @@ message SimulationFrameProto {
     float  velocity_down_mps   = 11;
     float  airspeed_mps        = 12;  // true airspeed (wind-frame speed, m/s)
     float  agl_m               = 13;  // altitude above terrain (m); -1 if no terrain
+    // Viewer-projected position in the configured viewer's local 3D frame.
+    // Populated by UdpSimulationBroadcaster when a projector is configured;
+    // zero when not.  See live_sim_view.md §OQ-LS-15 / Task LS-T5.
+    float  viewer_x_m          = 14;
+    float  viewer_y_m          = 15;
+    float  viewer_z_m          = 16;
 }
 
 // ---------------------------------------------------------------------------

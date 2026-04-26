@@ -19,11 +19,22 @@ from pathlib import Path
 from colorize import colorize
 from download import DownloadError, default_cache_dir, download_dem, download_imagery
 from export_gltf import export_gltf
+from geoid_correct import apply_geoid_correction
 from las_terrain import TerrainTileData, write_las_terrain
 from mosaic import mosaic_dem, mosaic_imagery
 from terrain_paths import derived_dir, gltf_path, las_terrain_dir, metadata_path, source_dir
 from triangulate import lod_grid_spacing_deg, triangulate
 from verify import MeshQualityError, check
+
+# DEM source -> native geoid model.  Each source publishes orthometric heights
+# referenced to a specific geoid; geoid_correct.apply_geoid_correction() must
+# be invoked with the matching geoid to convert to WGS84 ellipsoidal.
+# Resolution per OQ-LS-13.
+_DEM_SOURCE_GEOID: dict[str, str] = {
+    "copernicus_dem_glo30": "egm2008",
+    "nasadem":              "egm96",
+    "srtm":                 "egm96",
+}
 
 _log = logging.getLogger("build_terrain")
 
@@ -216,6 +227,27 @@ def build_terrain(
     mosaic_imagery(img_chunk_paths, img_mosaic_path)
 
     # -------------------------------------------------------------------
+    # Step 2a: Apply geoid correction (orthometric -> WGS84 ellipsoidal).
+    #
+    # All currently-supported DEM sources publish orthometric heights against
+    # one of two geoid models (EGM2008 for Copernicus; EGM96 for NASADEM/SRTM).
+    # The downstream pipeline (triangulate, las_terrain) treats heights as
+    # WGS84 ellipsoidal, so the conversion must occur here.  Resolution per
+    # OQ-LS-13.  See live_sim_view.md Issue 6.
+    # -------------------------------------------------------------------
+    geoid = _DEM_SOURCE_GEOID.get(dem_source)
+    if geoid is None:
+        raise ValueError(
+            f"unknown dem_source '{dem_source}': no geoid mapping configured"
+        )
+    dem_ellipsoidal_path = s_dir / "dem_ellipsoidal.tif"
+    _log.info(
+        "%s: geoid correction (%s -> WGS84 ellipsoidal) ...",
+        dataset_name, geoid,
+    )
+    apply_geoid_correction(dem_mosaic_path, dem_ellipsoidal_path, geoid=geoid)
+
+    # -------------------------------------------------------------------
     # Step 3: Triangulate and colorize all LOD levels
     # -------------------------------------------------------------------
     all_tiles: list[TerrainTileData] = []
@@ -227,7 +259,7 @@ def build_terrain(
         )
         for row, col, cell_bbox in cells:
             _log.debug("%s: LOD %d  row=%d col=%d ...", dataset_name, lod, row, col)
-            tile = triangulate(dem_mosaic_path, cell_bbox, lod=lod)
+            tile = triangulate(dem_ellipsoidal_path, cell_bbox, lod=lod)
             tile = colorize(tile, img_mosaic_path, source=imagery_source)
             check(tile)
             all_tiles.append(tile)
@@ -292,6 +324,7 @@ def build_terrain(
         "radius_m": radius_m,
         "lod_range": [0, 6],
         "dem_source": dem_source,
+        "dem_geoid": geoid,
         "imagery_source": imagery_source,
         "dem_resolution_deg": _L0_RESOLUTION_DEG,
         "bbox_deg": list(bbox_deg),

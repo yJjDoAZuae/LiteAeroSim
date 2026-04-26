@@ -1,4 +1,5 @@
 #include "environment/Atmosphere.hpp"
+#include "geodesy/Egm2008Geoid.hpp"
 #include <cmath>
 #include <stdexcept>
 
@@ -155,6 +156,33 @@ float Atmosphere::density_altitude_m(float altitude_m) const {
 float Atmosphere::density_ratio(float altitude_m) const {
     // Compute rho(h) / rho(0) to give exactly 1.0 at sea level.
     return density_kgm3(altitude_m) / density_kgm3(0.f);
+}
+
+// ---------------------------------------------------------------------------
+// WGS84-input overloads (LS-T6 / OQ-LS-14)
+//
+// Converts WGS84 ellipsoidal height to MSL by subtracting the EGM2008 geoid
+// undulation N(lat, lon).  When the optional geoid is null the conversion is
+// skipped and h_wgs84_m is treated as MSL — the caller has accepted the bias
+// (~ N, on the order of -33 m at KSBA, +47 m at KDEN).  The simulation domain
+// has no logger, so absent-geoid usage is silent; deployment code is expected
+// to plumb a geoid pointer through SimRunner.
+// ---------------------------------------------------------------------------
+
+AtmosphericState Atmosphere::state_at_wgs84_m(
+    double lat_rad, double lon_rad, float h_wgs84_m,
+    const liteaero::geodesy::Egm2008Geoid* geoid) const
+{
+    const float h_msl_m =
+        geoid ? geoid->wgs84ToMsl_m(lat_rad, lon_rad, h_wgs84_m) : h_wgs84_m;
+    return state(h_msl_m);
+}
+
+float Atmosphere::density_at_wgs84_m(
+    double lat_rad, double lon_rad, float h_wgs84_m,
+    const liteaero::geodesy::Egm2008Geoid* geoid) const
+{
+    return state_at_wgs84_m(lat_rad, lon_rad, h_wgs84_m, geoid).density_kgm3;
 }
 
 const AtmosphereConfig& Atmosphere::config() const {

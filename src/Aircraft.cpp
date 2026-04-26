@@ -105,6 +105,9 @@ void Aircraft::initialize(const nlohmann::json& config, float outer_dt_s) {
     WGS84_Datum datum;
     datum.setLatitudeGeodetic_rad(is.at("latitude_rad").get<double>());
     datum.setLongitude_rad(is.at("longitude_rad").get<double>());
+    // initial_state.altitude_m is WGS84 ellipsoidal (OQ-LS-12 Option A).
+    // SimRunner converts to MSL via the EGM2008 geoid before atmospheric
+    // queries (LS-T6 / OQ-LS-14).
     datum.setHeight_WGS84_m(is.at("altitude_m").get<float>());
 
     const Eigen::Vector3f vel_NED{

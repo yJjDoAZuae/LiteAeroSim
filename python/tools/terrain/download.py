@@ -44,7 +44,13 @@ _TOKEN_URL = (
     "/auth/realms/CDSE/protocol/openid-connect/token"
 )
 
-# Evalscript: DEM — FLOAT32 elevation GeoTIFF (metres, MSL-adjusted via EGM96).
+# Evalscript: DEM — FLOAT32 elevation GeoTIFF (metres, orthometric / MSL).
+#
+# Vertical datum by source (orthometric heights, NOT WGS84 ellipsoidal — these
+# values must be passed through geoid_correct.apply_geoid_correction() before
+# being treated as ellipsoidal):
+#   COPERNICUS_30 / COPERNICUS_90 -> EGM2008
+#   NASADEM, SRTM                 -> EGM96
 _EVALSCRIPT_DEM = (
     "//VERSION=3\n"
     "function setup(){return{"

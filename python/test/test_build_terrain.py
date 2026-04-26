@@ -369,6 +369,20 @@ class TestEndToEndMocked:
     def _mock_check(tile) -> None:
         """Accept any tile (mesh quality check mocked)."""
 
+    @staticmethod
+    def _mock_apply_geoid_correction(
+        dem_path: Path, output_path: Path, *, geoid: str = "egm2008"
+    ) -> None:
+        """Copy the input DEM to the output without modification.
+
+        The downstream triangulate step is itself mocked and does not read
+        the file, so a no-op is sufficient and avoids requiring PROJ network
+        access during unit tests.
+        """
+        import shutil
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(dem_path, output_path)
+
     def _all_mocks(self, bt, cache_dir: Path):
         """Return a context manager applying all pipeline stubs."""
         from contextlib import ExitStack
@@ -379,6 +393,10 @@ class TestEndToEndMocked:
         )
         stack.enter_context(
             patch.object(bt, "download_imagery", self._make_mock_download_imagery(cache_dir))
+        )
+        stack.enter_context(
+            patch.object(bt, "apply_geoid_correction",
+                         self._mock_apply_geoid_correction)
         )
         stack.enter_context(patch.object(bt, "triangulate", self._mock_triangulate))
         stack.enter_context(patch.object(bt, "colorize", self._mock_colorize))
@@ -427,6 +445,58 @@ class TestEndToEndMocked:
         assert meta["schema_version"] == 1
         assert meta["dataset_name"] == "test_aircraft"
         assert meta["lod_range"] == [0, 6]
+
+    def test_geoid_correction_invoked_with_per_source_geoid(
+        self, tmp_path: Path, _aircraft_config: Path
+    ) -> None:
+        """LS-T3: build_terrain must select the geoid model from the DEM source.
+
+        Verifies the per-source geoid table from OQ-LS-13:
+            copernicus_dem_glo30 -> egm2008
+            nasadem              -> egm96
+            srtm                 -> egm96
+        """
+        import build_terrain as bt
+        from contextlib import ExitStack
+
+        for dem_source, expected_geoid in [
+            ("copernicus_dem_glo30", "egm2008"),
+            ("nasadem",              "egm96"),
+            ("srtm",                 "egm96"),
+        ]:
+            captured = {}
+
+            def capturing_geoid_correct(
+                dem_path: Path, output_path: Path, *, geoid: str = "egm2008"
+            ) -> None:
+                captured["geoid"] = geoid
+                self._mock_apply_geoid_correction(
+                    dem_path, output_path, geoid=geoid)
+
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(
+                    bt, "download_dem",
+                    self._make_mock_download_dem(tmp_path / "cache")))
+                stack.enter_context(patch.object(
+                    bt, "download_imagery",
+                    self._make_mock_download_imagery(tmp_path / "cache")))
+                stack.enter_context(patch.object(
+                    bt, "apply_geoid_correction", capturing_geoid_correct))
+                stack.enter_context(patch.object(bt, "triangulate", self._mock_triangulate))
+                stack.enter_context(patch.object(bt, "colorize", self._mock_colorize))
+                stack.enter_context(patch.object(bt, "check", self._mock_check))
+
+                bt.build_terrain(
+                    _aircraft_config,
+                    name=f"test_{dem_source}",
+                    dem_source=dem_source,
+                    force=True,
+                )
+
+            assert captured.get("geoid") == expected_geoid, (
+                f"DEM source {dem_source!r} should use {expected_geoid!r}, "
+                f"got {captured.get('geoid')!r}"
+            )
 
     def test_godot_terrain_config_created(
         self, tmp_path: Path, _aircraft_config: Path

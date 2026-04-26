@@ -116,6 +116,13 @@ void SimRunner::set_broadcaster(ISimulationBroadcaster* broadcaster)
 
 // ---------------------------------------------------------------------------
 
+void SimRunner::setGeoid(const liteaero::geodesy::Egm2008Geoid* geoid)
+{
+    geoid_ = geoid;
+}
+
+// ---------------------------------------------------------------------------
+
 ManualInputFrame SimRunner::lastManualInputFrame() const
 {
     std::lock_guard<std::mutex> lock(frame_mutex_);
@@ -141,7 +148,6 @@ void SimRunner::runLoop()
     const auto t_start = Clock::now();
 
     const Eigen::Vector3f wind_NED_mps = Eigen::Vector3f::Zero();
-    constexpr float rho_kgm3 = 1.225f;
 
     while (!stop_flag_.load()) {
         const uint64_t k          = step_count_.load();
@@ -168,6 +174,17 @@ void SimRunner::runLoop()
             std::lock_guard<std::mutex> lock(frame_mutex_);
             last_frame_ = frame;
         }
+
+        // Altitude-varying density (LS-T6 / OQ-LS-14).  density_at_wgs84_m
+        // converts h_WGS84 -> h_MSL via the optional EGM2008 geoid before
+        // querying the ISA model; when geoid_ is null the bias is ~ N (the
+        // local geoid undulation) but the altitude variation is correct.
+        const auto& pos      = aircraft_->state().positionDatum();
+        const float rho_kgm3 = atmosphere_.density_at_wgs84_m(
+            pos.latitudeGeodetic_rad(),
+            pos.longitude_rad(),
+            pos.height_WGS84_m(),
+            geoid_);
 
         aircraft_->step(sim_time_s, frame.command, wind_NED_mps, rho_kgm3);
         step_count_.store(k + 1);

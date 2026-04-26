@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 #include "environment/TerrainMesh.hpp"
+#include "geodesy/Wgs84.hpp"
 #include "liteaerosim.pb.h"
 #include "tiny_gltf.h"
 #include <cfloat>
@@ -13,10 +14,13 @@ namespace liteaero::simulation {
 using namespace liteaero::terrain;
 
 // ---------------------------------------------------------------------------
-// WGS84 constants
+// WGS84 / Earth constants
+//
+// Geodetic transform helpers (geodeticToEcef, ecefOffsetToEnu, enuToEcefOffset,
+// primeVerticalRadius) and the WGS84 ellipsoid constants live in the shared
+// liteaero::geodesy module — see include/geodesy/Wgs84.hpp.  Only the cell-
+// extent constants specific to TerrainMesh remain here.
 // ---------------------------------------------------------------------------
-static constexpr double kWgs84A       = 6378137.0;       // semi-major axis (m)
-static constexpr double kWgs84E2      = 6.69437999014e-3; // first eccentricity squared
 static constexpr double kEarthMeanR   = 6371000.0;        // mean radius for cell extent (m)
 static constexpr int    kLodCount     = 7;
 
@@ -46,47 +50,10 @@ uint64_t TerrainMesh::cellKey(double lat_rad, double lon_rad, TerrainLod lod) {
     return (lat_idx << 48) | (lon_idx << 32) | (static_cast<uint64_t>(static_cast<int>(lod)) << 16);
 }
 
-// Prime-vertical radius of curvature N(lat).
-static double primeVerticalRadius(double lat_rad) {
-    const double s = std::sin(lat_rad);
-    return kWgs84A / std::sqrt(1.0 - kWgs84E2 * s * s);
-}
-
-// Geodetic (lat, lon, h) → ECEF (X, Y, Z).
-static void geodeticToEcef(double lat, double lon, double h,
-                            double& X, double& Y, double& Z) {
-    const double N  = primeVerticalRadius(lat);
-    const double cl = std::cos(lat), sl = std::sin(lat);
-    const double co = std::cos(lon), so = std::sin(lon);
-    X = (N + h) * cl * co;
-    Y = (N + h) * cl * so;
-    Z = (N * (1.0 - kWgs84E2) + h) * sl;
-}
-
-// ECEF offset dXYZ → ENU components at reference (lat, lon).
-//   east  = R_ENU(0,:) · dXYZ
-//   north = R_ENU(1,:) · dXYZ
-//   up    = R_ENU(2,:) · dXYZ
-static void ecefOffsetToEnu(double lat, double lon,
-                             double dX, double dY, double dZ,
-                             double& east, double& north, double& up) {
-    const double sl = std::sin(lat), cl = std::cos(lat);
-    const double so = std::sin(lon), co = std::cos(lon);
-    east  = -so * dX  +  co * dY;
-    north = -sl * co * dX  - sl * so * dY  + cl * dZ;
-    up    =  cl * co * dX  + cl * so * dY  + sl * dZ;
-}
-
-// ENU (east, north, up) → ECEF offset dXYZ at reference (lat, lon).
-static void enuToEcefOffset(double lat, double lon,
-                             double east, double north, double up,
-                             double& dX, double& dY, double& dZ) {
-    const double sl = std::sin(lat), cl = std::cos(lat);
-    const double so = std::sin(lon), co = std::cos(lon);
-    dX = -so * east  + (-sl * co) * north  + (cl * co) * up;
-    dY =  co * east  + (-sl * so) * north  + (cl * so) * up;
-    dZ =               cl * north           + sl * up;
-}
+// Geodesy helpers now live in liteaero::geodesy (see include/geodesy/Wgs84.hpp).
+using liteaero::geodesy::geodeticToEcef;
+using liteaero::geodesy::ecefOffsetToEnu;
+using liteaero::geodesy::enuToEcefOffset;
 
 // Select the finest LOD level that is >= max_lod and present in cell.
 // Returns empty if no acceptable tile exists.
@@ -319,8 +286,10 @@ std::vector<TileRef> TerrainMesh::queryLocalAABB(
         // Prime vertical east radius: N*cos(lat) ≈ a*cos(lat).
         const double lat_half_rad = (b.lat_max_rad - b.lat_min_rad) * 0.5;
         const double lon_half_rad = (b.lon_max_rad - b.lon_min_rad) * 0.5;
-        const double R_north = kWgs84A * (1.0 - kWgs84E2);          // conservative meridional
-        const double R_east  = kWgs84A * std::cos(lat_c);            // prime vertical * cos(lat)
+        const double R_north = liteaero::geodesy::kWgs84A
+                             * (1.0 - liteaero::geodesy::kWgs84E2);   // conservative meridional
+        const double R_east  = liteaero::geodesy::kWgs84A * std::cos(lat_c);
+                                                                     // prime vertical * cos(lat)
         const double cell_north_half = lat_half_rad * R_north;
         const double cell_east_half  = lon_half_rad * R_east;
 

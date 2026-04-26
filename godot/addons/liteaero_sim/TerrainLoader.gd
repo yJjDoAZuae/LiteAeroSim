@@ -149,7 +149,9 @@ func _ready() -> void:
 	else:
 		push_error("TerrainLoader: terrain_material is null — shader creation failed")
 	_load_aircraft_mesh(config)
-	_set_world_origin(config)
+	# LS-T8: SimulationReceiver no longer needs the world origin.  The
+	# simulation-side GodotEnuProjector consumes terrain_config.json directly
+	# (live_sim.cpp wiring) and broadcasts viewer-projected position over UDP.
 	_update_camera()
 
 # ---------------------------------------------------------------------------
@@ -442,43 +444,6 @@ func _find_vehicle(node: Node) -> Node3D:
 	return null
 
 
-## Set world origin on the SimulationReceiver node found in the scene tree.
-## Supports both the native GDExtension type and the GDScript placeholder.
-func _set_world_origin(config: Dictionary) -> void:
-	var receiver := _find_simulation_receiver(get_tree().root)
-	if receiver == null:
-		push_warning("TerrainLoader: SimulationReceiver not found in scene tree")
-		print("TerrainLoader: SimulationReceiver not found — world origin NOT set")
-		return
-
-	var lat_rad := float(config.get("world_origin_lat_rad", 0.0))
-	var lon_rad := float(config.get("world_origin_lon_rad", 0.0))
-	var h_m     := float(config.get("world_origin_height_m", 0.0))
-
-	print("TerrainLoader: setting world origin lat=", lat_rad, " lon=", lon_rad, " h=", h_m)
-	print("TerrainLoader: receiver class=", receiver.get_class())
-
-	if receiver.has_method("set_world_origin"):
-		receiver.set_world_origin(lat_rad, lon_rad, h_m)
-	else:
-		# GDScript placeholder — direct property assignment.
-		receiver.world_origin_lat_rad = lat_rad
-		receiver.world_origin_lon_rad = lon_rad
-		receiver.world_origin_h_m     = h_m
-		receiver.world_origin_set     = true
-
-
-## Depth-first search for the SimulationReceiver node.
-## Detects both the native GDExtension type (by class name) and the GDScript
-## placeholder (by script resource path) so TerrainLoader works in either state.
-func _find_simulation_receiver(node: Node) -> Node:
-	if node.has_method("set_world_origin"):
-		return node
-	var script: Script = node.get_script() as Script
-	if script != null and script.resource_path.ends_with("SimulationReceiver.gd"):
-		return node
-	for child: Node in node.get_children():
-		var result := _find_simulation_receiver(child)
-		if result != null:
-			return result
-	return null
+# LS-T8: _set_world_origin and _find_simulation_receiver removed.  The
+# simulation-side GodotEnuProjector (in live_sim.cpp) reads the world origin
+# directly from terrain_config.json; the receiver no longer needs it.

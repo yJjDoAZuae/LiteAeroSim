@@ -29,14 +29,9 @@ extends Node3D
 ## Maximum datagrams to drain per _process() frame (bounds latency spike).
 @export var max_datagrams_per_frame: int = 10
 
-## World origin geodetic coordinates.  Set by TerrainLoader before any UDP packets
-## arrive.  world_origin_set must be true before _apply_frame() positions the vehicle.
-var world_origin_lat_rad: float = 0.0
-var world_origin_lon_rad: float = 0.0
-var world_origin_h_m: float     = 0.0
-var world_origin_set: bool      = false
-
-const EARTH_RADIUS_M := 6371000.0
+# LS-T8: viewer-projected position arrives in proto fields 14-16 (viewer_x_m,
+# viewer_y_m, viewer_z_m), computed simulation-side by GodotEnuProjector.
+# This receiver no longer needs the world origin or any geodetic math.
 
 var _socket: PacketPeerUDP = null
 var _hud_label: Label = null
@@ -93,47 +88,35 @@ func _process(_delta: float) -> void:
 
 ## Parse a SimulationFrameProto binary datagram and apply to Vehicle transform.
 ##
-## SimulationFrameProto wire format (proto3, fields 1-11, all scalar):
+## SimulationFrameProto wire format (proto3, fields 1-16, all scalar).  LS-T8
+## reads the viewer-projected position from fields 14-16 directly; the
+## simulation-side GodotEnuProjector does the curvature-aware ECEF -> ENU
+## projection so this receiver does not need to know the world origin.
 ##   field 1  (double): timestamp_s
-##   field 2  (double): latitude_rad
-##   field 3  (double): longitude_rad
-##   field 4  (float):  height_wgs84_m
-##   field 5  (float):  q_w
-##   field 6  (float):  q_x
-##   field 7  (float):  q_y
-##   field 8  (float):  q_z
-##   field 9  (float):  velocity_north_mps
-##   field 10 (float):  velocity_east_mps
-##   field 11 (float):  velocity_down_mps
+##   field 4  (float):  height_wgs84_m       (HUD only)
+##   field 5..8 (float): q_w/q_x/q_y/q_z     (body-to-NED quaternion)
+##   field 12 (float):  airspeed_mps         (HUD only)
+##   field 13 (float):  agl_m                (HUD only)
+##   field 14 (float):  viewer_x_m
+##   field 15 (float):  viewer_y_m
+##   field 16 (float):  viewer_z_m
 func _apply_frame(data: PackedByteArray) -> void:
 	var parsed := _parse_proto(data)
 	if parsed.is_empty():
 		return
 
-	var lat_rad: float  = parsed.get(2, 0.0)
-	var lon_rad: float  = parsed.get(3, 0.0)
-	var h_m: float      = parsed.get(4, 0.0)
+	var h_m: float          = parsed.get(4, 0.0)
 	var q_w: float          = parsed.get(5, 1.0)
 	var q_x: float          = parsed.get(6, 0.0)
 	var q_y: float          = parsed.get(7, 0.0)
 	var q_z: float          = parsed.get(8, 0.0)
 	var airspeed_mps: float = parsed.get(12, 0.0)
 	var agl_m: float        = parsed.get(13, -1.0)
+	var viewer_x: float     = parsed.get(14, 0.0)
+	var viewer_y: float     = parsed.get(15, 0.0)
+	var viewer_z: float     = parsed.get(16, 0.0)
 
-	# World origin must be set by TerrainLoader before any frame is processed.
-	if not world_origin_set:
-		push_error("SimulationReceiver: world origin not set — run build_terrain and ensure TerrainLoader._ready() executes before the first UDP packet")
-		return
-
-	# Geodetic -> ENU offset from world origin.
-	var dlat := lat_rad - world_origin_lat_rad
-	var dlon := lon_rad - world_origin_lon_rad
-	var north_m := dlat * EARTH_RADIUS_M
-	var east_m  := dlon * EARTH_RADIUS_M * cos(world_origin_lat_rad)
-	var up_m    := h_m - world_origin_h_m
-
-	# ENU -> Godot position: X=East, Y=Up, Z=-North
-	get_parent().position = Vector3(east_m, up_m, -north_m)
+	get_parent().position = Vector3(viewer_x, viewer_y, viewer_z)
 
 	# Body-to-NED quaternion -> body-to-Godot quaternion.
 	# NED->Godot rotation: North->-Z, East->+X, Down->-Y.

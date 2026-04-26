@@ -1,6 +1,11 @@
 #include "environment/Atmosphere.hpp"
+#include "geodesy/Egm2008Geoid.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <vector>
 
 using namespace liteaero::simulation;
 
@@ -155,4 +160,73 @@ TEST(AtmosphereTest, SchemaVersionMismatch_Throws) {
     nlohmann::json j = atm.serializeJson();
     j["schema_version"] = 99;
     EXPECT_THROW(atm.deserializeJson(j), std::runtime_error);
+}
+
+// ---------------------------------------------------------------------------
+// LS-T6 / OQ-LS-14: WGS84-input overloads
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::filesystem::path writeConstantUndulationGrid(
+    const std::string& fixture_name, float undulation_m)
+{
+    const auto out =
+        std::filesystem::temp_directory_path() / (fixture_name + ".egm2008");
+    std::ofstream f(out, std::ios::binary | std::ios::trunc);
+    const char magic[8] = {'E', 'G', 'M', '2', '0', '0', '8', '\0'};
+    f.write(magic, sizeof(magic));
+    const std::uint32_t version = 1;
+    f.write(reinterpret_cast<const char*>(&version), sizeof(version));
+    const double lat_min = -1.0, lat_max = 1.0, lon_min = -1.0, lon_max = 1.0;
+    f.write(reinterpret_cast<const char*>(&lat_min), sizeof(double));
+    f.write(reinterpret_cast<const char*>(&lat_max), sizeof(double));
+    f.write(reinterpret_cast<const char*>(&lon_min), sizeof(double));
+    f.write(reinterpret_cast<const char*>(&lon_max), sizeof(double));
+    const std::uint32_t n_lat = 2, n_lon = 2;
+    f.write(reinterpret_cast<const char*>(&n_lat), sizeof(std::uint32_t));
+    f.write(reinterpret_cast<const char*>(&n_lon), sizeof(std::uint32_t));
+    const std::vector<float> values(4, undulation_m);
+    f.write(reinterpret_cast<const char*>(values.data()),
+            static_cast<std::streamsize>(values.size() * sizeof(float)));
+    return out;
+}
+
+}  // namespace
+
+TEST(AtmosphereTest, StateAtWgs84_NoGeoid_MatchesStateAtSameNumericInput) {
+    Atmosphere atm;
+    const float h_input = 1500.0f;
+    const auto a = atm.state(h_input);
+    const auto b = atm.state_at_wgs84_m(0.0, 0.0, h_input, /*geoid=*/nullptr);
+    EXPECT_FLOAT_EQ(a.density_kgm3, b.density_kgm3);
+    EXPECT_FLOAT_EQ(a.pressure_pa,  b.pressure_pa);
+    EXPECT_FLOAT_EQ(a.temperature_k, b.temperature_k);
+}
+
+TEST(AtmosphereTest, StateAtWgs84_WithGeoid_AppliesUndulation) {
+    // KSBA-like geoid: N = -33 m.  h_WGS84 = -29 m -> h_MSL = -29 - (-33) = +4 m.
+    const auto path = writeConstantUndulationGrid("atm_geoid", -33.0f);
+    liteaero::geodesy::Egm2008Geoid geoid(path);
+
+    Atmosphere atm;
+    const float h_wgs84 = -29.0f;
+
+    const auto with_geoid    = atm.state_at_wgs84_m(0.0, 0.0, h_wgs84, &geoid);
+    const auto reference_msl = atm.state(/*h_msl=*/4.0f);
+
+    EXPECT_NEAR(with_geoid.density_kgm3, reference_msl.density_kgm3, 1e-5f);
+    EXPECT_NEAR(with_geoid.pressure_pa,  reference_msl.pressure_pa,  1e-1f);
+    EXPECT_NEAR(with_geoid.temperature_k, reference_msl.temperature_k, 1e-3f);
+}
+
+TEST(AtmosphereTest, DensityAtWgs84_WithGeoid_MatchesStateAtWgs84) {
+    const auto path = writeConstantUndulationGrid("atm_density", -33.0f);
+    liteaero::geodesy::Egm2008Geoid geoid(path);
+
+    Atmosphere atm;
+    const float h_wgs84 = -29.0f;
+    EXPECT_FLOAT_EQ(
+        atm.density_at_wgs84_m(0.0, 0.0, h_wgs84, &geoid),
+        atm.state_at_wgs84_m(0.0, 0.0, h_wgs84, &geoid).density_kgm3);
 }

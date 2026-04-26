@@ -1,4 +1,5 @@
 #include "broadcaster/UdpSimulationBroadcaster.hpp"
+#include "projection/IViewerProjector.hpp"
 #include "liteaerosim.pb.h"
 
 #ifdef _WIN32
@@ -24,9 +25,12 @@ namespace liteaero::simulation {
 
 // ---------------------------------------------------------------------------
 
-UdpSimulationBroadcaster::UdpSimulationBroadcaster(uint16_t port)
+UdpSimulationBroadcaster::UdpSimulationBroadcaster(
+    uint16_t port,
+    const liteaero::projection::IViewerProjector* projector)
     : socket_fd_(static_cast<intptr_t>(kInvalidSocket))
     , port_(port)
+    , projector_(projector)
 {
 #ifdef _WIN32
     WSADATA wsa{};
@@ -82,6 +86,18 @@ void UdpSimulationBroadcaster::broadcast(const SimulationFrame& frame)
     proto.set_velocity_down_mps(frame.velocity_down_mps);
     proto.set_airspeed_mps(frame.airspeed_mps);
     proto.set_agl_m(frame.agl_m);
+
+    // Viewer-projected position (LS-T5 / OQ-LS-15).  When no projector is
+    // configured, the fields remain zero; downstream receivers treat zero as
+    // "absent" and fall back to their own coordinate handling.
+    if (projector_ != nullptr) {
+        const auto vp = projector_->project(frame.latitude_rad,
+                                            frame.longitude_rad,
+                                            frame.height_wgs84_m);
+        proto.set_viewer_x_m(vp.x_m);
+        proto.set_viewer_y_m(vp.y_m);
+        proto.set_viewer_z_m(vp.z_m);
+    }
 
     const std::string serialized = proto.SerializeAsString();
 
