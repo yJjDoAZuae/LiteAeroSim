@@ -919,6 +919,285 @@ determined by their own polling interval.
 
 ---
 
+### OQ-LS-12 — Vertical datum convention for `initial_state.altitude_m`
+
+**Status:** Open — blocks Issue 6 fix.
+
+After the geoid-correction step is added to `build_terrain.py`, the
+`.las_terrain` file will hold true WGS84 ellipsoidal heights and the
+`height_wgs84_m` field name will finally be honest. The aircraft side already
+treats `initial_state.altitude_m` as ellipsoidal
+([`Aircraft.cpp:108`](../../src/Aircraft.cpp)). The accidental numeric agreement
+between chart-MSL altitudes and orthometric DEM heights goes away once the DEM
+is corrected, so the user-facing convention must be settled.
+
+**Option A — `altitude_m` means WGS84 ellipsoidal (no compatibility shims).**
+
+The aircraft config simply requires the user to supply an ellipsoidal value.
+Chart-MSL elevations must be converted by the user (e.g., via PROJ or a
+pre-flight planning tool). Atmospheric model implications: see OQ-LS-14.
+
+Pros: simplest implementation; matches the C++ field naming exactly; no
+runtime geoid lookup; consistent with the project rule "no backward
+compatibility, no schema iteration."
+
+Cons: aviator-unfriendly. Pilots and chart consumers think in MSL; nobody
+publishes ellipsoidal field elevations. Anyone building a config from real
+airport data must do an external lookup (~33 m offset at KSBA, +47 m at KDEN,
+−10 m at LFPG). Easy to get wrong silently.
+
+**Option B — Add `altitude_msl_m` config field with one-time geoid lookup.**
+
+Aircraft config accepts EITHER `altitude_m` (ellipsoidal, as today) OR
+`altitude_msl_m` (orthometric / chart MSL). If the latter, `Aircraft.cpp`
+performs a single PROJ geoid lookup at initialization and converts to
+ellipsoidal before storing. Both fields must not be present simultaneously —
+that is a config error.
+
+Pros: aviator-friendly path is available; ellipsoidal path remains for
+machine-generated configs; conversion is a one-shot at init (no per-frame
+cost); the stored `KinematicState.position.altitude_m` continues to be true
+WGS84 ellipsoidal so all internal math is unchanged.
+
+Cons: introduces a PROJ dependency in the C++ aircraft initialization path
+(currently PROJ is Python-only), or requires a custom EGM2008 lookup table
+shipped with the build. Adds a config field and the rule that they're
+mutually exclusive.
+
+**Option C — Make `altitude_m` mean MSL throughout the simulation.**
+
+Rename the field-but-not-yet — the simulation switches to MSL/orthometric
+internally. Terrain queries return MSL. ECEF transforms add a per-call geoid
+undulation lookup to convert to ellipsoidal where ECEF math is required (e.g.,
+visualization-side ECEF→ENU).
+
+Pros: most aviator-friendly. Atmosphere model gets the "right" input directly.
+
+Cons: large refactor — `WGS84_Datum`, `KinematicState.position.altitude_m`,
+proto field `height_wgs84_m`, and many call sites all need renaming. ECEF
+math (e.g., `geodeticToEcef`) requires ellipsoidal; would now need a per-call
+geoid lookup, paid every iteration. Increases the chance of subtle errors at
+the MSL↔ellipsoidal boundary. Inconsistent with the WGS84-as-canonical
+convention adopted across navigation, sensors, and proto serialization.
+
+**Recommendation:** Option B. The aircraft config is the boundary where users
+hand-author values, and that boundary should accept the convention humans use
+(MSL). Internal sim state remains ellipsoidal — no per-frame geoid lookup, no
+refactor of the existing WGS84 plumbing. Cost is one PROJ lookup at init plus
+the EGM grid file.
+
+---
+
+### OQ-LS-13 — Geoid model and source-specific correction
+
+**Status:** Open — blocks Issue 6 fix.
+
+`apply_geoid_correction()` accepts `geoid="egm2008"` or `geoid="egm96"`. The
+correct choice depends on the DEM source's published vertical datum, which
+differs across the three sources currently supported by `--dem-source`:
+
+| Source | Native vertical datum |
+| --- | --- |
+| Copernicus DEM GLO-30 (default) | EGM2008 (per Copernicus documentation) |
+| NASADEM | EGM96 |
+| SRTM v3 | EGM96 |
+
+The docstring in [`download.py`](../../python/tools/terrain/download.py)
+asserts "MSL-adjusted via EGM96" for Copernicus — this contradicts the
+Copernicus product specification, which states heights are referenced to
+EGM2008. The docstring is incorrect (likely copied from an SRTM-era
+predecessor) and should be updated regardless of which option below is chosen.
+
+**Option A — Per-source geoid model, hard-coded.**
+
+`build_terrain.py` selects the geoid model based on `--dem-source`:
+
+- `copernicus_dem_glo30` → `egm2008`
+- `nasadem` → `egm96`
+- `srtm` → `egm96`
+
+Pros: matches each source's native datum; the conversion is exact (within the
+geoid model's own accuracy).
+
+Cons: tightly couples the build to current source assumptions; if Copernicus
+ever republishes against a newer geoid (e.g., EGM2020 if/when it appears) the
+table must be updated.
+
+**Option B — Single project-wide geoid (EGM2008).**
+
+Always use EGM2008. For sources that are natively EGM96, the conversion
+introduces a small residual error (EGM2008 vs EGM96 differ by < 1 m almost
+everywhere, < 5 m worst case at high latitudes).
+
+Pros: simplest; only one PROJ grid file required; consistent across all
+datasets in the project.
+
+Cons: the EGM96-native sources are not exactly corrected — their published
+"MSL=0" surface differs from EGM2008's by up to ~1 m. For a flight simulator
+this is well below visual or physical resolution.
+
+**Recommendation:** Option A. Per-source correctness is cheap (one extra
+column in a small lookup table) and removes a known source of residual error.
+The aircraft initialization geoid (OQ-LS-12 Option B) should also use EGM2008
+for parity with Copernicus, the default DEM source.
+
+---
+
+### OQ-LS-14 — Atmospheric model height reference
+
+**Status:** Open — does not block Issues 6 / 7 but should be flagged.
+
+`Atmosphere::density_kgm3(altitude_m)` and related queries take "altitude" as
+input ([`Atmosphere.cpp`](../../src/environment/Atmosphere.cpp)). The ISA
+standard is keyed to **MSL geopotential height**, not WGS84 ellipsoidal. The
+simulation currently passes `KinematicState.position.altitude_m` (= h_WGS84)
+into atmosphere queries.
+
+The error is the geoid undulation N at the aircraft's lat/lon. At KSBA
+N ≈ −33 m, giving a ~3 Pa pressure error and ~0.004 kg/m³ density error
+(≈ 0.3 % at sea level). For a low-altitude trainer scenario this is
+negligible — well below other ISA approximations. For high-altitude jet
+operations it remains < 0.5 %.
+
+**Decision pathway:**
+
+- **Option A — Accept the error**, document it as a known approximation in
+  `Atmosphere.cpp`. Recommended for the current implementation phase.
+- **Option B — Convert h_WGS84 → h_MSL inside `Aircraft::step()`** before each
+  atmospheric query, via per-frame PROJ geoid lookup. Adds runtime cost and
+  PROJ dependency to the simulation hot path.
+- **Option C — Pre-compute geoid undulation once per aircraft initialization**
+  (assumes flight stays in a region small enough that N is approximately
+  constant — generally true for general-aviation flights of < 100 km radius).
+
+**Recommendation:** Option A for now (defer to a future open question that
+considers atmosphere accuracy more broadly). Issues 6 and 7 do not depend on
+this resolution.
+
+---
+
+### OQ-LS-15 — Where to perform ECEF→ENU for aircraft Godot position
+
+**Status:** Open — blocks Issue 7 fix.
+
+The terrain GLB places tiles via curvature-aware ECEF→ENU. The aircraft
+position must be computed via the **same** transform for visual/sim AGL
+parity. Three places this can happen:
+
+**Option A — `SimulationReceiver` Godot-side (port the math to C++/GDScript).**
+
+The GDExtension receiver computes ECEF→ENU itself, mirroring the helpers in
+`triangulate.py:_geodetic_to_enu_vec` and `TerrainMesh.cpp:geodeticToEcef` +
+`ecefOffsetToEnu`. The protocol on the wire is unchanged:
+`SimulationFrameProto` continues to carry geodetic position. The world origin
+arrives via `set_world_origin()` from `TerrainLoader._ready()`, exactly as
+today.
+
+Pros: the simulation is unaware of the Godot world origin (clean separation
+of concerns); the wire format does not change; the same math already exists in
+[`TerrainMesh.cpp`](../../src/environment/TerrainMesh.cpp) and can be lifted
+verbatim into the receiver.
+
+Cons: math now lives in two places (sim's `TerrainMesh` and Godot's
+`SimulationReceiver`). Unit tests for the receiver are awkward (Godot
+test harness).
+
+**Option B — Broadcaster pre-computes ENU offsets and sends them in the
+proto.**
+
+`SimulationFrameProto` is extended with `east_m`, `up_m`, `north_m` fields
+relative to the world origin. The C++ broadcaster computes these via
+`TerrainMesh::geodeticToEcef` + ENU rotation. `SimulationReceiver` simply
+copies them into the Godot position.
+
+Pros: ECEF math lives in one place (the simulation side, in C++); Godot
+receiver is trivial; can be unit-tested with the existing C++ test harness.
+
+Cons: the simulation now needs to know the world origin. Currently the
+simulation has no awareness of `world_origin_lat/lon/h_m` — it only knows the
+aircraft's geodetic position. Wiring the world origin into `SimRunner` /
+`UdpSimulationBroadcaster` couples the simulation to the rendering layer's
+choice of origin, violating LS-DR-4's spirit (sim controller doesn't know
+about display concerns).
+
+**Option C — Hybrid: send both forms and let receiver pick.**
+
+Wire carries geodetic AND ENU; receiver uses ENU. Worst of both worlds — wire
+overhead plus the coupling concern.
+
+**Recommendation:** Option A. Keep the wire format and simulation/render
+boundary as they are; port the existing C++ ECEF transform from
+`TerrainMesh.cpp` into `SimulationReceiver.cpp` (and update the GDScript
+placeholder to match). Unit tests for the receiver math can live in a
+standalone C++ test file that includes only `SimulationReceiver`'s helpers
+(extracted to a free function).
+
+---
+
+### OQ-LS-16 — In-tile curvature correction in `TerrainMesh::elevation_m()`
+
+**Status:** Open — defer; small effect, does not block the fix.
+
+`TerrainMesh::elevation_m()` returns
+`centroid.height_wgs84_m + barycentric(up_offsets)`, treating the tile as a
+flat tangent plane at its centroid. The tile-vertex up_offsets in
+`.las_terrain` were computed via ECEF (`triangulate.py:_geodetic_to_enu_vec`),
+so they are themselves curvature-aware relative to the centroid — but adding
+them to `centroid.height_wgs84_m` to produce an "absolute height" implicitly
+flattens the tile.
+
+For a 25 km tile at LOD 4, vertices at the corner are ~12.5 km from the
+centroid; the tangent-plane projection differs from the true ellipsoidal
+height by $d^2/(2R) \approx 12\ \text{m}$. Worst case is at the tile corner;
+typical query points fall well inside.
+
+**Options:**
+
+- **A — Defer.** Document the approximation in `elevation_m()` and accept
+  ~12 m worst-case error within a tile. Acceptable because (i) AGL queries
+  near the runway are inside the home-tile's interior where error is < 1 m,
+  and (ii) larger tiles only appear at LOD ≥ 4 (cruise altitude), where AGL
+  precision matters less.
+- **B — Project query through ECEF.** Convert query lat/lon/(centroid_h) to
+  ECEF, find the containing facet in 2D ENU, then convert the interpolated
+  facet point back to geodetic to recover the true ellipsoidal height. Adds
+  one ECEF→geodetic call per query.
+
+**Recommendation:** A. The visual mismatch reported by the user is dominated
+by the world-origin curvature (Issue 7 / OQ-LS-15), not by in-tile error.
+Once OQ-LS-15 is resolved, the residual in-tile error becomes a separate,
+much smaller issue.
+
+---
+
+### OQ-LS-17 — Geoid grid file distribution
+
+**Status:** Open — operational dependency of Issue 6 fix.
+
+`geoid_correct.py` uses `pyproj` with PROJ network access enabled
+(`pyproj.network.set_network_enabled(True)`). On first use, PROJ downloads the
+EGM2008 / EGM96 grid files to `$PROJ_USER_WRITABLE_DIRECTORY` and caches them.
+
+Once Issue 6 fix is in place, `build_terrain.py` becomes a hard consumer of
+this network call on first use per machine. Aircraft initialization (OQ-LS-12
+Option B) becomes a per-startup consumer.
+
+**Options:**
+
+- **A — Rely on PROJ network access.** First-run requires internet; cached
+  thereafter. Document in [`installation/README.md`](../installation/README.md).
+- **B — Bundle the grids with the repo.** EGM2008 1° grid is ~3 MB; EGM96
+  15-minute grid is ~2 MB. Add to a `python/data/proj_grids/` directory and
+  set `PROJ_DATA` accordingly.
+- **C — Pre-build per-region.** Compute the geoid undulation once per terrain
+  build and store it in the dataset metadata; `Aircraft` reads from there.
+
+**Recommendation:** B for offline-friendliness. Both grids are small, MIT- /
+public-domain-licensed, and stable. This also removes the runtime PROJ network
+dependency from `Aircraft` initialization (OQ-LS-12 Option B).
+
+---
+
 ## Open Questions — Status Summary
 
 | ID | Question | Status | Blocking |
@@ -934,3 +1213,9 @@ determined by their own polling interval.
 | OQ-LS-9 | Aircraft mesh coordinate frame correction | Resolved — layout-frame meshes + `rotation_degrees = Vector3(0, 180, 0)` correct for both static and live simulation | No |
 | OQ-LS-10 | Terrain wiring in `live_sim.cpp` for landing gear contact | Resolved → Option B (`TerrainMesh` from `.las_terrain`; error if absent — no `FlatTerrain` fallback) | No |
 | OQ-LS-11 | Mesh Z-axis sign mismatch: live-simulation attitude error | Resolved — eliminated by layout-frame mesh convention; see OQ-LS-9 | No |
+| OQ-LS-12 | Vertical datum convention for `initial_state.altitude_m` | Open — Issue 6 fix (recommend Option B: add `altitude_msl_m` field) | **Yes — Issue 6** |
+| OQ-LS-13 | Geoid model and source-specific correction | Open — Issue 6 fix (recommend Option A: per-source geoid) | **Yes — Issue 6** |
+| OQ-LS-14 | Atmospheric model height reference | Open — recommend defer (Option A: accept geoid undulation error) | No |
+| OQ-LS-15 | Where to perform ECEF→ENU for aircraft Godot position | Open — Issue 7 fix (recommend Option A: SimulationReceiver-side) | **Yes — Issue 7** |
+| OQ-LS-16 | In-tile curvature correction in `TerrainMesh::elevation_m()` | Open — recommend defer (Option A: accept ~12 m worst-case) | No |
+| OQ-LS-17 | Geoid grid file distribution | Open — recommend Option B (bundle grids in repo) | Yes — Issue 6 fix operationally |
