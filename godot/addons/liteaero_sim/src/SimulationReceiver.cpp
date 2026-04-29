@@ -205,9 +205,12 @@ void SimulationReceiver::_close_socket() {
 // ---------------------------------------------------------------------------
 
 void SimulationReceiver::_create_hud() {
+    // Build the canvas + label fully off-tree first; then defer the single
+    // root-attach call so it lands after the scene-tree initialization pass
+    // finishes (Godot rejects add_child while the parent is mid-setup —
+    // "Parent node is busy setting up children").
     CanvasLayer* canvas = memnew(CanvasLayer);
     canvas->set_name("HudOverlay");
-    get_tree()->get_root()->add_child(canvas);
 
     Label* label = memnew(Label);
     label->set_name("HudLabel");
@@ -225,6 +228,10 @@ void SimulationReceiver::_create_hud() {
     label->set_horizontal_alignment(HORIZONTAL_ALIGNMENT_RIGHT);
     canvas->add_child(label);
     hud_label_ = label;
+
+    // Deferred: runs at the end of the current frame, when the root window's
+    // child-setup pass is complete and add_child is again allowed.
+    get_tree()->get_root()->call_deferred("add_child", canvas);
 }
 
 void SimulationReceiver::_update_hud() {
@@ -232,7 +239,10 @@ void SimulationReceiver::_update_hud() {
         return;
 
     const int spd_kt = static_cast<int>(latest_airspeed_mps_ * 1.94384f);
-    const int alt_ft = static_cast<int>(latest_height_wgs84_m_ * 3.28084f);
+    // ALT is MSL (orthometric) — what pilots read off charts and altimeters.
+    // The simulation populates height_msl_m via the EGM2008 geoid; it falls
+    // back to h_WGS84 when no geoid grid is available.
+    const int alt_ft = static_cast<int>(latest_height_msl_m_ * 3.28084f);
 
     String text = String("SPD  ") + String::num_int64(spd_kt) + " kt\n";
     text       += String("ALT  ") + String::num_int64(alt_ft) + " ft\n";
@@ -272,6 +282,7 @@ void SimulationReceiver::_decode_frame(const uint8_t* data, int size) {
 
     // Store latest HUD data from this received frame.
     latest_height_wgs84_m_ = frame.height_wgs84_m();
+    latest_height_msl_m_   = frame.height_msl_m();
     latest_airspeed_mps_   = frame.airspeed_mps();
     latest_agl_m_          = frame.agl_m();
 

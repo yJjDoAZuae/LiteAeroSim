@@ -1,5 +1,6 @@
 #include "runner/SimRunner.hpp"
 #include "SimulationFrame.hpp"
+#include "geodesy/Egm2008Geoid.hpp"
 
 #include <SDL2/SDL.h>
 #include <chrono>
@@ -226,6 +227,11 @@ void SimRunner::runLoop()
                 frame.velocity_down_mps  = s.velocity_NED_mps()(2);
                 frame.airspeed_mps       = s.velocity_Wind_mps()(0);
                 frame.agl_m              = aircraft_->agl_m();
+                frame.height_msl_m       = (geoid_ != nullptr)
+                    ? geoid_->wgs84ToMsl_m(s.positionDatum().latitudeGeodetic_rad(),
+                                           s.positionDatum().longitude_rad(),
+                                           s.positionDatum().height_WGS84_m())
+                    : s.positionDatum().height_WGS84_m();
                 broadcaster_->broadcast(frame);
             }
         }

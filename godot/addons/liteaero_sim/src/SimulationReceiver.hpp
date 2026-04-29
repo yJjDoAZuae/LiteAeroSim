@@ -58,6 +58,7 @@ private:
 
     // Latest received HUD data (not interpolated — display raw sim values).
     float latest_height_wgs84_m_ = 0.f;
+    float latest_height_msl_m_   = 0.f;
     float latest_airspeed_mps_   = 0.f;
     float latest_agl_m_          = -1.f;  // -1 = no terrain
 

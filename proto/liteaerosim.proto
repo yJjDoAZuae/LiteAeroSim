@@ -380,6 +380,10 @@ message SimulationFrameProto {
     float  viewer_x_m          = 14;
     float  viewer_y_m          = 15;
     float  viewer_z_m          = 16;
+    // Altitude above EGM2008 mean sea level (m).  Populated by SimRunner via
+    // the EGM2008 geoid lookup; equal to height_wgs84_m when no geoid is set.
+    // Useful for instrumentation displays that follow the pilot-MSL convention.
+    float  height_msl_m        = 17;
 }
 
 // ---------------------------------------------------------------------------

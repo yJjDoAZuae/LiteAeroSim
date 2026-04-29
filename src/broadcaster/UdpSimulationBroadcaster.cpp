@@ -86,6 +86,7 @@ void UdpSimulationBroadcaster::broadcast(const SimulationFrame& frame)
     proto.set_velocity_down_mps(frame.velocity_down_mps);
     proto.set_airspeed_mps(frame.airspeed_mps);
     proto.set_agl_m(frame.agl_m);
+    proto.set_height_msl_m(frame.height_msl_m);
 
     // Viewer-projected position (LS-T5 / OQ-LS-15).  When no projector is
     // configured, the fields remain zero; downstream receivers treat zero as

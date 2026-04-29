@@ -115,6 +115,7 @@ func _apply_frame(data: PackedByteArray) -> void:
 	var viewer_x: float     = parsed.get(14, 0.0)
 	var viewer_y: float     = parsed.get(15, 0.0)
 	var viewer_z: float     = parsed.get(16, 0.0)
+	var h_msl_m: float      = parsed.get(17, h_m)  # MSL via EGM2008; falls back to h_WGS84
 
 	get_parent().position = Vector3(viewer_x, viewer_y, viewer_z)
 
@@ -132,7 +133,8 @@ func _apply_frame(data: PackedByteArray) -> void:
 
 	if _hud_label != null:
 		var spd_kt := int(airspeed_mps * 1.94384)
-		var alt_ft := int(h_m * 3.28084)
+		# ALT is MSL (orthometric) via EGM2008.
+		var alt_ft := int(h_msl_m * 3.28084)
 		var agl_line: String
 		if agl_m >= 0.0:
 			agl_line = "AGL  %d ft" % int(agl_m * 3.28084)

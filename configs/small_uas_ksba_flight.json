@@ -133,6 +133,10 @@
             }
         ]
     },
+    "terrain": {
+        "_comment": "Coverage half-side for terrain build — independent of initial_state",
+        "radius_km": 12.0
+    },
     "visualization": {
         "mesh_res_path": "res://assets/aircraft_lp.glb"
     },

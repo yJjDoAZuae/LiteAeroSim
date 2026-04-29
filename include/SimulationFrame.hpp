@@ -19,6 +19,7 @@ struct SimulationFrame {
     float  velocity_down_mps;
     float  airspeed_mps;      // true airspeed (wind-frame speed, m/s)
     float  agl_m;             // altitude above terrain (m); -1 if no terrain set
+    float  height_msl_m;      // EGM2008 MSL altitude (m); equals h_WGS84 if no geoid
 };
 
 } // namespace liteaero::simulation
