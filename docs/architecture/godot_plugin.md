@@ -221,6 +221,10 @@ public:
     void set_max_datagrams_per_frame(int n);
     int  get_max_datagrams_per_frame() const;
 
+    // Read-only properties — HUD display values updated each received frame.
+    double get_height_msl_m() const;
+    double get_agl_m() const;
+
 protected:
     static void _bind_methods();
 
@@ -229,10 +233,12 @@ private:
     void _close_socket();
     void _apply_frame(const uint8_t* data, int size);
 
-    int broadcast_port_          = 14560;
-    int max_datagrams_per_frame_ = 10;
+    int    broadcast_port_          = 14560;
+    int    max_datagrams_per_frame_ = 10;
 
-    int socket_fd_ = -1;  // POSIX / WinSock UDP socket, non-blocking
+    int    socket_fd_               = -1;   // POSIX / WinSock UDP socket, non-blocking
+    double latest_height_msl_m_     = 0.0;
+    double latest_agl_m_            = 0.0;
 };
 
 } // namespace godot
@@ -255,6 +261,16 @@ void SimulationReceiver::_bind_methods() {
                          &SimulationReceiver::get_max_datagrams_per_frame);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "max_datagrams_per_frame"),
                  "set_max_datagrams_per_frame", "get_max_datagrams_per_frame");
+
+    ClassDB::bind_method(D_METHOD("get_height_msl_m"),
+                         &SimulationReceiver::get_height_msl_m);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "height_msl_m"),
+                 "", "get_height_msl_m");
+
+    ClassDB::bind_method(D_METHOD("get_agl_m"),
+                         &SimulationReceiver::get_agl_m);
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "agl_m"),
+                 "", "get_agl_m");
 }
 ```
 
@@ -313,23 +329,15 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
     liteaero::simulation::SimulationFrameProto frame;
     if (!frame.ParseFromArray(data, size)) return;
 
-    if (!world_origin_set_) {
-        ERR_PRINT("SimulationReceiver: world origin not set");
-        return;
-    }
-
-    constexpr double R_EARTH_M = 6371000.0;
-    double dlat    = frame.latitude_rad()  - world_origin_lat_rad_;
-    double dlon    = frame.longitude_rad() - world_origin_lon_rad_;
-    double north_m = dlat * R_EARTH_M;
-    double east_m  = dlon * R_EARTH_M * std::cos(world_origin_lat_rad_);
-    double up_m    = frame.height_wgs84_m() - world_origin_h_m_;
-
-    // ENU -> Godot: X=East, Y=Up, Z=-North
+    // Viewer position computed simulation-side by GodotEnuProjector (ENU from world
+    // origin).  Godot axes: X=East, Y=Up, Z=-North — matches viewer_x/y/z_m convention.
     get_parent()->set("position", Vector3(
-        static_cast<float>(east_m),
-        static_cast<float>(up_m),
-        static_cast<float>(-north_m)));
+        static_cast<float>(frame.viewer_x_m()),
+        static_cast<float>(frame.viewer_y_m()),
+        static_cast<float>(frame.viewer_z_m())));
+
+    latest_height_msl_m_ = frame.height_msl_m();
+    latest_agl_m_        = frame.agl_m();
 
     // Body-to-NED quaternion -> body-to-Godot quaternion.
     // NED->Godot rotation matrix (from live_sim_view.md §Coordinate System):
@@ -350,9 +358,10 @@ void SimulationReceiver::_apply_frame(const uint8_t* data, int size) {
 
 ## TerrainLoader Integration
 
-`TerrainLoader.gd` performs four tasks in `_ready()`: load terrain, load the
-aircraft mesh, set the world origin on `SimulationReceiver`, and apply appearance
-materials. All mesh loading is driven by `terrain_config.json`.
+`TerrainLoader.gd` performs three tasks in `_ready()`: load terrain, load the
+aircraft mesh, and apply appearance materials. All mesh loading is driven by
+`terrain_config.json`, whose path is passed via Godot command-line user args
+(`OS.get_cmdline_user_args()`).
 
 ### Scene Lighting
 
@@ -524,53 +533,10 @@ asset to use for this aircraft category:
 aircraft config, `build_terrain.py` uses the default `"res://assets/aircraft_lp.glb"`.
 
 To swap the aircraft mesh for a test case without rebuilding terrain, edit
-`godot/terrain/terrain_config.json` directly and change `aircraft_mesh_path`.
+`data/terrain/<name>/terrain_config.json` directly and change `aircraft_mesh_path`.
 This is the only field in `terrain_config.json` that is safe to edit by hand —
-the world origin and GLB path must not be changed without a terrain rebuild.
-
-### SimulationReceiver discovery (GDScript placeholder vs. GDExtension)
-
-`TerrainLoader.gd` locates the `SimulationReceiver` node to call
-`set_world_origin()`. The discovery method differs by plugin state:
-
-| Plugin state | Node class | Discovery method |
-| --- | --- | --- |
-| GDScript placeholder | Script type `SimulationReceiver.gd` | `node.get_script().resource_path.ends_with("SimulationReceiver.gd")` |
-| GDExtension active | Native C++ type `SimulationReceiver` | `node.get_class() == "SimulationReceiver"` |
-
-`TerrainLoader.gd` must check both so it works in either state:
-
-```gdscript
-func _find_simulation_receiver(node: Node) -> Node:
-    if node.get_class() == "SimulationReceiver":
-        return node
-    var script: Script = node.get_script() as Script
-    if script != null and script.resource_path.ends_with("SimulationReceiver.gd"):
-        return node
-    for child in node.get_children():
-        var result := _find_simulation_receiver(child)
-        if result != null:
-            return result
-    return null
-```
-
-Once the GDExtension is in use, the `set_world_origin()` bound method replaces
-direct property assignment:
-
-```gdscript
-# GDExtension path (single method call):
-receiver.set_world_origin(lat_rad, lon_rad, h_m)
-
-# GDScript placeholder path (direct property assignment — existing code):
-receiver.world_origin_lat_rad = lat_rad
-receiver.world_origin_lon_rad = lon_rad
-receiver.world_origin_h_m     = h_m
-receiver.world_origin_set     = true
-```
-
-`TerrainLoader.gd` detects which path to use by checking
-`receiver.get_class() == "SimulationReceiver"` (native) vs. checking for the
-script property.
+the world origin, GLB path, and las_terrain path must not be changed without a
+terrain rebuild.
 
 ---
 
@@ -601,25 +567,25 @@ void uninitialize_liteaero_sim(ModuleInitializationLevel p_level) {
 
 ## Coordinate System
 
-All coordinate transformations are identical to those in the GDScript
-placeholder and specified in
+The broadcast convention and coordinate frames are specified in
 [`live_sim_view.md §Coordinate System`](live_sim_view.md#coordinate-system).
 
-**Geodetic → ENU offset from world origin:**
+After LS-T8, `SimulationReceiver` does not compute ENU offsets from geodetic
+coordinates.  That computation is performed simulation-side by
+[`GodotEnuProjector`](../../include/projection/GodotEnuProjector.hpp), which
+broadcasts `viewer_x_m / viewer_y_m / viewer_z_m` as pre-computed Godot-space
+ENU offsets from the terrain world origin.  The receiver applies them directly:
 
-$$\text{north}_m = (\varphi - \varphi_0) \cdot R_\oplus$$
-$$\text{east}_m  = (\lambda - \lambda_0) \cdot R_\oplus \cdot \cos(\varphi_0)$$
-$$\text{up}_m    = h - h_0$$
+**Viewer position:** $\text{pos} = (\texttt{viewer\_x\_m},\ \texttt{viewer\_y\_m},\ \texttt{viewer\_z\_m})$
 
-**ENU → Godot position:** $\text{pos} = (\text{east}, \text{up}, -\text{north})$
+**ENU→Godot axes:** X = East, Y = Up, Z = −North
 
 **NED → Godot frame rotation quaternion:** $q_r = (x=0.5,\ y=0.5,\ z=-0.5,\ w=0.5)$ (Godot constructor order: `Quaternion(x, y, z, w)`)
 
 **Vehicle quaternion:** $q_\text{Godot} = q_r \otimes q_{b2n}$ (normalized)
 
-The aircraft mesh correction rotation (OQ-LS-9, Option B) is a fixed
-`rotation_degrees` on the `AircraftMesh` node in the scene — not applied by
-`SimulationReceiver`.
+The aircraft mesh correction rotation is a fixed `rotation_degrees = Vector3(0, 180, 0)`
+applied by `TerrainLoader` to the aircraft mesh node — not applied by `SimulationReceiver`.
 
 ---
 
@@ -627,22 +593,17 @@ The aircraft mesh correction rotation (OQ-LS-9, Option B) is a fixed
 
 ### OQ-GP-1 — Terrain loader language
 
-**Resolved — Option A (keep GDScript) for now, with acknowledged maintainability concern.**
+**Resolved — Option A (keep GDScript).**
 
 `TerrainLoader` remains GDScript. The operations it performs (JSON read,
 `ResourceLoader`, scene-tree traversal) are pure Godot API; there is no
 correctness or performance argument for C++.
 
-**Acknowledged concern:** A mixed GDScript/C++ addon creates a cross-language
-API boundary between `TerrainLoader` and `SimulationReceiver`. Every change to
-`set_world_origin()` (signature, semantics) must be coordinated across two
-languages. This is the same class of maintainability risk that motivates the
-GDExtension in the first place. If the plugin grows beyond the current two
-components, this concern should be re-evaluated and the question re-opened as
-a prerequisite to any expansion.
-
-**Current status:** Option A is a pragmatic choice for the initial implementation.
-It is not a permanent architectural commitment.
+After LS-T8, `TerrainLoader` no longer calls `set_world_origin()` on
+`SimulationReceiver`.  The cross-language API boundary between `TerrainLoader`
+and the C++ `SimulationReceiver` has been removed, eliminating the previously
+acknowledged maintainability concern.  Option A is confirmed as the appropriate
+long-term choice unless the plugin grows beyond its current two components.
 
 ---
 
@@ -764,20 +725,17 @@ runtime handles all parsing including future field additions and is the correct
 tool for the job. The GDScript placeholder serves until the GDExtension build is
 added to the project.
 
-### GP-DR-2 — `TerrainLoader` remains GDScript (provisional)
+### GP-DR-2 — `TerrainLoader` remains GDScript
 
-**Decision:** `TerrainLoader` remains GDScript for the initial implementation
-(OQ-GP-1 Option A).
+**Decision:** `TerrainLoader` remains GDScript (OQ-GP-1 Option A).
 
 **Rationale:** `TerrainLoader` performs no operations that require C++ — it reads
 a JSON file, loads a GLB resource, and traverses the scene tree. All of these
 are idiomatic GDScript operations. Moving it to C++ adds no correctness or
 performance benefit.
 
-**Acknowledged risk:** The cross-language boundary between `TerrainLoader.gd`
-and the C++ `SimulationReceiver` (the `set_world_origin()` call) is a
-maintenance liability. If the plugin grows beyond its current two components,
-this decision should be revisited.
+After LS-T8, `TerrainLoader` no longer calls `set_world_origin()`, removing
+the cross-language API boundary that was the previously acknowledged risk.
 
 ### GP-DR-3 — godot-cpp version parsed from `project.godot`
 

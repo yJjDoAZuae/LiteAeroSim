@@ -168,41 +168,53 @@ Godot (0, 0, 0) — exactly coincident with the terrain geographic center.
 - The auto-origin mechanism is implicit; it is not expressed as a verified invariant
   anywhere in the system.
 
-### Option B — Sidecar `terrain_config.json` with terrain loader node
+### Option B — Sidecar `terrain_config.json` at the dataset root
 
-`build_terrain` writes a JSON file into the Godot project directory alongside a
-terrain GLB that has been copied there:
+`build_terrain` writes `terrain_config.json` into the dataset root
+(`data/terrain/<name>/terrain_config.json`).  The GLB is **not** copied;
+`glb_path` is an absolute filesystem path pointing to the GLB already present in
+the dataset:
 
-```
-godot/terrain/
-    terrain.glb             copy of the exported GLB (symlink or file copy)
-    terrain_config.json     build metadata read at scene start
+```text
+data/terrain/<name>/
+    terrain_config.json          build metadata read at scene start
+    derived/
+        gltf/
+            terrain.glb          GLB in-place — not copied to godot/
+        las_terrain/
+            terrain.las_terrain  physics collision data
 ```
 
 ```json
 {
     "schema_version": 1,
     "dataset_name": "general_aviation",
-    "glb_path": "res://terrain/terrain.glb",
+    "glb_path": "C:/path/to/data/terrain/general_aviation/derived/gltf/terrain.glb",
+    "las_terrain_path": "C:/path/to/data/terrain/general_aviation/derived/las_terrain/terrain.las_terrain",
     "world_origin_lat_rad": 1.0490,
     "world_origin_lon_rad": -2.0909,
-    "world_origin_height_m": 610.0
+    "world_origin_height_m": 610.0,
+    "aircraft_mesh_path": "res://assets/aircraft_lp.glb",
+    "aircraft_wingspan_m": 9.14
 }
 ```
 
-A `TerrainLoader.gd` autoload or scene node runs `_ready()`:
+`live_sim.exe` receives the terrain config path via a `--terrain` flag and passes
+it to Godot as a user argument (after `--`).  A `TerrainLoader.gd` autoload or
+scene node runs `_ready()`:
 
-1. Opens `terrain_config.json`.
-2. Calls `ResourceLoader.load(glb_path)` to load the GLB as a `PackedScene`.
-3. Instantiates it and adds it as a child of the `World` node — no drag-and-drop.
-4. Iterates all `MeshInstance3D` children; parses the node name to extract LOD level;
+1. Reads the terrain config path from Godot command-line user args
+   (`OS.get_cmdline_user_args()` — args following `--` in the Godot launch command).
+2. Opens `terrain_config.json` from that path.
+3. Calls `ResourceLoader.load(glb_path)` to load the GLB as a `PackedScene`.
+4. Instantiates it and adds it as a child of the `World` node — no drag-and-drop.
+5. Iterates all `MeshInstance3D` children; parses the node name to extract LOD level;
    sets `visibility_range_begin` / `visibility_range_end` on each node (OQ-TB-3).
-5. Sets `SimulationReceiver.world_origin_*` directly before any UDP packet arrives.
 
 The developer's workflow after a terrain build is:
 
 1. Run `build_terrain`.
-2. Press Play in Godot.
+2. Run `live_sim.exe --terrain data/terrain/<name>/terrain_config.json`.
 
 No Godot editor interaction is required after the initial scene setup.
 
@@ -210,15 +222,14 @@ No Godot editor interaction is required after the initial scene setup.
 
 - Terrain alignment is explicit and correct even if the simulation starts from a
   position other than `initial_state`.
-- GLB is loaded at runtime — no import step, no scene tree editing, no `.import`
-  sidecar files to manage.
+- GLB is loaded at runtime via absolute path — no import step, no scene tree
+  editing, no `.import` sidecar files to manage.
 - Visibility ranges are set programmatically, not via the Inspector.
-- Requires: `TerrainLoader.gd` (new node or autoload), a GDScript change to
-  `SimulationReceiver.gd`, and `build_terrain` writing both the JSON file and
-  copying/symlinking the GLB to `godot/terrain/`.
-- `godot/terrain/` should be listed in `.gitignore` (generated file; varies per
-  developer machine).
-- `push_error()` on missing `terrain_config.json` or missing GLB — no silent fallback.
+- Requires: `TerrainLoader.gd` (new node or autoload), a `--terrain` flag on
+  `live_sim.exe`, and `build_terrain` writing the JSON file to the dataset root.
+- `godot/terrain/` is no longer used and does not need to exist.
+- `push_error()` on missing terrain config path argument or missing config file —
+  no silent fallback.
 
 ### Option C — World origin embedded in the GLB, read via Godot GLTF extras
 
@@ -261,21 +272,24 @@ Values are serialized into `World.tscn`.
 
 ### Recommendation — OQ-TB-2
 
-**Adopt Option B.**
+**Adopt Option B (revised).**
 
 Option A is fragile (auto-origin from first UDP packet can silently offset terrain on
 checkpoint resume) and requires manual drag-and-drop in the Godot editor every time the
 terrain dataset changes.  Option D also requires manual Inspector edits.  Option C
 requires a custom Godot import plugin and is significantly more complex.
 
-Option B makes the terrain dataset self-describing: the sidecar JSON contains the GLB
-path, world origin, and dataset name.  `TerrainLoader.gd` reads it at startup, loads the
-GLB programmatically, sets world origin on `SimulationReceiver`, and applies visibility
-ranges — all before the first frame.  The developer workflow reduces to: build terrain,
-press Play.
+Option B makes the terrain dataset self-describing: the sidecar JSON at the dataset root
+contains the GLB path, las_terrain path, world origin, and dataset name.
+`TerrainLoader.gd` reads the config path from Godot command-line user args at startup,
+loads the GLB programmatically via absolute path, and applies visibility ranges — all
+before the first frame.  `live_sim.exe` passes the terrain config path to Godot via
+`--terrain`.  The developer workflow reduces to: build terrain, run `live_sim.exe
+--terrain <path>`.
 
-`godot/terrain/` must be added to `.gitignore`.  OQ-TB-2 is resolved pending
-implementation of `TerrainLoader.gd`.
+The original Option B copied the GLB to `godot/terrain/` and used a `res://terrain/`
+Godot-relative path.  This is superseded: `glb_path` is now an absolute filesystem path
+and no copy step is needed.  `godot/terrain/` is no longer used.  OQ-TB-2 is resolved.
 
 ---
 
@@ -444,7 +458,7 @@ OQ-TB-3 is resolved pending implementation of these three changes.
 | All LOD levels always built | Every LOD serves a different slant-range band in the C++ LOD selector. Building all levels from the L0 source costs only CPU time. Geographic partitioning limits which tiles are exported to Godot (OQ-TB-3). |
 | Incremental rebuild via per-chunk cache | Each downloaded chunk is stored in `python/cache/terrain/` keyed by source and bbox. Re-running `build_terrain` on the same location skips all downloads already cached. Pass `force=True` to invalidate. |
 | Dataset named from aircraft config basename | `general_aviation.json` → dataset name `general_aviation`. Terrain datasets represent locations, not aircraft states — moving the aircraft to the other end of the runway reuses the same dataset. An explicit `name` override is available. |
-| Terrain loaded programmatically at runtime | `TerrainLoader.gd` reads `terrain_config.json` and loads the GLB via `ResourceLoader.load()`. No Godot editor drag-and-drop is required after the initial scene setup. |
+| Terrain dataset selected at launch via `--terrain` flag | `live_sim.exe --terrain <path>` passes the terrain config to Godot via command-line user args; `TerrainLoader.gd` reads the path from `OS.get_cmdline_user_args()` and loads the GLB via `ResourceLoader.load()`. No editor interaction required; switching datasets requires no rebuild. |
 
 ---
 
@@ -670,8 +684,9 @@ Steps [1]–[7] correspond to the stages defined in
 
 A completed build produces the following directory tree under `data/terrain/<name>/`:
 
-```
+```text
 data/terrain/<name>/
+    terrain_config.json         world origin, GLB and las_terrain paths, aircraft mesh
     source/
         dem_mosaic.tif          seamless DEM GeoTIFF (native L0 resolution)
         img_mosaic.tif          seamless imagery GeoTIFF (same extent and resolution)
@@ -724,15 +739,16 @@ a complete and successful build.
 
 ## Integration with Live Simulation
 
-After `build_terrain` completes, the developer presses Play in the Godot project.
-No editor interaction is required.
+After `build_terrain` completes, the developer runs `live_sim.exe --terrain
+<path-to-terrain_config.json>`, which launches Godot passing the terrain config
+path as a user argument.  No editor interaction is required.
 
 `build_terrain` is responsible for:
 
-- Writing `godot/terrain/terrain.glb` (copy of
-  `data/terrain/<name>/derived/gltf/terrain.glb`).
-- Writing `godot/terrain/terrain_config.json` with world origin, GLB path, and
-  aircraft mesh path.
+- Writing `data/terrain/<name>/terrain_config.json` with world origin, GLB path,
+  las_terrain path, and aircraft mesh path.  The GLB is **not** copied; `glb_path`
+  is an absolute filesystem path pointing to
+  `data/terrain/<name>/derived/gltf/terrain.glb`.
 
 ### `terrain_config.json` schema
 
@@ -740,11 +756,13 @@ No editor interaction is required.
 {
     "schema_version": 1,
     "dataset_name":          "<string>",
-    "glb_path":              "res://terrain/terrain.glb",
-    "world_origin_lat_rad":  <double>,
-    "world_origin_lon_rad":  <double>,
-    "world_origin_height_m": <double>,
-    "aircraft_mesh_path":    "res://assets/aircraft_lp.glb"
+    "glb_path":              "<absolute path to data/terrain/<name>/derived/gltf/terrain.glb>",
+    "las_terrain_path":      "<absolute path to data/terrain/<name>/derived/las_terrain/terrain.las_terrain>",
+    "world_origin_lat_rad":  "<double>",
+    "world_origin_lon_rad":  "<double>",
+    "world_origin_height_m": "<double>",
+    "aircraft_mesh_path":    "res://assets/aircraft_lp.glb",
+    "aircraft_wingspan_m":   "<double>"
 }
 ```
 
@@ -752,29 +770,42 @@ No editor interaction is required.
 | --- | --- | --- |
 | `schema_version` | Constant `1` | |
 | `dataset_name` | Aircraft config basename or `--name` override | |
-| `glb_path` | Constant `res://terrain/terrain.glb` | Fixed relative to Godot project root |
+| `glb_path` | Absolute path to `data/terrain/<name>/derived/gltf/terrain.glb` | Written by `build_terrain`; must not be edited by hand |
+| `las_terrain_path` | Absolute path to `data/terrain/<name>/derived/las_terrain/terrain.las_terrain` | Written by `build_terrain`; must not be edited by hand |
 | `world_origin_lat_rad` | Derived from aircraft config `initial_state.latitude_rad` or `--center-lat` | |
 | `world_origin_lon_rad` | Derived from aircraft config `initial_state.longitude_rad` or `--center-lon` | |
-| `world_origin_height_m` | Derived from aircraft config `initial_state.altitude_m` | |
+| `world_origin_height_m` | Derived from aircraft config `initial_state.altitude_m` | WGS84 ellipsoidal height in metres |
 | `aircraft_mesh_path` | Aircraft config `visualization.mesh_res_path`; default `"res://assets/aircraft_lp.glb"` | May be edited by hand to swap mesh without terrain rebuild |
+| `aircraft_wingspan_m` | `sqrt(S_ref_m2 * ar)` from aircraft config | Used by TerrainLoader for mesh scale |
 
-`aircraft_mesh_path` is the only field safe to edit by hand after a build. All
+`aircraft_mesh_path` is the only field safe to edit by hand after a build.  All
 other fields must match the terrain dataset and must not be changed without a
 terrain rebuild.
 
+`live_sim.exe` passes the terrain config path to Godot:
+
+```text
+live_sim.exe --terrain data/terrain/<name>/terrain_config.json
+```
+
+Internally, `live_sim.exe` launches Godot with:
+
+```text
+godot4 -- --terrain <absolute-path-to-terrain_config.json>
+```
+
 `TerrainLoader.gd` runs at scene start and is responsible for:
 
+- Reading the terrain config path from Godot command-line user args
+  (`OS.get_cmdline_user_args()` — args after `--` in the Godot launch command).
 - Loading the terrain GLB from `glb_path` via `ResourceLoader.load()`.
 - Instantiating it as a child of the `World` node.
 - Iterating `MeshInstance3D` children; parsing node names to extract LOD; setting
   `visibility_range_begin` / `visibility_range_end` on each node.
 - Loading the aircraft mesh from `aircraft_mesh_path`; instantiating it as a child
-  of the `Vehicle` node with `rotation_degrees = Vector3(0, 90, 0)` applied.
-- Setting the world origin on `SimulationReceiver` from `terrain_config.json` before
-  the first UDP packet arrives.
+  of the `Vehicle` node with `rotation_degrees = Vector3(0, 180, 0)` applied.
 
-`godot/terrain/` is in `.gitignore`.  A fresh checkout requires one `build_terrain`
-call per location before the scene can be played.
+`godot/terrain/` is not used by this pipeline and does not need to exist.
 
 The `.las_terrain` file will be consumed by `TerrainMesh::deserializeLasTerrain()` once
 the `Aircraft` / `SimRunner` terrain integration is implemented (a separate future item).
