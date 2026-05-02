@@ -306,6 +306,8 @@ func _load_terrain_scene(glb_path: String) -> Node3D:
 		# globalize_path("res://") returns the project root with a trailing slash.
 		var project_root := ProjectSettings.globalize_path("res://")
 		resolved = project_root.path_join(glb_path)
+	# Godot's ResourceLoader requires forward slashes; normalize any Windows backslashes.
+	resolved = resolved.replace("\\", "/")
 
 	var packed: Resource = ResourceLoader.load(
 		resolved, "", ResourceLoader.CACHE_MODE_IGNORE
