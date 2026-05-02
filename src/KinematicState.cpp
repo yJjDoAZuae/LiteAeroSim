@@ -238,14 +238,21 @@ void KinematicState::stepQnw(const Eigen::Vector3f& velocity_prev_NED_mps,
                               float dt_s,
                               Eigen::Quaternionf& q_nw)
 {
-    // Path-curvature rotation: differential rotation from the velocity vector change
-    Eigen::Quaternionf diff_rot_n;
-    diff_rot_n.setFromTwoVectors(velocity_prev_NED_mps, velocity_NED_mps);
-
     // Roll rotation around Wind X axis
     const Eigen::Quaternionf roll_delta(
         Eigen::AngleAxisf(rollRate_Wind_rps * dt_s, Eigen::Vector3f::UnitX()));
 
+    // Path-curvature rotation: differential rotation from the velocity vector change.
+    // setFromTwoVectors is undefined when either vector has zero norm (it normalizes
+    // internally), so skip the curvature term when the aircraft is nearly stationary.
+    static constexpr float kMinSpeed = 0.1f;
+    if (velocity_prev_NED_mps.norm() < kMinSpeed || velocity_NED_mps.norm() < kMinSpeed) {
+        q_nw = (q_nw * roll_delta).normalized();
+        return;
+    }
+
+    Eigen::Quaternionf diff_rot_n;
+    diff_rot_n.setFromTwoVectors(velocity_prev_NED_mps, velocity_NED_mps);
     q_nw = (diff_rot_n * q_nw * roll_delta).normalized();
 }
 
