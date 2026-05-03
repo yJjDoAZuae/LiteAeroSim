@@ -72,7 +72,9 @@ else
 fi
 
 # Absolute path to terrain config for Godot (avoids cwd dependency).
-TERRAIN_ABS="$(cd "$(dirname "$TERRAIN")" && pwd)/$(basename "$TERRAIN")"
+# cygpath -m converts the MSYS2 Unix-style path (/c/Users/...) to a
+# Windows-native path (C:/Users/...) so Godot's FileAccess can open it.
+TERRAIN_ABS="$(cygpath -m "$(cd "$(dirname "$TERRAIN")" && pwd)/$(basename "$TERRAIN")")"
 
 # ---------------------------------------------------------------------------
 # Kill live_sim when this script exits (Ctrl+C, Godot closes, or error).
