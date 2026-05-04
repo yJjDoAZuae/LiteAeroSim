@@ -27,7 +27,7 @@ transform = Transform3D(-0.7682, 0, -0.6402, -0.39, 0.793, 0.468, 0.5077, 0.6092
 light_energy = 1.5
 shadow_enabled = true
 directional_shadow_mode = 0
-directional_shadow_max_distance = 2000.0
+directional_shadow_max_distance = 20000.0
 
 [node name="DirectionalLight3D2" type="DirectionalLight3D" parent="." unique_id=1467213490]
 transform = Transform3D(0, 1, 0, -0.7071, 0, 0.7071, 0.7071, 0, 0.7071, 0, 100, 0)

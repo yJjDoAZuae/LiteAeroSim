@@ -34,6 +34,8 @@ private:
     intptr_t                                       socket_fd_;
     uint16_t                                       port_;
     const liteaero::projection::IViewerProjector*  projector_;
+    unsigned int                                   broadcast_count_    = 0;
+    bool                                           prev_agl_near_zero_ = false;
 };
 
 }  // namespace liteaero::simulation

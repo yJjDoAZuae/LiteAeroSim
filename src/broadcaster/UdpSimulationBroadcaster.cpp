@@ -2,6 +2,9 @@
 #include "projection/IViewerProjector.hpp"
 #include "liteaerosim.pb.h"
 
+#include <cmath>
+#include <cstdio>
+
 #ifdef _WIN32
 #  include <winsock2.h>
 #  include <ws2tcpip.h>
@@ -91,6 +94,7 @@ void UdpSimulationBroadcaster::broadcast(const SimulationFrame& frame)
     // Viewer-projected position (LS-T5 / OQ-LS-15).  When no projector is
     // configured, the fields remain zero; downstream receivers treat zero as
     // "absent" and fall back to their own coordinate handling.
+    float vp_y = 0.0f;
     if (projector_ != nullptr) {
         const auto vp = projector_->project(frame.latitude_rad,
                                             frame.longitude_rad,
@@ -98,6 +102,24 @@ void UdpSimulationBroadcaster::broadcast(const SimulationFrame& frame)
         proto.set_viewer_x_m(vp.x_m);
         proto.set_viewer_y_m(vp.y_m);
         proto.set_viewer_z_m(vp.z_m);
+        vp_y = vp.y_m;
+    }
+
+    // Diagnostic: print on first 3 broadcasts and whenever AGL is near 0.
+    ++broadcast_count_;
+    const bool first_few = (broadcast_count_ <= 3);
+    const bool agl_near_zero = (frame.agl_m >= 0.f && frame.agl_m < 1.0f);
+    const bool agl_crossed = agl_near_zero && !prev_agl_near_zero_;
+    prev_agl_near_zero_ = agl_near_zero;
+    if (first_few || agl_crossed) {
+        std::printf(
+            "[broadcast #%u] h_wgs84=%.3f  agl=%.3f  viewer_y=%.3f  "
+            "airspeed=%.2f  h_msl=%.3f  %s\n",
+            broadcast_count_,
+            frame.height_wgs84_m, frame.agl_m, vp_y,
+            frame.airspeed_mps, frame.height_msl_m,
+            std::isnan(frame.height_wgs84_m) ? "NaN!" : "");
+        std::fflush(stdout);
     }
 
     const std::string serialized = proto.SerializeAsString();

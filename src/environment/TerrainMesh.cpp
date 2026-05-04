@@ -78,14 +78,20 @@ void TerrainMesh::addCell(TerrainCell cell) {
 }
 
 const TerrainCell* TerrainMesh::cellAt(double lat_rad, double lon_rad) const {
+    const TerrainCell* best     = nullptr;
+    int                best_lod = kLodCount;  // sentinel: worse than any valid LOD
     for (const auto& [key, cell] : cells_) {
         const GeodeticAABB& b = cell.bounds();
         if (lat_rad >= b.lat_min_rad && lat_rad <= b.lat_max_rad &&
             lon_rad >= b.lon_min_rad && lon_rad <= b.lon_max_rad) {
-            return &cell;
+            const int lod = static_cast<int>(cell.finestAvailableLod());
+            if (lod < best_lod) {
+                best     = &cell;
+                best_lod = lod;
+            }
         }
     }
-    return nullptr;
+    return best;
 }
 
 // ---------------------------------------------------------------------------

@@ -93,6 +93,20 @@ const _LOD_VIS_END_M: Array[float] = [
 		camera_distance = v
 		_update_camera()
 
+## Far clip distance (metres).  Increase to show more terrain at the cost of
+## depth-buffer precision on nearby geometry.
+@export_range(1000.0, 100000.0) var camera_far_m: float = 20000.0:
+	set(v):
+		camera_far_m = v
+		_update_camera()
+
+## Near clip distance (metres).  Keep >= 0.5 when far >= 10000 to preserve
+## depth-buffer precision.
+@export_range(0.05, 10.0) var camera_near_m: float = 0.5:
+	set(v):
+		camera_near_m = v
+		_update_camera()
+
 # ---------------------------------------------------------------------------
 # Aircraft CG offset controls
 # ---------------------------------------------------------------------------
@@ -125,8 +139,19 @@ var _aircraft_cg_prepos:    Vector3            = Vector3.ZERO  # CG in pre-posit
 
 # ---------------------------------------------------------------------------
 
+var _diag_frame_counter: int = 0
+
 func _process(_delta: float) -> void:
 	_update_camera()
+	_diag_frame_counter += 1
+	if _diag_frame_counter % 300 == 0:
+		var vehicle := _find_vehicle(get_tree().root)
+		if vehicle != null:
+			var p := vehicle.global_position
+			if is_nan(p.x) or is_nan(p.y) or is_nan(p.z) or is_inf(p.x) or is_inf(p.y) or is_inf(p.z):
+				print("TerrainLoader DIAG: vehicle position is NaN/Inf: %s" % str(p))
+			else:
+				print("TerrainLoader DIAG: vehicle global_pos Y=%.3f m (%.1f ft above GLB origin)" % [p.y, p.y * 3.28084])
 
 
 func _ready() -> void:
@@ -138,19 +163,43 @@ func _ready() -> void:
 
 	var config := _load_config()
 	if config.is_empty():
+		print("TerrainLoader: config load failed — aborting")
 		return
+
+	print("TerrainLoader: config loaded, glb_path=%s" % config.get("glb_path", "(missing)"))
 
 	var terrain_node := _load_terrain_scene(config["glb_path"])
 	if terrain_node == null:
+		print("TerrainLoader: terrain scene load failed — aborting")
 		return
 
+	print("TerrainLoader: terrain scene loaded OK, child count=%d" % terrain_node.get_child_count())
 	add_child(terrain_node)
+	_diag_print_terrain_positions(terrain_node)
 	_apply_visibility_ranges(terrain_node)
 	_load_aircraft_mesh(config)
 	# LS-T8: SimulationReceiver no longer needs the world origin.  The
 	# simulation-side GodotEnuProjector consumes terrain_config.json directly
 	# (live_sim.cpp wiring) and broadcasts viewer-projected position over UDP.
 	_update_camera()
+
+## Print the global Y position of the first few MeshInstance3D tiles to verify
+## terrain is positioned at the expected Godot world height.
+func _diag_print_terrain_positions(node: Node) -> void:
+	var count := [0]  # array so recursive calls share the counter
+	_diag_visit(node, count)
+
+func _diag_visit(node: Node, count: Array) -> void:
+	if count[0] >= 5:
+		return
+	if node is MeshInstance3D and node.name.begins_with("tile_"):
+		var mi := node as MeshInstance3D
+		var gp := mi.global_position
+		print("TerrainLoader DIAG: tile '%s'  global_pos Y=%.3f m (%.1f ft)" % [
+			mi.name, gp.y, gp.y * 3.28084])
+		count[0] += 1
+	for child: Node in node.get_children():
+		_diag_visit(child, count)
 
 # ---------------------------------------------------------------------------
 # Camera
@@ -169,6 +218,8 @@ func _update_camera() -> void:
 		return
 	_camera.fov = 90.0
 	_camera.keep_aspect = Camera3D.KEEP_WIDTH
+	_camera.near = camera_near_m
+	_camera.far  = camera_far_m
 	var vehicle := _find_vehicle(get_tree().root)
 	if vehicle == null:
 		return
@@ -309,18 +360,37 @@ func _load_terrain_scene(glb_path: String) -> Node3D:
 	# Godot's ResourceLoader requires forward slashes; normalize any Windows backslashes.
 	resolved = resolved.replace("\\", "/")
 
-	var packed: Resource = ResourceLoader.load(
-		resolved, "", ResourceLoader.CACHE_MODE_IGNORE
-	)
-	if packed == null:
-		push_error("TerrainLoader: failed to load GLB from %s" % resolved)
-		return null
-
-	if not (packed is PackedScene):
-		push_error("TerrainLoader: resource at %s is not a PackedScene" % resolved)
-		return null
-
-	return (packed as PackedScene).instantiate() as Node3D
+	# res:// paths go through the pre-imported cache via ResourceLoader.
+	# Absolute filesystem paths use GLTFDocument for runtime loading, because
+	# ResourceLoader silently returns null for external GLB files when no
+	# .import sidecar exists in the project.
+	if resolved.begins_with("res://"):
+		var packed: Resource = ResourceLoader.load(
+			resolved, "", ResourceLoader.CACHE_MODE_IGNORE
+		)
+		if packed == null:
+			push_error("TerrainLoader: failed to load GLB from %s" % resolved)
+			return null
+		if not (packed is PackedScene):
+			push_error("TerrainLoader: resource at %s is not a PackedScene" % resolved)
+			return null
+		return (packed as PackedScene).instantiate() as Node3D
+	else:
+		print("TerrainLoader: using GLTFDocument for external path: %s" % resolved)
+		var doc   := GLTFDocument.new()
+		var state := GLTFState.new()
+		var err: int = doc.append_from_file(resolved, state)
+		if err != OK:
+			print("TerrainLoader: GLTFDocument.append_from_file failed, error=%d" % err)
+			push_error("TerrainLoader: GLTFDocument failed on %s (error %d)" % [resolved, err])
+			return null
+		print("TerrainLoader: GLTFDocument parsed OK, generating scene...")
+		var node: Node = doc.generate_scene(state)
+		if node == null:
+			print("TerrainLoader: generate_scene returned null")
+			return null
+		print("TerrainLoader: generate_scene OK")
+		return node as Node3D
 
 
 ## Load the aircraft mesh from aircraft_mesh_path in config and attach it to
