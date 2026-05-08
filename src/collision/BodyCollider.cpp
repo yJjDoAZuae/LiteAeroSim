@@ -96,9 +96,15 @@ ContactForces BodyCollider::step(const liteaero::nav::KinematicStateSnapshot& sn
             // Penetration rate: NED-z of corner velocity (positive = sinking)
             const float pen_dot = (R_nb * (v_body + omega.cross(corner_body))).z();
 
-            // Spring-damper, no suction on exit
-            const float F_pen = vol.stiffness_npm * pen
-                              + vol.damping_nspm * std::max(0.f, pen_dot);
+            // Cap effective penetration at 2× the volume half-depth to prevent
+            // runaway spring forces during extreme embedding (e.g. a crash where
+            // the aircraft clips deep through the terrain).  Two-way damping
+            // (pen_dot enters without clamping) absorbs energy on both sink and
+            // rise; the max(0) floor guarantees no suction on exit.
+            const float pen_cap = 2.0f * vol.half_extents_body_m.z();
+            const float pen_eff = std::min(pen, pen_cap);
+            const float F_pen   = std::max(0.f,
+                vol.stiffness_npm * pen_eff + vol.damping_nspm * pen_dot);
 
             // Upward NED force → body frame
             const Eigen::Vector3f F_body = R_bn * Eigen::Vector3f{0.f, 0.f, -F_pen};
@@ -115,6 +121,47 @@ ContactForces BodyCollider::step(const liteaero::nav::KinematicStateSnapshot& sn
 ContactForces BodyCollider::step(const liteaero::nav::KinematicStateSnapshot& snap) const {
     static const liteaero::terrain::FlatTerrain zero_terrain{0.f};
     return step(snap, zero_terrain);
+}
+
+float BodyCollider::maxCornerPenetration_m(
+    const liteaero::nav::KinematicStateSnapshot& snap,
+    const liteaero::terrain::Terrain& terrain) const
+{
+    const float h_ac      = snap.position.altitude_m;
+    const float terrain_h = terrain.elevation_m(snap.position.latitude_rad,
+                                                  snap.position.longitude_rad);
+
+    if (h_ac - terrain_h > _max_reach_m) return 0.f;
+
+    const Eigen::Matrix3f R_nb =
+        liteaero::nav::KinematicStateUtil::q_nb(snap).toRotationMatrix();
+
+    float max_pen = 0.f;
+
+    for (const auto& vol : _volumes) {
+        const float hx = vol.half_extents_body_m.x();
+        const float hy = vol.half_extents_body_m.y();
+        const float hz = vol.half_extents_body_m.z();
+
+        const std::array<Eigen::Vector3f, 8> corners = {{
+            vol.center_offset_body_m + Eigen::Vector3f{ hx,  hy,  hz},
+            vol.center_offset_body_m + Eigen::Vector3f{ hx,  hy, -hz},
+            vol.center_offset_body_m + Eigen::Vector3f{ hx, -hy,  hz},
+            vol.center_offset_body_m + Eigen::Vector3f{ hx, -hy, -hz},
+            vol.center_offset_body_m + Eigen::Vector3f{-hx,  hy,  hz},
+            vol.center_offset_body_m + Eigen::Vector3f{-hx,  hy, -hz},
+            vol.center_offset_body_m + Eigen::Vector3f{-hx, -hy,  hz},
+            vol.center_offset_body_m + Eigen::Vector3f{-hx, -hy, -hz},
+        }};
+
+        for (const auto& corner_body : corners) {
+            const float corner_altitude = h_ac - (R_nb * corner_body).z();
+            const float pen = terrain_h - corner_altitude;
+            if (pen > max_pen) max_pen = pen;
+        }
+    }
+
+    return max_pen;
 }
 
 // ---------------------------------------------------------------------------

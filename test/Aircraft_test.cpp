@@ -4,6 +4,7 @@
 #include "Aircraft.hpp"
 #include "environment/Atmosphere.hpp"
 #include "propulsion/Propulsion.hpp"
+#include <liteaero/terrain/Terrain.hpp>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <cmath>
@@ -561,4 +562,72 @@ TEST(AircraftTest, LandingGear_GroundContact_PositiveNz) {
     // Gear pushes aircraft upward — body-Z force is negative (upward in body frame)
     EXPECT_LT(ac->contactForces().force_body_n.z(), 0.0f)
         << "Ground contact must produce upward (negative body-Z) force";
+}
+
+// ---------------------------------------------------------------------------
+// Terrain hard constraint — post-integration position correction
+// ---------------------------------------------------------------------------
+
+TEST(AircraftTest, TerrainHardConstraint_KeepsAircraftAboveTerrain) {
+    // Aircraft initialized 100 m below terrain (terrain at 0 m, aircraft at -100 m).
+    // After one step() the hard constraint must project altitude above terrain
+    // regardless of what the spring-damper forces did during integration.
+    using namespace liteaero::terrain;
+    FlatTerrain terrain{0.0f};
+
+    // Config with a single centered body_collider volume tall enough to trigger
+    // at -100 m altitude.  Stiffness and damping are deliberately low so they
+    // don't dominate — the constraint is the thing under test, not the spring.
+    const auto cfg = nlohmann::json::parse(R"({
+        "schema_version": 1,
+        "aircraft": {
+            "S_ref_m2": 16.2, "cl_y_beta": -0.60, "ar": 7.47, "e": 0.80,
+            "cd0": 0.027, "cmd_filter_substeps": 1,
+            "nz_wn_rad_s": 10.0, "nz_zeta_nd": 0.7,
+            "ny_wn_rad_s": 10.0, "ny_zeta_nd": 0.7,
+            "roll_rate_wn_rad_s": 20.0, "roll_rate_zeta_nd": 0.7
+        },
+        "airframe": {
+            "g_max_nd": 3.8, "g_min_nd": -1.52,
+            "tas_max_mps": 82.3, "mach_max_nd": 0.25
+        },
+        "load_factor_allocator": { "alpha_dot_max_rad_s": 0.0 },
+        "inertia": { "mass_kg": 1045.0, "Ixx_kgm2": 1285.0, "Iyy_kgm2": 1825.0, "Izz_kgm2": 2667.0 },
+        "lift_curve": {
+            "cl_alpha": 5.1, "cl_max": 1.80, "cl_min": -1.20,
+            "delta_alpha_stall": 0.262, "delta_alpha_stall_neg": 0.262,
+            "cl_sep": 1.05, "cl_sep_neg": -0.80,
+            "alpha_max_rad": 0.42, "alpha_min_rad": -0.26
+        },
+        "body_collider": {
+            "volumes": [{
+                "name": "fuselage",
+                "half_extents_body_m":  [1.0, 1.0, 0.5],
+                "center_offset_body_m": [0.0, 0.0, 0.0],
+                "stiffness_npm": 100.0,
+                "damping_nspm":   10.0
+            }]
+        },
+        "initial_state": {
+            "latitude_rad": 0.0, "longitude_rad": 0.0,
+            "altitude_m": -100.0,
+            "velocity_north_mps": 0.0, "velocity_east_mps": 0.0,
+            "velocity_down_mps": 50.0,
+            "wind_north_mps": 0.0, "wind_east_mps": 0.0, "wind_down_mps": 0.0
+        }
+    })");
+
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(
+        std::make_unique<StubPropulsion>(0.f));
+    ac->initialize(cfg, 0.02f);
+    ac->setTerrain(&terrain);
+    ac->reset();
+
+    const liteaero::simulation::AircraftCommand cmd;
+    ac->step(0.0, cmd, Eigen::Vector3f::Zero(), 1.225f);
+
+    EXPECT_GE(ac->state().positionDatum().height_WGS84_m(), 0.0f)
+        << "Hard constraint must project aircraft above terrain after integration";
+    EXPECT_LE(ac->state().velocity_NED_mps().z(), 0.0f)
+        << "Hard constraint must zero downward velocity when penetrating terrain";
 }

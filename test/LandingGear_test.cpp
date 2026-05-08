@@ -237,6 +237,31 @@ TEST(LandingGear, ProtoRoundTrip_LandingGearState) {
                     gear2.serializeJson()["wheel_units"][0]["strut_deflection_m"].get<float>());
 }
 
+TEST(LandingGear, Airborne_StrutDeflectionResetsToZero) {
+    // After ground contact, going airborne must reset strut deflection to zero.
+    // If deflection persists at travel_max and the aircraft then contacts at
+    // shallower penetration, delta_dot = (small - travel_max) / dt is a large
+    // negative, zeroing the damper term and making the strut appear unresponsive.
+    LandingGear gear;
+    gear.initialize(makeTricycleConfig());
+    FlatTestTerrain terrain{0.0f};
+
+    // Contact at alt=0.5 m to build up non-zero strut deflection
+    gear.step(makeSnap(0.5f), terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+
+    const float defl_after_contact =
+        gear.serializeJson()["wheel_units"][0]["strut_deflection_m"].get<float>();
+    ASSERT_GT(defl_after_contact, 0.0f) << "Strut must be deflected after contact";
+
+    // Go airborne — deflection must reset to zero
+    gear.step(makeSnap(1000.0f), terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+
+    const float defl_after_airborne =
+        gear.serializeJson()["wheel_units"][0]["strut_deflection_m"].get<float>();
+    EXPECT_FLOAT_EQ(defl_after_airborne, 0.0f)
+        << "Strut deflection must reset to zero when aircraft is airborne";
+}
+
 // ---------------------------------------------------------------------------
 // Step D — Pacejka tyre forces
 // ---------------------------------------------------------------------------

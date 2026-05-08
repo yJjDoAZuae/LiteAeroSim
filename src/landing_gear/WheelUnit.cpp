@@ -42,6 +42,7 @@ WheelContactForces WheelUnit::step(float                         penetration_m,
                                     float                         friction_mu_nd,
                                     float                         dt_s) {
     if (penetration_m <= 0.0f) {
+        _strut_deflection_m        = 0.0f;
         _strut_deflection_rate_mps = 0.0f;
         return {};
     }

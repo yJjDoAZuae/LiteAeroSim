@@ -113,6 +113,15 @@ public:
     static Eigen::Vector3f EulerRatesToBodyRates(const EulerAngles& ang, const EulerRates& rates);
     static EulerRates BodyRatesToEulerRates(const EulerAngles& ang, const Eigen::Vector3f& rates);
 
+    // ── Post-integration terrain hard constraint ──────────────────────────────
+
+    // Shift altitude up by penetration_m and zero the NED-downward velocity
+    // component.  Called by Aircraft::step() after integration whenever
+    // BodyCollider::maxCornerPenetration_m() reports positive penetration.
+    // Upward velocity (negative NED-z) is preserved — the aircraft is already
+    // leaving terrain and needs no correction.
+    void applyTerrainHardConstraint(float penetration_m);
+
     // ── Serialization ─────────────────────────────────────────────────────────
 
     nlohmann::json       serializeJson()                              const;

@@ -41,6 +41,15 @@ public:
     // Convenience: assumes flat terrain at elevation 0 m (useful in unit tests).
     ContactForces step(const liteaero::nav::KinematicStateSnapshot& snap) const;
 
+    // Return the maximum depth (m) by which any corner of any volume penetrates
+    // terrain.  Positive means the deepest corner is that far below terrain;
+    // zero or negative means all corners are above terrain.  Intended to be
+    // called on the post-integration state so the simulation loop can apply
+    // the terrain hard constraint without needing the full contact force.
+    [[nodiscard]] float maxCornerPenetration_m(
+        const liteaero::nav::KinematicStateSnapshot& snap,
+        const liteaero::terrain::Terrain& terrain) const;
+
     [[nodiscard]] nlohmann::json       serializeJson()                               const;
     void                               deserializeJson(const nlohmann::json& j);
     [[nodiscard]] std::vector<uint8_t> serializeProto()                              const;

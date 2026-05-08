@@ -88,6 +88,7 @@ ContactForces LandingGear::step(const liteaero::nav::KinematicStateSnapshot& sna
                                                  snap.position.longitude_rad);
 
     if (h_ac - terrain_h > _max_reach_m) {
+        for (auto& wu : _wheel_units) wu.reset();
         _contact_forces = ContactForces{};
         return _contact_forces;
     }

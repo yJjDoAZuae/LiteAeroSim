@@ -322,3 +322,10 @@ void KinematicState::deserializeProto(const std::vector<uint8_t>& bytes)
 {
     snapshot_ = liteaero::nav::KinematicStateUtil::deserializeProto(bytes);
 }
+
+void KinematicState::applyTerrainHardConstraint(float penetration_m)
+{
+    snapshot_.position.altitude_m += penetration_m;
+    if (snapshot_.velocity_ned_mps.z() > 0.f)
+        snapshot_.velocity_ned_mps.z() = 0.f;
+}

@@ -780,6 +780,56 @@ TEST(KinematicStateSerializationTest, ProtoRoundTrip) {
     EXPECT_FLOAT_EQ(restored.rollRate_Wind_rps(), original.rollRate_Wind_rps());
 }
 
+// ---------------------------------------------------------------------------
+// applyTerrainHardConstraint — post-integration terrain hard constraint
+// ---------------------------------------------------------------------------
+
+TEST(KinematicStateTest, TerrainHardConstraint_ShiftsAltitudeUp) {
+    WGS84_Datum datum;
+    datum.setHeight_WGS84_m(-5.f);
+    KinematicState s(0.0, datum,
+                     Eigen::Vector3f::Zero(), Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf::Identity(),
+                     Eigen::Vector3f::Zero());
+
+    s.applyTerrainHardConstraint(5.f);
+
+    EXPECT_NEAR(s.positionDatum().height_WGS84_m(), 0.f, 1e-4f)
+        << "Altitude must be shifted up by the penetration depth";
+}
+
+TEST(KinematicStateTest, TerrainHardConstraint_ZerosDownwardVelocity) {
+    WGS84_Datum datum;
+    datum.setHeight_WGS84_m(-1.f);
+    // Downward velocity (NED z positive = down)
+    KinematicState s(0.0, datum,
+                     Eigen::Vector3f{0.f, 0.f, 50.f},
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf::Identity(),
+                     Eigen::Vector3f::Zero());
+
+    s.applyTerrainHardConstraint(1.f);
+
+    EXPECT_LE(s.velocity_NED_mps().z(), 0.f)
+        << "Downward velocity must be zeroed when penetrating terrain";
+}
+
+TEST(KinematicStateTest, TerrainHardConstraint_PreservesUpwardVelocity) {
+    WGS84_Datum datum;
+    datum.setHeight_WGS84_m(-1.f);
+    // Upward velocity (NED z negative = up) — aircraft already escaping
+    KinematicState s(0.0, datum,
+                     Eigen::Vector3f{0.f, 0.f, -30.f},
+                     Eigen::Vector3f::Zero(),
+                     Eigen::Quaternionf::Identity(),
+                     Eigen::Vector3f::Zero());
+
+    s.applyTerrainHardConstraint(1.f);
+
+    EXPECT_NEAR(s.velocity_NED_mps().z(), -30.f, 1e-3f)
+        << "Upward velocity must be preserved (aircraft is already leaving terrain)";
+}
+
 TEST(KinematicStateSerializationTest, ProtoSchemaVersionMismatchThrows) {
     KinematicState s = makeNonTrivialState();
     // Build a valid snapshot then corrupt the schema_version field via JSON

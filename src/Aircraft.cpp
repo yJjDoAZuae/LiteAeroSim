@@ -282,6 +282,19 @@ void Aircraft::step(double time_sec,
                 lfa_out.alphaDot_rps,
                 lfa_out.betaDot_rps,
                 wind_NED_mps);
+
+    // 12. Post-integration terrain hard constraint.
+    //     The spring-damper in BodyCollider handles low-speed contact physics
+    //     (requirement 1).  This separate pass guarantees the aircraft never
+    //     phases through terrain at any impact speed (requirement 2): if the
+    //     integrator left any corner below terrain, project altitude up by the
+    //     deepest penetration and zero the downward velocity component.
+    if (_has_body_collider && _terrain != nullptr) {
+        const float pen = _body_collider.maxCornerPenetration_m(
+            _state.snapshot(), *_terrain);
+        if (pen > 0.f)
+            _state.applyTerrainHardConstraint(pen);
+    }
 }
 
 // ---------------------------------------------------------------------------

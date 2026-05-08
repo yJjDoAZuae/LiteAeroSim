@@ -154,23 +154,24 @@ TEST(BodyColliderTest, DampingIncreasesForce_WhenSinkingIntoTerrain) {
     EXPECT_GT(F_sinking, F_static) << "Damping should add force when sinking";
 }
 
-TEST(BodyColliderTest, NoDamping_WhenRisingFromTerrain) {
+TEST(BodyColliderTest, TwoWayDamping_WhenRising_ForceReducedButNotNegative) {
+    // Two-way damping: rising from terrain must reduce the contact force relative
+    // to the static case (energy absorption), but the force must remain >= 0
+    // (no suction pulling the aircraft back into the ground).
     BodyCollider c;
     c.initialize(makeConfig(0.5f, 0.3f, 0.2f, 10000.f, 500.f));
 
-    // Static case
     const auto cf_static = c.step(makeSnap(0.1f));
-
-    // Rising at 1 m/s upward in NED (velocity_down = -1)
     const auto cf_rising = c.step(
         makeSnap(0.1f, Eigen::Quaternionf::Identity(),
                  Eigen::Vector3f{0.f, 0.f, -1.f}));
 
     const float F_static = -cf_static.force_body_n.z();
     const float F_rising = -cf_rising.force_body_n.z();
-    // Rising should get the same force as static (no suction)
-    EXPECT_NEAR(F_rising, F_static, 1e-3f)
-        << "No damping force (suction) when rising from terrain";
+    EXPECT_LT(F_rising, F_static)
+        << "Two-way damping must reduce contact force when aircraft is rising";
+    EXPECT_GE(F_rising, 0.f)
+        << "No suction: contact force must remain non-negative when rising";
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +226,65 @@ TEST(BodyColliderTest, Moment_ProducedWhenContactIsOffCenter) {
     const auto cf = c.step(makeSnap(0.1f));
     EXPECT_GT(std::abs(cf.moment_body_nm.y()), 0.f)
         << "Forward-shifted box should produce a pitching moment";
+}
+
+// ---------------------------------------------------------------------------
+// maxCornerPenetration_m — post-integration hard constraint query
+// ---------------------------------------------------------------------------
+
+TEST(BodyColliderTest, MaxCornerPenetration_ZeroWhenAboveTerrain) {
+    BodyCollider c;
+    c.initialize(makeConfig(0.5f, 0.3f, 0.2f));
+    FlatTerrain terrain{0.f};
+
+    // Bottom corners at 10 - 0.2 = 9.8 m above terrain — no penetration.
+    EXPECT_FLOAT_EQ(c.maxCornerPenetration_m(makeSnap(10.f), terrain), 0.f);
+}
+
+TEST(BodyColliderTest, MaxCornerPenetration_MatchesDeepestCorner) {
+    BodyCollider c;
+    c.initialize(makeConfig(0.5f, 0.3f, 0.2f));
+    FlatTerrain terrain{0.f};
+
+    // Level aircraft at alt = 0.1 m:
+    //   Bottom corners (body-z = +0.2): altitude = 0.1 - 0.2 = -0.1 m → pen = 0.1 m
+    //   Top corners (body-z = -0.2): altitude = 0.1 + 0.2 = 0.3 m → clear
+    const float pen = c.maxCornerPenetration_m(makeSnap(0.1f), terrain);
+    EXPECT_NEAR(pen, 0.1f, 1e-4f);
+}
+
+TEST(BodyColliderTest, MaxCornerPenetration_ZeroWhenJustAbove) {
+    BodyCollider c;
+    c.initialize(makeConfig(0.5f, 0.3f, 0.2f));
+    FlatTerrain terrain{0.f};
+
+    // Bottom corners exactly at terrain level: pen = 0.
+    EXPECT_FLOAT_EQ(c.maxCornerPenetration_m(makeSnap(0.2f), terrain), 0.f);
+}
+
+// ---------------------------------------------------------------------------
+// Penetration cap — prevents explosive forces during extreme embedding
+// ---------------------------------------------------------------------------
+
+TEST(BodyColliderTest, PenetrationCap_ForceIsBounded_UnderExtremeEmbedding) {
+    // pen_cap = 2 * hz = 2 * 0.2 = 0.4 m
+    // At alt = -10 m all 8 corners exceed the cap (pen ≈ 10 m each).
+    // At alt = -100 m all 8 corners also exceed the cap (pen ≈ 100 m each).
+    // With no damping and no velocity the force must be identical in both cases
+    // because the cap clamps all effective penetrations to 0.4 m.
+    // (Without the cap the forces would be 10× different.)
+    BodyCollider c_deep, c_extreme;
+    c_deep.initialize(makeConfig(0.5f, 0.3f, 0.2f, 10000.f, 0.f));
+    c_extreme.initialize(makeConfig(0.5f, 0.3f, 0.2f, 10000.f, 0.f));
+
+    const auto cf_deep    = c_deep.step(makeSnap(-10.0f));
+    const auto cf_extreme = c_extreme.step(makeSnap(-100.0f));
+
+    const float F_deep    = -cf_deep.force_body_n.z();
+    const float F_extreme = -cf_extreme.force_body_n.z();
+    ASSERT_GT(F_deep, 0.f) << "Contact must be detected at 10 m depth";
+    EXPECT_NEAR(F_extreme, F_deep, 1.0f)
+        << "Force must be equal at 10 m and 100 m depth — cap must clamp all corners";
 }
 
 // ---------------------------------------------------------------------------
