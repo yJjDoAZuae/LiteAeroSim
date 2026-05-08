@@ -110,10 +110,13 @@ classDiagram
         +attach_point_body_m : Vector3f
         +travel_axis_body : Vector3f
         +spring_stiffness_npm : float
-        +damper_coeff_nspm : float
+        +damping_compression_nspm : float
+        +damping_extension_nspm : float
+        +orifice_damping_compression_ns2pm2 : float
+        +orifice_damping_extension_ns2pm2 : float
+        +spring_nonlinearity_nd : float
         +preload_n : float
         +travel_max_m : float
-        +travel_min_m : float
         +tyre_radius_m : float
         +tyre_cornering_stiffness_npm : float
         +tyre_longitudinal_stiffness_npm : float
@@ -208,42 +211,76 @@ frame, and $h_i > 0$ indicates contact.
 
 ---
 
-### 2. Suspension Dynamics — Second-Order Spring-Damper
+### 2. Suspension Dynamics — Oleo-Pneumatic Strut Model
 
-Each strut is modeled as a linear spring-damper. The strut force (positive = compressive,
-opposing penetration) is:
+Each strut is modeled as a nonlinear spring with asymmetric orifice damping, matching the
+physical behavior of an oleo-pneumatic shock absorber.
 
-$$F_{s_i} = k_i\,(\delta_i + \delta_{0_i}) + b_i\,\dot{\delta}_i$$
+#### 2a. Nonlinear Spring
+
+Real pneumatic gas columns stiffen nonlinearly as they approach full compression. The spring
+force is:
+
+$$F_{\text{spring},i} = k_i \cdot \delta_i \cdot \left(1 + n_i \left(\frac{\delta_i}{\delta_{i,\max}}\right)^2\right) + F_{\text{preload},i}$$
 
 where:
-- $k_i$ — spring stiffness (N/m)
-- $b_i$ — damper coefficient (N·s/m)
-- $\delta_{0_i}$ — preload deflection (m) such that $k_i\,\delta_{0_i} = F_{\text{preload},i}$
-- $\dot{\delta}_i$ — strut deflection rate (m/s)
 
-The strut force is lower-bounded at zero: $F_{s_i} \geq 0$ (the strut can only push, not pull).
+- $k_i$ — linear spring stiffness (N/m)
+- $n_i$ — dimensionless nonlinearity factor (`spring_nonlinearity_nd`); at $n_i = 0$ the
+  spring is linear; at $n_i = 2$ the effective stiffness triples at full compression
+- $\delta_{i,\max}$ — mechanical travel limit (m)
+- $F_{\text{preload},i}$ — static preload force (N)
 
-Strut deflection $\delta_i$ and its rate $\dot{\delta}_i$ are integrated forward in the
-inner substep loop using Euler integration at timestep $\Delta t_{\text{inner}}$:
+#### 2b. Asymmetric Orifice Damping
 
-$$\dot{\delta}_i^{k+1} = \dot{\delta}_i^k + \frac{F_{s_i} - F_{\text{tyre},z_i}}{m_{\text{unsprung}}} \,\Delta t_{\text{inner}}$$
+Real oleo-pneumatic struts have a metering pin that partially closes the oil orifice on
+compression and opens it on extension. This produces:
 
-$$\delta_i^{k+1} = \delta_i^k + \dot{\delta}_i^{k+1}\,\Delta t_{\text{inner}}$$
+- High damping on compression (stroke energy absorbed at touchdown)
+- Low damping on extension (quick strut recovery without bouncing the airframe back up)
 
-where $F_{\text{tyre},z_i}$ is the vertical tyre contact force (see §3) and
-$m_{\text{unsprung}}$ is approximated as zero in the first-order model (quasi-static
-suspension — strut force equals tyre contact force at equilibrium). Strut deflection and
-rate are clamped to their travel limits after each substep.
+The damping force combines a viscous (linear) term and an orifice (quadratic) term. The
+quadratic term dominates at high closure speeds and is the physically correct model for
+hydraulic orifice flow ($\Delta P \propto V^2$):
 
-**Inner substep loop.** Suspension stiffness can impose a stability constraint
-$\Delta t < 2\sqrt{m/k}$ on the explicit Euler integrator. For a typical spring constant
-of $k = 50{,}000$ N/m and a nominal aircraft mass of $m = 5{,}000$ kg, the stability
-limit is $\Delta t < 2\sqrt{5000/50000} = 0.63$ s, well above any practical outer
-timestep. For a light UAS with $m = 10$ kg and $k = 5{,}000$ N/m the limit falls to
-$2\sqrt{10/5000} = 0.089$ s — still above a 0.02 s outer timestep but closer. The
-`substeps` parameter in `LandingGearConfig` subdivides each outer step into
-$N_{\text{sub}}$ inner steps to guarantee stability across the full configuration range
-without reducing the outer timestep rate. The default is `substeps = 4`.
+$$F_{\text{damp},i}(\dot{\delta}_i) = b(\dot{\delta}_i)\,\dot{\delta}_i + c(\dot{\delta}_i)\,|\dot{\delta}_i|\,\dot{\delta}_i$$
+
+where the damping coefficients are selected by sign of $\dot{\delta}_i$:
+
+$$b(\dot{\delta}) = \begin{cases} b_{c,i} & \dot{\delta} \geq 0\;\text{(compression)} \\ b_{e,i} & \dot{\delta} < 0\;\text{(extension)} \end{cases}, \qquad c(\dot{\delta}) = \begin{cases} c_{c,i} & \dot{\delta} \geq 0 \\ c_{e,i} & \dot{\delta} < 0 \end{cases}$$
+
+| Parameter | Config key | Units | Typical ratio $c/e$ |
+| --- | --- | --- | --- |
+| $b_{c,i}$ | `damping_compression_nspm` | N·s/m | 5:1 |
+| $b_{e,i}$ | `damping_extension_nspm` | N·s/m | — |
+| $c_{c,i}$ | `orifice_damping_compression_ns2pm2` | N·s²/m² | 5:1 |
+| $c_{e,i}$ | `orifice_damping_extension_ns2pm2` | N·s²/m² | — |
+
+#### 2c. Total Strut Force
+
+The total strut force (lower-bounded at zero — the strut cannot pull) is:
+
+$$F_{s_i} = \max\!\bigl(0,\; F_{\text{spring},i} + F_{\text{damp},i}\bigr)$$
+
+The force floor prevents suction when the strut extends rapidly past its natural length.
+
+**Quasi-static strut deflection.** The current implementation uses a quasi-static
+(unsprung-mass = 0) approximation: strut deflection $\delta_i$ is set directly to the
+terrain penetration depth (clamped to travel limits), and $\dot{\delta}_i$ is estimated
+from the finite difference with the previous substep:
+
+$$\delta_i = \operatorname{clamp}(h_i,\ 0,\ \delta_{i,\max})$$
+
+$$\dot{\delta}_i = \frac{\delta_i^k - \delta_i^{k-1}}{\Delta t_{\text{inner}}}$$
+
+This avoids integrating a second-order ODE and eliminates the Euler stability constraint
+$\Delta t < 2\sqrt{m/k}$. The `substeps` parameter subdivides the outer timestep to
+improve the accuracy of $\dot{\delta}$ estimation at high closure speeds. The default is
+`substeps = 4`.
+
+**Note:** unsprung mass and tyre spring compliance are second-order effects relevant only
+to a full 6DOF equations-of-motion model (`Aircraft6DOF`). The quasi-static strut is
+appropriate for the load-factor (`Aircraft`) model and is not an open question for it.
 
 ---
 
@@ -513,7 +550,7 @@ model complexity, plus 3 terrain queries. All arithmetic is single-precision `fl
 | Structure | Fields | Size |
 | --- | --- | --- |
 | `WheelUnit` state (×3) | 3 floats each | 36 bytes |
-| `WheelUnitParams` (×3) | ~12 floats + 2 bools each | ~156 bytes |
+| `WheelUnitParams` (×3) | ~16 floats + 2 bools each | ~204 bytes |
 | `LandingGearConfig` | substeps (int) | 4 bytes |
 | `ContactForces` | 6 floats + 1 bool | 28 bytes |
 | **Total** | | **~224 bytes** |
@@ -538,7 +575,7 @@ simulation rate.
 | OQ-LG-1 | Pacejka coefficient sourcing — use a fixed generic set or introduce a parameter estimation pipeline from flight test data? | Not blocking initial implementation |
 | OQ-LG-2 | Richer friction model — continuous function of precipitation intensity vs. binary wet/dry multiplier? | Not blocking |
 | OQ-LG-3 | Runway geometry extension — planar inset patch vs. analytical runway primitive in `V_Terrain`? | Blocking for runway operations |
-| OQ-LG-4 | Unsprung mass — include finite wheel+tyre mass for improved bounce fidelity, or retain quasi-static assumption? | Not blocking |
+| OQ-LG-4 | Unsprung mass and tyre spring compliance — relevant only for `Aircraft6DOF` (full 6DOF EOM). Not applicable to the `Aircraft` load-factor model where quasi-static strut is correct. | Not blocking for `Aircraft`; deferred to `Aircraft6DOF` design |
 
 ---
 

@@ -55,11 +55,24 @@ WheelContactForces WheelUnit::step(float                         penetration_m,
     _strut_deflection_rate_mps = delta_dot;
     _strut_deflection_m        = delta_new;
 
-    // 2. Normal (strut) force: F_z = k*delta + preload + b*delta_dot, floored at zero
-    const float F_z = std::max(0.0f,
-        _params.spring_stiffness_npm * delta_new
-        + _params.preload_n
-        + _params.damper_coeff_nspm * delta_dot);
+    // 2. Normal (strut) force
+    //    Nonlinear spring:   F_spring = k * δ * (1 + nl * (δ / δ_max)²)
+    //    Asymmetric damping: viscous (linear) + orifice (quadratic, dominant at high speed)
+    //      F_damp = b * δ_dot + c * |δ_dot| * δ_dot
+    //    Compression (δ_dot ≥ 0): high b_c, high c_c — orifice nearly closed
+    //    Extension   (δ_dot < 0): low  b_e, low  c_e — orifice open
+    const float ratio    = ((_params.travel_max_m > 0.0f)
+                               ? delta_new / _params.travel_max_m : 0.0f);
+    const float F_spring = _params.spring_stiffness_npm * delta_new
+                         * (1.0f + _params.spring_nonlinearity_nd * ratio * ratio)
+                         + _params.preload_n;
+    const bool  compress = (delta_dot >= 0.0f);
+    const float b        = compress ? _params.damping_compression_nspm
+                                    : _params.damping_extension_nspm;
+    const float c        = compress ? _params.orifice_damping_compression_ns2pm2
+                                    : _params.orifice_damping_extension_ns2pm2;
+    const float F_damp   = b * delta_dot + c * std::abs(delta_dot) * delta_dot;
+    const float F_z      = std::max(0.0f, F_spring + F_damp);
 
     // 3. Wheel heading in body frame
     //    Forward = body-x projected onto the ground plane, then rotated by steering angle.

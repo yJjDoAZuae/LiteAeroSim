@@ -151,11 +151,13 @@ TEST(SimulationBroadcaster, test_simulation_frame_size)
     // SimulationFrame: timestamp_s, latitude_rad, longitude_rad (3 doubles = 24 B)
     //                  + height_wgs84_m, q_w/x/y/z, velocity N/E/D,
     //                    airspeed_mps, agl_m, height_msl_m (11 floats = 44 B)
-    //                  = 68 bytes (all members naturally aligned; no padding).
+    //                  + 4 bytes trailing alignment padding (struct alignment = 8 B,
+    //                    next multiple of 8 above 68 is 72)
+    //                  = 72 bytes.
     static_assert(sizeof(double) == 8, "unexpected double size");
     static_assert(sizeof(float)  == 4, "unexpected float size");
 
-    constexpr size_t expected = 3 * sizeof(double) + 11 * sizeof(float);  // 68
+    constexpr size_t expected = 3 * sizeof(double) + 11 * sizeof(float) + 4;  // 72
     EXPECT_EQ(sizeof(SimulationFrame), expected);
 
     // Verify field offsets are consistent with the protobuf schema field order.

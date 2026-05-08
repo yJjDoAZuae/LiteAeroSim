@@ -31,41 +31,47 @@ static nlohmann::json makeTricycleConfig() {
             {
                 "attach_point_body_m": [2.0, 0.0, 0.5],
                 "travel_axis_body":    [0.0, 0.0, 1.0],
-                "spring_stiffness_npm": 20000.0,
-                "damper_coeff_nspm":    500.0,
-                "preload_n":            0.0,
-                "travel_max_m":         0.3,
-                "tyre_radius_m":        0.2,
-                "rolling_resistance_nd":0.02,
-                "max_brake_torque_nm":  0.0,
-                "is_steerable":         false,
-                "has_brake":            false
+                "spring_stiffness_npm":      20000.0,
+                "damping_compression_nspm": 500.0,
+                "damping_extension_nspm":   100.0,
+                "spring_nonlinearity_nd":   0.0,
+                "preload_n":                0.0,
+                "travel_max_m":             0.3,
+                "tyre_radius_m":            0.2,
+                "rolling_resistance_nd":    0.02,
+                "max_brake_torque_nm":      0.0,
+                "is_steerable":             false,
+                "has_brake":                false
             },
             {
                 "attach_point_body_m": [0.0, -1.0, 0.5],
                 "travel_axis_body":    [0.0,  0.0, 1.0],
-                "spring_stiffness_npm": 20000.0,
-                "damper_coeff_nspm":    500.0,
-                "preload_n":            0.0,
-                "travel_max_m":         0.3,
-                "tyre_radius_m":        0.2,
-                "rolling_resistance_nd":0.02,
-                "max_brake_torque_nm":  500.0,
-                "is_steerable":         false,
-                "has_brake":            true
+                "spring_stiffness_npm":      20000.0,
+                "damping_compression_nspm": 500.0,
+                "damping_extension_nspm":   100.0,
+                "spring_nonlinearity_nd":   0.0,
+                "preload_n":                0.0,
+                "travel_max_m":             0.3,
+                "tyre_radius_m":            0.2,
+                "rolling_resistance_nd":    0.02,
+                "max_brake_torque_nm":      500.0,
+                "is_steerable":             false,
+                "has_brake":                true
             },
             {
                 "attach_point_body_m": [0.0,  1.0, 0.5],
                 "travel_axis_body":    [0.0,  0.0, 1.0],
-                "spring_stiffness_npm": 20000.0,
-                "damper_coeff_nspm":    500.0,
-                "preload_n":            0.0,
-                "travel_max_m":         0.3,
-                "tyre_radius_m":        0.2,
-                "rolling_resistance_nd":0.02,
-                "max_brake_torque_nm":  500.0,
-                "is_steerable":         false,
-                "has_brake":            true
+                "spring_stiffness_npm":      20000.0,
+                "damping_compression_nspm": 500.0,
+                "damping_extension_nspm":   100.0,
+                "spring_nonlinearity_nd":   0.0,
+                "preload_n":                0.0,
+                "travel_max_m":             0.3,
+                "tyre_radius_m":            0.2,
+                "rolling_resistance_nd":    0.02,
+                "max_brake_torque_nm":      500.0,
+                "is_steerable":             false,
+                "has_brake":                true
             }
         ]
     })");
@@ -133,15 +139,17 @@ TEST(LandingGear, NoseGear_PitchMoment) {
         "wheel_units": [{
             "attach_point_body_m": [2.0, 0.0, 0.5],
             "travel_axis_body":    [0.0, 0.0, 1.0],
-            "spring_stiffness_npm": 20000.0,
-            "damper_coeff_nspm":    0.0,
-            "preload_n":            0.0,
-            "travel_max_m":         0.3,
-            "tyre_radius_m":        0.2,
-            "rolling_resistance_nd":0.0,
-            "max_brake_torque_nm":  0.0,
-            "is_steerable":         false,
-            "has_brake":            false
+            "spring_stiffness_npm":      20000.0,
+            "damping_compression_nspm": 0.0,
+            "damping_extension_nspm":   0.0,
+            "spring_nonlinearity_nd":   0.0,
+            "preload_n":                0.0,
+            "travel_max_m":             0.3,
+            "tyre_radius_m":            0.2,
+            "rolling_resistance_nd":    0.0,
+            "max_brake_torque_nm":      0.0,
+            "is_steerable":             false,
+            "has_brake":                false
         }]
     })");
     LandingGear gear;
@@ -182,10 +190,12 @@ TEST(LandingGear, StrutLimit_ForceDoesNotExceedFullyCompressed) {
         "wheel_units": [{
             "attach_point_body_m": [0.0, 0.0, 0.5],
             "travel_axis_body":    [0.0, 0.0, 1.0],
-            "spring_stiffness_npm": 10000.0,
-            "damper_coeff_nspm":    0.0,
-            "preload_n":            0.0,
-            "travel_max_m":         0.1,
+            "spring_stiffness_npm":      10000.0,
+            "damping_compression_nspm": 0.0,
+            "damping_extension_nspm":   0.0,
+            "spring_nonlinearity_nd":   0.0,
+            "preload_n":                0.0,
+            "travel_max_m":             0.1,
             "tyre_radius_m":        0.2,
             "rolling_resistance_nd":0.0,
             "max_brake_torque_nm":  0.0,
@@ -284,15 +294,17 @@ TEST(LandingGear, NoseWheelSteering_ProducesYawMoment) {
         "wheel_units": [{
             "attach_point_body_m": [2.0, 0.0, 0.5],
             "travel_axis_body":    [0.0, 0.0, 1.0],
-            "spring_stiffness_npm": 20000.0,
-            "damper_coeff_nspm":    500.0,
-            "preload_n":            0.0,
-            "travel_max_m":         0.3,
-            "tyre_radius_m":        0.2,
-            "rolling_resistance_nd":0.02,
-            "max_brake_torque_nm":  0.0,
-            "is_steerable":         true,
-            "has_brake":            false
+            "spring_stiffness_npm":      20000.0,
+            "damping_compression_nspm": 500.0,
+            "damping_extension_nspm":   100.0,
+            "spring_nonlinearity_nd":   0.0,
+            "preload_n":                0.0,
+            "travel_max_m":             0.3,
+            "tyre_radius_m":            0.2,
+            "rolling_resistance_nd":    0.02,
+            "max_brake_torque_nm":      0.0,
+            "is_steerable":             true,
+            "has_brake":                false
         }]
     })");
     LandingGear gear;

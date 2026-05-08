@@ -26,7 +26,11 @@ void LandingGear::initialize(const nlohmann::json& config) {
         p.travel_axis_body.normalize();
 
         p.spring_stiffness_npm            = wu_json.at("spring_stiffness_npm").get<float>();
-        p.damper_coeff_nspm               = wu_json.at("damper_coeff_nspm").get<float>();
+        p.damping_compression_nspm             = wu_json.at("damping_compression_nspm").get<float>();
+        p.damping_extension_nspm               = wu_json.at("damping_extension_nspm").get<float>();
+        p.orifice_damping_compression_ns2pm2   = wu_json.value("orifice_damping_compression_ns2pm2", 0.0f);
+        p.orifice_damping_extension_ns2pm2     = wu_json.value("orifice_damping_extension_ns2pm2", 0.0f);
+        p.spring_nonlinearity_nd               = wu_json.value("spring_nonlinearity_nd", 0.0f);
         p.preload_n                       = wu_json.value("preload_n", 0.0f);
         p.travel_max_m                    = wu_json.at("travel_max_m").get<float>();
         p.tyre_radius_m                   = wu_json.at("tyre_radius_m").get<float>();

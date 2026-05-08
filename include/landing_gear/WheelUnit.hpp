@@ -12,7 +12,11 @@ struct WheelUnitParams {
     Eigen::Vector3f attach_point_body_m             = Eigen::Vector3f::Zero();
     Eigen::Vector3f travel_axis_body                = Eigen::Vector3f(0.f, 0.f, 1.f);
     float           spring_stiffness_npm            = 0.0f;
-    float           damper_coeff_nspm               = 0.0f;
+    float           damping_compression_nspm         = 0.0f;
+    float           damping_extension_nspm           = 0.0f;
+    float           orifice_damping_compression_ns2pm2 = 0.0f;
+    float           orifice_damping_extension_ns2pm2   = 0.0f;
+    float           spring_nonlinearity_nd           = 0.0f;
     float           preload_n                       = 0.0f;
     float           travel_max_m                    = 0.3f;
     float           tyre_radius_m                   = 0.2f;
