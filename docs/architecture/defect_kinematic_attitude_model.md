@@ -163,16 +163,18 @@ recovered because subsequent `stepQnw` calls apply correct increments from the w
 point. After the second contact the gap widens. `g_wind = R_nw^T · {0,0,g}` accumulates error
 with each contact, producing a phantom acceleration that grows with each gear bounce.
 
-### D-2 — `stepQnv` Is Defined but Never Called; `q_nv()` Returns Identity
+### D-2 — `q_nv()` Returns Identity Instead of the Algebraic VW Frame
 
 **File:** `include/KinematicState.hpp` line 82; `src/KinematicState.cpp` lines 259–281  
-**Severity:** Low (dead code)
+**Severity:** Low (silent incorrect output)
 
-`stepQnv` constructs `q_nVW` algebraically from the velocity vector. It is not required for the
+`stepQnv` constructs `q_nVW` algebraically from the velocity vector. It is not part of the
 `q_nw` update path — `setFromTwoVectors` preserves roll without reference to `q_nVW`. However,
-`q_nVW` is a useful derived quantity for display and monitoring (aerodynamic track, flight path
-angle). `stepQnv` is currently unreachable via the public interface and its accessor always returns
-identity, making any caller silently incorrect.
+`q_nVW` is a useful derived quantity for display and monitoring (aerodynamic track angle, flight
+path angle). The public accessor `q_nv()` currently returns `Eigen::Quaternionf::Identity()`
+unconditionally, making any caller silently incorrect. Since `q_nVW` is a pure function of the
+current velocity vector, there is no need to maintain it as state — `q_nv()` can compute and
+return the correct value on demand by calling `stepQnv` internally.
 
 ### D-3 — `equations_of_motion.md` Integration Scheme Summary Describes 6DOF Attitude, Not Trim Aero
 
@@ -194,24 +196,26 @@ The same section's "Implementation Notes" (line 1129) states `_q_nb` is the prim
 quaternion. This is incorrect — the primary stored quaternion is `q_nw` (see `KinematicStateSnapshot`,
 line 33).
 
-### D-5 — `equations_of_motion.md` Does Not Clearly Separate Trim Aero and 6DOF Models
+### D-5 — `equations_of_motion.md` Does Not Clearly Separate Implemented and Deferred Models
 
 **File:** `docs/algorithms/equations_of_motion.md`  
-**Severity:** Medium — caused D-4 and contributed to D-1 being introduced
+**Severity:** Medium — contributed to D-1 being introduced; blocks future 6DOF implementation
 
-The document contains correct derivations for both models interleaved without explicit labeling of
-which applies to this simulator:
+Both models are planned for this simulator. The trim aero model is the current implementation;
+the 6DOF model is deferred. The document contains correct derivations for both but interleaves
+them without labeling which is currently implemented and which is deferred:
 
-| Section | Model described | Applicable? |
+| Section | Model described | Status |
 | --- | --- | --- |
-| Attitude Kinematics — Quaternion ODE | 6DOF (q_nb integrated) | No |
-| Body Rates from Wind Frame Rates | Trim aero | Yes |
-| Integration Scheme Summary | 6DOF (q_nb propagated) | No |
-| Implementation Notes | Incorrectly claims q_nb primary | No |
-| Velocity and Velocity-Wind Frames | Trim aero | Yes |
-| Path Angle Rates | Trim aero | Yes |
+| Attitude Kinematics — Quaternion ODE | 6DOF | Deferred |
+| Body Rates from Wind Frame Rates | Trim aero | Implemented |
+| Integration Scheme Summary | 6DOF (q_nb propagated) | Wrong — shows deferred model as if current |
+| Implementation Notes | Incorrectly claims q_nb primary | Wrong |
+| Velocity and Velocity-Wind Frames | Trim aero | Implemented |
+| Path Angle Rates | Trim aero | Implemented |
 
-A reader cannot tell from the document which integration scheme is actually implemented.
+A reader cannot distinguish the current implementation from the deferred one, which contributed
+to the D-1 architectural defect being introduced.
 
 ---
 
@@ -363,18 +367,23 @@ Write tests verifying that `stepQnv` produces the correct `q_nVW` from known vel
 These tests specify the contract for `stepQnv` as a pure algebraic function: correct in the
 non-singular regime, and explicitly documented (not suppressed) at the vertical singularity.
 
-### IP-2 — Activate `stepQnv`; fix `q_nv()` accessor (D-2)
+### IP-2 — Fix `q_nv()` to Compute VW Frame on Demand (D-2)
 
 **Targets:** `src/KinematicState.cpp`, `include/KinematicState.hpp`
 
-Make `stepQnv` callable and return a real value from `q_nv()`. No behavior change to `stepQnw`
-yet — this item just removes the dead-code status and verifies IP-1 tests pass.
+Replace the stub `q_nv()` body with a direct call to `stepQnv`:
 
-Steps:
+```cpp
+Eigen::Quaternionf q_nv() const {
+    Eigen::Quaternionf result = Eigen::Quaternionf::Identity();
+    stepQnv(snapshot_.velocity_ned_mps, result);
+    return result;
+}
+```
 
-1. Call `stepQnv` from within `step()` to keep `q_nv_` up to date each tick.
-2. Replace the stub `q_nv()` accessor body with `return q_nv_;` (or equivalent internal member).
-3. IP-1 tests must pass. No other tests may regress.
+`q_nVW` is a pure function of the current velocity vector — no stored state is needed.
+`stepQnv` is not called from `stepPV`, `commitAttitude`, or `step()`. IP-1 tests must pass.
+No other tests may regress.
 
 ### IP-3 — Tests for `applyTerrainHardConstraint` q_nw consistency and `stepQnw` continuity (D-1 prerequisite)
 
@@ -513,7 +522,7 @@ belongs where.
 | Reference Frames | Common | Keep as-is |
 | Velocity and Velocity-Wind Frames | **Trim aero** | Keep; move into trim aero part |
 | Aerodynamic Angles | **Trim aero** | Keep; move into trim aero part |
-| Attitude Kinematics — Quaternion ODE | **6DOF only** | Move into a clearly labeled 6DOF reference section; add a note that this model is NOT implemented |
+| Attitude Kinematics — Quaternion ODE | **6DOF only** | Move into a clearly labeled 6DOF section; add a note that this model is deferred |
 | Velocity Kinematics — Wind Frame Input | **Trim aero** | Keep; move into trim aero part |
 | Position Kinematics — WGS84 Integration | Common | Keep; move into trim aero part (RK4 applies to both but the implementation is shared) |
 | Euler Angles (3-2-1 Convention) | Derived output | Keep; label as derived quantities for display, applicable to both models |
@@ -552,7 +561,7 @@ belongs where.
   ### Integration Scheme Summary — Trim Aero
   ### Implementation Notes
 
-## Part 2 — 6DOF Reference (Not Implemented)
+## Part 2 — 6DOF Model (Deferred)
 
   ### 6DOF Overview
   ### Attitude Kinematics — Quaternion ODE
@@ -565,7 +574,7 @@ belongs where.
 A short preamble under "Trim Aero Overview" must state:
 
 - This simulator implements the trim aero model. Part 1 describes this model.
-- Part 2 is retained as reference material only. None of Part 2 is implemented.
+- Part 2 describes the 6DOF model, which is planned for this simulator but is deferred pending completion of the trim aero implementation.
 - The primary attitude quaternion is `q_nw` (Wind-to-NED). `q_nb` is a derived quantity.
 
 #### Corrections to Integration Scheme Summary
