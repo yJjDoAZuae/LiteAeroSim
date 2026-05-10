@@ -1,13 +1,14 @@
-"""export_gltf.py — pygltflib-based GLB export for terrain tiles with a mosaic texture.
+"""export_gltf.py — pygltflib-based GLB export for terrain tiles with per-tile textures.
 
-Exports TerrainTileData tiles to a binary GLB where all tile mesh primitives share a
-single JPEG mosaic texture embedded in the file.  Vertices are deduplicated (one entry
-per logical vertex); per-vertex TEXCOORD_0 maps each vertex onto the shared mosaic.
+Exports TerrainTileData tiles to a binary GLB where each tile mesh primitive carries its
+own JPEG texture covering only that tile's geographic footprint.  Vertices are deduplicated
+(one entry per logical vertex); per-vertex TEXCOORD_0 maps each vertex to the tile's
+own mosaic bounds (u=0 at tile west edge, u=1 at tile east edge; v=0 at tile north edge).
 
 Axis convention:
     glTF X = ENU East,  glTF Y = ENU Up,  glTF Z = −ENU North.
 
-Design authority: docs/architecture/terrain_build.md §OQ-TB-5 Option D (TB-T3)
+Design authority: docs/architecture/terrain_build.md §OQ-TB-5 (per-tile texture variant)
 """
 
 from __future__ import annotations
@@ -116,16 +117,17 @@ def _add_buffer_view(
 # ---------------------------------------------------------------------------
 
 def export_gltf(
-    tiles: list[TerrainTileData],
+    tile_mosaics: list[tuple[TerrainTileData, MosaicDescriptor]],
     output_path: Path,
     world_origin: tuple[float, float, float] | None = None,
-    mosaic: MosaicDescriptor | None = None,
 ) -> None:
-    """Export tiles to a binary GLB with a single embedded JPEG mosaic texture.
+    """Export tiles to a binary GLB with one embedded JPEG texture per tile.
 
-    Vertex deduplication: each logical vertex appears once in POSITION, NORMAL,
-    and TEXCOORD_0 buffers.  COLOR_0 is not emitted.  All tile mesh primitives
-    reference material index 0, which carries the mosaic JPEG as baseColorTexture.
+    Each tile mesh primitive carries its own material referencing a JPEG texture
+    covering only that tile's geographic footprint.  Vertex deduplication: each
+    logical vertex appears once in POSITION, NORMAL, and TEXCOORD_0 buffers.
+    COLOR_0 is not emitted.  TEXCOORD_0 maps u=0/1 to the tile's west/east edge
+    and v=0/1 to the tile's north/south edge.
 
     Node names follow the ``tile_L{lod}_{index:04d}`` convention required by
     TerrainLoader.gd's visibility-range assignment pass.
@@ -139,23 +141,19 @@ def export_gltf(
     Raises
     ------
     ValueError
-        If tiles is empty or mosaic is None.
+        If tile_mosaics is empty.
     IOError
         On write failure.
     """
-    if not tiles:
-        raise ValueError("tiles must not be empty")
-    if mosaic is None:
-        raise ValueError(
-            "mosaic is required for texture-based GLB export; "
-            "call mosaic_render.render_mosaic() first"
-        )
+    if not tile_mosaics:
+        raise ValueError("tile_mosaics must not be empty")
 
     if world_origin is None:
+        first_tile = tile_mosaics[0][0]
         world_origin = (
-            tiles[0].centroid_lat_rad,
-            tiles[0].centroid_lon_rad,
-            tiles[0].centroid_height_m,
+            first_tile.centroid_lat_rad,
+            first_tile.centroid_lon_rad,
+            first_tile.centroid_height_m,
         )
     origin_lat, origin_lon, origin_h = world_origin
     origin_ecef = _ecef_from_geodetic(origin_lat, origin_lon, origin_h)
@@ -167,7 +165,7 @@ def export_gltf(
     blob = bytearray()
     node_indices: list[int] = []
 
-    for tile_idx, tile in enumerate(tiles):
+    for tile_idx, (tile, mosaic) in enumerate(tile_mosaics):
         n_verts = len(tile.vertices)
         n_faces = len(tile.indices)
         if n_verts == 0 or n_faces == 0:
@@ -205,7 +203,8 @@ def export_gltf(
         ).astype(np.float32)
 
         # ----------------------------------------------------------------
-        # Per-vertex UV from geodetic position relative to mosaic bounds
+        # Per-vertex UV from geodetic position relative to this tile's mosaic bounds.
+        # The mosaic covers exactly this tile's bbox so u ∈ [0, 1] across the tile.
         # ----------------------------------------------------------------
         east_m  = verts_enu[:, 0].astype(np.float64)
         north_m = verts_enu[:, 1].astype(np.float64)
@@ -288,6 +287,35 @@ def export_gltf(
         # ----------------------------------------------------------------
         name = f"tile_L{tile.lod}_{tile_idx:04d}"
 
+        # ----------------------------------------------------------------
+        # Embed per-tile JPEG image → image, sampler, texture, material
+        # ----------------------------------------------------------------
+        img_bv = _add_buffer_view(gltf, blob, mosaic.jpeg_bytes, None)
+        img_idx = len(gltf.images)
+        gltf.images.append(pygltflib.Image(bufferView=img_bv, mimeType="image/jpeg"))
+
+        if not gltf.samplers:
+            gltf.samplers = [pygltflib.Sampler(
+                magFilter=_LINEAR,
+                minFilter=_LINEAR_MIPMAP_LINEAR,
+                wrapS=_CLAMP_TO_EDGE,
+                wrapT=_CLAMP_TO_EDGE,
+            )]
+
+        tex_idx = len(gltf.textures)
+        gltf.textures.append(pygltflib.Texture(source=img_idx, sampler=0))
+
+        mat_idx = len(gltf.materials)
+        gltf.materials.append(pygltflib.Material(
+            pbrMetallicRoughness=pygltflib.PbrMetallicRoughness(
+                baseColorTexture=pygltflib.TextureInfo(index=tex_idx),
+                metallicFactor=0.0,
+                roughnessFactor=1.0,
+            ),
+            doubleSided=True,
+            alphaMode="OPAQUE",
+        ))
+
         mesh = pygltflib.Mesh(
             name=name,
             primitives=[pygltflib.Primitive(
@@ -297,7 +325,7 @@ def export_gltf(
                     TEXCOORD_0=uv_acc,
                 ),
                 indices=idx_acc,
-                material=0,
+                material=mat_idx,
             )],
         )
         mesh_idx = len(gltf.meshes)
@@ -318,38 +346,6 @@ def export_gltf(
         node_idx = len(gltf.nodes)
         gltf.nodes.append(node)
         node_indices.append(node_idx)
-
-    # ----------------------------------------------------------------
-    # Embed JPEG image data in the binary blob
-    # ----------------------------------------------------------------
-    img_bv = _add_buffer_view(gltf, blob, mosaic.jpeg_bytes, None)
-
-    # ----------------------------------------------------------------
-    # Single image, sampler, texture, material — shared by all tile primitives
-    # ----------------------------------------------------------------
-    gltf.images = [
-        pygltflib.Image(bufferView=img_bv, mimeType="image/jpeg")
-    ]
-    gltf.samplers = [
-        pygltflib.Sampler(
-            magFilter=_LINEAR,
-            minFilter=_LINEAR_MIPMAP_LINEAR,
-            wrapS=_CLAMP_TO_EDGE,
-            wrapT=_CLAMP_TO_EDGE,
-        )
-    ]
-    gltf.textures = [pygltflib.Texture(source=0, sampler=0)]
-    gltf.materials = [
-        pygltflib.Material(
-            pbrMetallicRoughness=pygltflib.PbrMetallicRoughness(
-                baseColorTexture=pygltflib.TextureInfo(index=0),
-                metallicFactor=0.0,
-                roughnessFactor=1.0,
-            ),
-            doubleSided=True,
-            alphaMode="OPAQUE",
-        )
-    ]
 
     # ----------------------------------------------------------------
     # Scene with world-origin extras

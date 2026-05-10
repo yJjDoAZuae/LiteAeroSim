@@ -127,7 +127,7 @@ def test_synthetic_pipeline_end_to_end(tmp_path: Path) -> None:
     mosaic_desc = render_mosaic(img_bbox, [(imagery_path, "sentinel2")])
 
     glb_path = tmp_path / "terrain.glb"
-    export_gltf([tile_l0, tile_colored], glb_path, mosaic=mosaic_desc)
+    export_gltf([(tile_l0, mosaic_desc), (tile_colored, mosaic_desc)], glb_path)
 
     glb_bytes = glb_path.read_bytes()
     assert glb_bytes[:4] == b"glTF", f"Bad GLB magic: {glb_bytes[:4]!r}"

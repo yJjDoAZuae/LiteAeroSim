@@ -49,6 +49,20 @@ _log = logging.getLogger("build_terrain")
 _L0_RESOLUTION_DEG: float = 0.000090  # native Copernicus GLO-30 resolution
 _MAX_CHUNK_SIDE_DEG: float = 2500 * _L0_RESOLUTION_DEG  # = 0.225 deg ≈ 25 km
 
+# Per-LOD GPU texture ceiling (pixels per axis).
+# L0 tiles are ~1 km wide; at NAIP 0.6 m/pixel the native count is ~1667 px, which fits
+# in 2048 with no clamping.  Coarser LODs cover larger footprints — caps are chosen so
+# that the effective ground resolution degrades gracefully as the viewer moves farther away.
+_LOD_MAX_PIXEL_DIM: list[int] = [
+    2048,   # L0  ~1 km  → NAIP native ~1667 px, fits without clamping
+    4096,   # L1  ~3 km  → NAIP native ~5000 px → 4096 cap (~0.73 m/px)
+    8192,   # L2  ~10 km → NAIP native ~16 k px → 8192 cap (~1.2 m/px)
+    8192,   # L3  ~30 km → 8192 cap (~3.7 m/px); Sentinel-2 at 10 m is adequate here
+    4096,   # L4  ~100 km → Sentinel-2 native ~10 k px → 4096 cap
+    4096,   # L5  same as L4
+    4096,   # L6  same as L4
+]
+
 # LOD cell side in degrees: 100 grid points × lod_grid_spacing_deg(N) per terrain.md.
 # L5 and L6 use the same side as L4 (clamped to the coverage area in practice).
 _LOD_CELL_SIDE_DEG: list[float] = [
@@ -298,22 +312,6 @@ def build_terrain(
         dataset_name, center_h_m,
     )
 
-    # -------------------------------------------------------------------
-    # Step 2b: Render composite JPEG mosaic texture (TB-T1)
-    #
-    # All sources are composited at the native resolution of the highest-priority
-    # source, capped at max_pixel_dim.  All tile GLB mesh primitives share this
-    # single texture; per-vertex TEXCOORD_0 maps each vertex to the mosaic.
-    # -------------------------------------------------------------------
-    _log.info("%s: rendering mosaic texture ...", dataset_name)
-    mosaic_desc = render_mosaic(bbox_deg, img_mosaic_paths, max_pixel_dim=8192)
-    _log.info(
-        "%s: mosaic texture %d×%d px  %.1f kB JPEG  (sources: %s)",
-        dataset_name, mosaic_desc.width_pixels, mosaic_desc.height_pixels,
-        len(mosaic_desc.jpeg_bytes) / 1024.0,
-        [s for _, s in img_mosaic_paths],
-    )
-
     # Highest-priority source (last in img_mosaic_paths) is used for per-facet
     # colorization — secondary data stored in las_terrain alongside the geometry.
     best_img_path, best_img_source = img_mosaic_paths[-1]
@@ -351,18 +349,50 @@ def build_terrain(
             f"{dataset_name}: geographic partitioning produced no display tiles; "
             "check that the coverage area contains the center position"
         )
-    _log.info(
-        "%s: exporting GLB  %d display tile(s) ...", dataset_name, len(display_tiles)
-    )
 
     # -------------------------------------------------------------------
-    # Step 6: Export GLB (with embedded mosaic texture)
+    # Step 5b: Render per-tile JPEG mosaic textures
+    #
+    # Each display tile gets its own texture covering only its geographic
+    # footprint, at the native resolution of the highest-priority imagery
+    # source capped at the per-LOD GPU texture ceiling (_LOD_MAX_PIXEL_DIM).
+    # This delivers NAIP at or near its native 0.6 m/pixel for close-in
+    # LOD tiles (L0, L1) while staying within VRAM budget on the reference
+    # GPU (GTX 1050 Ti, 4 GB).
+    # -------------------------------------------------------------------
+    _log.info(
+        "%s: rendering per-tile textures  %d tile(s) ...",
+        dataset_name, len(display_tiles),
+    )
+    tile_mosaics: list[tuple[TerrainTileData, MosaicDescriptor]] = []
+    for tile in display_tiles:
+        tile_bbox_deg = (
+            math.degrees(tile.lon_min_rad),
+            math.degrees(tile.lat_min_rad),
+            math.degrees(tile.lon_max_rad),
+            math.degrees(tile.lat_max_rad),
+        )
+        tile_mosaic = render_mosaic(
+            tile_bbox_deg, img_mosaic_paths,
+            max_pixel_dim=_LOD_MAX_PIXEL_DIM[tile.lod],
+        )
+        _log.debug(
+            "%s: LOD %d tile texture %d×%d px  %.1f kB JPEG",
+            dataset_name, tile.lod,
+            tile_mosaic.width_pixels, tile_mosaic.height_pixels,
+            len(tile_mosaic.jpeg_bytes) / 1024.0,
+        )
+        tile_mosaics.append((tile, tile_mosaic))
+
+    _log.info("%s: exporting GLB  %d display tile(s) ...", dataset_name, len(display_tiles))
+
+    # -------------------------------------------------------------------
+    # Step 6: Export GLB (per-tile embedded textures)
     # -------------------------------------------------------------------
     export_gltf(
-        display_tiles,
+        tile_mosaics,
         g_path,
         world_origin=(center_lat_rad, center_lon_rad, center_h_m),
-        mosaic=mosaic_desc,
     )
 
     # -------------------------------------------------------------------
