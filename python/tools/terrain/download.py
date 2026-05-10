@@ -388,13 +388,11 @@ def _download_earthdata_imagery(
 def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
     """Download NAIP imagery for bbox via the Microsoft Planetary Computer STAC API.
 
-    Queries the PC STAC API to discover NAIP quarter-quadrangle COG tiles that
-    intersect bbox.  Each tile is streamed in full via a single HTTP download,
-    then the bbox window is cropped locally and written to a cache GeoTIFF.
-    Streaming the full tile (~300 MB) is faster than range-request windowed reads
-    because NAIP quarter-quads are large enough that any realistic terrain bbox
-    covers a substantial fraction of the tile, making COG range-request overhead
-    dominate over transfer time.
+    Queries the PC STAC API to discover NAIP quarter-quadrangle tiles that
+    intersect bbox.  Each tile is streamed in full and cached by its NAIP feature
+    ID — independent of any requesting bbox — so the same tile is never downloaded
+    twice regardless of which terrain configs request it.  The caller (mosaic_render)
+    performs the bbox windowed read from the cached full tile.
 
     NAIP COGs are hosted on Azure Blob Storage (naipeuwest.blob.core.windows.net)
     and are publicly accessible without authentication or SAS tokens.
@@ -403,7 +401,7 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
 
     Args:
         bbox_deg:   (lon_min, lat_min, lon_max, lat_max) in degrees.
-        output_dir: Directory to write cropped cache GeoTIFFs.
+        output_dir: Directory to write full-tile cache GeoTIFFs.
 
     Returns:
         List of local GeoTIFF paths (one per NAIP tile intersecting the bbox).
@@ -415,14 +413,10 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
     import tempfile
 
     import requests
-    import rasterio
-    import rasterio.windows
-    from rasterio.warp import transform_bounds
-    from rasterio.windows import from_bounds as _window_from_bounds
 
     lon_min, lat_min, lon_max, lat_max = bbox_deg
 
-    # Step 1 — discover NAIP COG URLs via the Planetary Computer STAC API.
+    # Step 1 — discover NAIP tile URLs via the Planetary Computer STAC API.
     # Sort newest-first so that when multiple years cover the same quad we keep
     # the most recent acquisition.
     features: list[dict] = []
@@ -469,19 +463,18 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
             "NAIP coverage is CONUS-only; verify that the bbox intersects CONUS."
         )
 
-    # Deduplicate by quarter-quadrangle: keep only the most recent tile per quad.
+    # Deduplicate by geographic quarter-quadrangle: keep only the most recent tile per quad.
     # Feature IDs follow the pattern "<state>_m_<quad>_<quadrant>_<zone>_<gsd>_<YYYYMMDD>".
-    # The trailing 8-digit date component identifies the acquisition; strip it for the quad key.
+    # The geographic location is fully identified by the first four components
+    # (state, "m", quad number, quadrant); zone, gsd, and date vary across acquisitions
+    # of the same tile and must all be ignored for deduplication.
+    # Features are already sorted newest-first so the first occurrence per quad key wins.
     seen_quads: set[str] = set()
     unique_features: list[dict] = []
     for feature in features:
         fid = feature.get("id", "")
-        parts = fid.rsplit("_", 1)
-        quad_key = (
-            parts[0]
-            if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 8
-            else fid
-        )
+        components = fid.split("_")
+        quad_key = "_".join(components[:4]) if len(components) >= 4 else fid
         if quad_key not in seen_quads:
             seen_quads.add(quad_key)
             unique_features.append(feature)
@@ -489,88 +482,47 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     local_paths: list[Path] = []
 
+    # Step 2 — stream each full tile to cache (keyed by feature ID only).
     for feature in unique_features:
         cog_url: str = feature.get("assets", {}).get("image", {}).get("href", "")
         if not cog_url:
             continue
 
         feature_id = feature.get("id", "tile")
-        cache_path = output_dir / f"naip_{_bbox_tag(bbox_deg)}_{feature_id}.tif"
+        cache_path = output_dir / f"{feature_id}.tif"
 
         if cache_path.exists():
             local_paths.append(cache_path)
             continue
 
-        # Step 2 — stream the full tile to a temp file, then crop locally.
-        # A single streaming download is faster than thousands of COG range requests
-        # for the large windows that terrain bboxes require.
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=".tif", dir=output_dir)
+        tmp_path = Path(tmp_name)
         try:
-            with tempfile.NamedTemporaryFile(
-                suffix=".tif", dir=output_dir, delete=False
-            ) as tmp_f:
-                tmp_path = Path(tmp_f.name)
-                try:
-                    dl_resp = requests.get(cog_url, stream=True, timeout=300)
-                    if not dl_resp.ok:
-                        raise DownloadError(
-                            f"NAIP tile download failed ({dl_resp.status_code}): {cog_url}"
-                        )
-                    for chunk in dl_resp.iter_content(chunk_size=8 * 1024 * 1024):
-                        tmp_f.write(chunk)
-                except DownloadError:
-                    raise
-                except Exception as exc:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                dl_resp = requests.get(cog_url, stream=True, timeout=600)
+                if not dl_resp.ok:
                     raise DownloadError(
-                        f"Failed to stream NAIP tile from {cog_url}: {exc}"
-                    ) from exc
-
-            # Step 3 — crop to bbox window and write the cache GeoTIFF.
-            with rasterio.open(tmp_path) as src:
-                if src.crs and src.crs.to_epsg() != 4326:
-                    src_bounds = transform_bounds(
-                        "EPSG:4326", src.crs,
-                        lon_min, lat_min, lon_max, lat_max,
+                        f"NAIP tile download failed ({dl_resp.status_code}): {cog_url}"
                     )
-                else:
-                    src_bounds = (lon_min, lat_min, lon_max, lat_max)
-
-                window = _window_from_bounds(*src_bounds, src.transform)
-                file_window = rasterio.windows.Window(0, 0, src.width, src.height)
-                window = window.intersection(file_window)
-                if window.width <= 0 or window.height <= 0:
-                    tmp_path.unlink(missing_ok=True)
-                    continue
-
-                data = src.read(window=window, boundless=False)
-                win_transform = src.window_transform(window)
-                profile = src.profile.copy()
-                profile.update(
-                    driver="GTiff",
-                    height=data.shape[1],
-                    width=data.shape[2],
-                    transform=win_transform,
-                    tiled=False,
-                )
-                for key in ("blockxsize", "blockysize"):
-                    profile.pop(key, None)
-
-            with rasterio.open(cache_path, "w", **profile) as dst:
-                dst.write(data)
-
+                for chunk in dl_resp.iter_content(chunk_size=8 * 1024 * 1024):
+                    tmp_f.write(chunk)
+            tmp_path.rename(cache_path)
         except DownloadError:
-            raise
-        except Exception as exc:
-            raise DownloadError(
-                f"Failed to process NAIP tile {cog_url}: {exc}"
-            ) from exc
-        finally:
             tmp_path.unlink(missing_ok=True)
+            raise
+        except BaseException as exc:
+            tmp_path.unlink(missing_ok=True)
+            if isinstance(exc, Exception):
+                raise DownloadError(
+                    f"Failed to download NAIP tile {cog_url}: {exc}"
+                ) from exc
+            raise
 
         local_paths.append(cache_path)
 
     if not local_paths:
         raise DownloadError(
-            f"No NAIP tiles with valid coverage found for bbox {bbox_deg}."
+            f"No NAIP tiles found intersecting bbox {bbox_deg}."
         )
 
     return local_paths

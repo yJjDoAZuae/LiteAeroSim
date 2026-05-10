@@ -247,9 +247,22 @@ def build_terrain(
                     source=src_name,
                 )
             )
-        mosaic_path = s_dir / f"img_mosaic_{src_name}.tif"
-        mosaic_imagery(src_chunk_paths, mosaic_path)
-        img_mosaic_paths.append((mosaic_path, src_name))
+        if src_name == "naip":
+            # NAIP tiles are full quarter-quads in projected UTM CRS.  Mosaicking
+            # them would require reading all tiles into memory (~17 GB) and the
+            # UTM pixel size (0.6 m) is incompatible with mosaic_imagery's
+            # assumption that pixel sizes are in EPSG:4326 degrees.
+            # render_mosaic._read_source_rgb already handles UTM windowing via
+            # transform_bounds, so pass tiles directly — one entry per unique tile.
+            seen: set[Path] = set()
+            for p in src_chunk_paths:
+                if p not in seen:
+                    seen.add(p)
+                    img_mosaic_paths.append((p, src_name))
+        else:
+            mosaic_path = s_dir / f"img_mosaic_{src_name}.tif"
+            mosaic_imagery(src_chunk_paths, mosaic_path)
+            img_mosaic_paths.append((mosaic_path, src_name))
 
     # -------------------------------------------------------------------
     # Step 2: Mosaic DEM chunks into a seamless source raster
