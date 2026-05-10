@@ -7,6 +7,7 @@ Authentication:
         $COPERNICUS_CLIENT_ID / $COPERNICUS_CLIENT_SECRET environment variables.
     NASA EarthData (SRTM, NASADEM, Landsat, MODIS): .netrc token via
         earthaccess.login().
+    Microsoft Planetary Computer (NAIP): No authentication required.
 
 Download method — Copernicus data:
     Uses the Sentinel Hub Process API (https://sh.dataspace.copernicus.eu/api/v1/process).
@@ -44,9 +45,12 @@ _TOKEN_URL = (
     "/auth/realms/CDSE/protocol/openid-connect/token"
 )
 
-# USGS National Map (TNM) API — NAIP imagery discovery.
-# No authentication required; download URLs are publicly accessible S3 objects.
-_NAIP_TNM_URL = "https://tnmaccess.nationalmap.gov/api/v1/products"
+# Microsoft Planetary Computer STAC API — NAIP imagery discovery.
+# No authentication required; COGs are publicly accessible on Azure Blob Storage.
+# TNM was the original host but NAIP was migrated off it.
+_NAIP_PC_STAC_URL = (
+    "https://planetarycomputer.microsoft.com/api/stac/v1/collections/naip/items"
+)
 
 # Evalscript: DEM — FLOAT32 elevation GeoTIFF (metres, orthometric / MSL).
 #
@@ -382,19 +386,18 @@ def _download_earthdata_imagery(
 
 
 def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
-    """Download NAIP imagery for bbox via the USGS National Map (TNM) API.
+    """Download NAIP imagery for bbox via the Microsoft Planetary Computer STAC API.
 
-    Queries the TNM products API to discover NAIP quarter-quadrangle tiles that
+    Queries the PC STAC API to discover NAIP quarter-quadrangle COG tiles that
     intersect bbox, then performs a windowed read of each tile via GDAL's
     /vsicurl/ virtual filesystem.  Only the portion of each tile that overlaps
     bbox is downloaded; the windowed subset is written to a local GeoTIFF cache.
-    This avoids downloading multi-gigabyte full-county tiles.
+    This avoids downloading multi-gigabyte full-tile files.
 
-    NAIP files on TNM are Cloud-Optimized GeoTIFFs (COGs) since ~2018, making
-    windowed reads via /vsicurl/ efficient (only the relevant byte ranges are
-    fetched over HTTP).
+    NAIP COGs are hosted on Azure Blob Storage (naipeuwest.blob.core.windows.net)
+    and are publicly accessible without authentication or SAS tokens.
 
-    No authentication is required — NAIP data on TNM is publicly accessible.
+    No authentication is required for either the STAC API or the COG downloads.
 
     Args:
         bbox_deg:   (lon_min, lat_min, lon_max, lat_max) in degrees.
@@ -404,7 +407,7 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
         List of local GeoTIFF paths (one per NAIP tile intersecting the bbox).
 
     Raises:
-        DownloadError: If the TNM API query fails, returns no tiles, or a
+        DownloadError: If the STAC API query fails, returns no tiles, or a
             tile download fails.
     """
     import requests
@@ -415,59 +418,91 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
 
     lon_min, lat_min, lon_max, lat_max = bbox_deg
 
-    # Step 1 — discover NAIP tile download URLs from the TNM products API.
-    params: dict[str, str | int] = {
-        "datasets": "National Agriculture Imagery Program (NAIP)",
+    # Step 1 — discover NAIP COG URLs via the Planetary Computer STAC API.
+    # Sort newest-first so that when multiple years cover the same quad we cache
+    # the most recent acquisition.
+    features: list[dict] = []
+    next_url: str | None = _NAIP_PC_STAC_URL
+    req_params: dict | None = {
         "bbox": f"{lon_min:.6f},{lat_min:.6f},{lon_max:.6f},{lat_max:.6f}",
-        "outputFormat": "JSON",
-        "max": 100,
+        "limit": 100,
+        "sortby": "-datetime",
     }
-    try:
-        resp = requests.get(_NAIP_TNM_URL, params=params, timeout=30)
-    except requests.exceptions.RequestException as exc:
-        raise DownloadError(f"TNM API request failed: {exc}") from exc
 
-    if not resp.ok:
-        raise DownloadError(
-            f"TNM API returned {resp.status_code}: {resp.text[:400]}"
+    while next_url:
+        try:
+            resp = requests.get(next_url, params=req_params, timeout=30)
+        except requests.exceptions.RequestException as exc:
+            raise DownloadError(
+                f"Planetary Computer STAC API request failed: {exc}"
+            ) from exc
+
+        if not resp.ok:
+            raise DownloadError(
+                f"Planetary Computer STAC API returned {resp.status_code}: {resp.text[:400]}"
+            )
+
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            raise DownloadError(
+                f"Planetary Computer STAC API response is not valid JSON: {exc}"
+            ) from exc
+
+        features.extend(payload.get("features", []))
+
+        # Follow STAC pagination via rel='next' link (URL already contains query params).
+        next_url = next(
+            (lnk["href"] for lnk in payload.get("links", []) if lnk.get("rel") == "next"),
+            None,
         )
+        req_params = None  # encoded in next_url
 
-    try:
-        payload = resp.json()
-    except ValueError as exc:
-        raise DownloadError(f"TNM API response is not valid JSON: {exc}") from exc
-
-    items = payload.get("items", [])
-    if not items:
+    if not features:
         raise DownloadError(
             f"No NAIP tiles found for bbox "
             f"({lon_min:.4f},{lat_min:.4f},{lon_max:.4f},{lat_max:.4f}).  "
             "NAIP coverage is CONUS-only; verify that the bbox intersects CONUS."
         )
 
+    # Deduplicate by quarter-quadrangle: keep only the most recent tile per quad.
+    # Feature IDs follow the pattern "<state>_m_<quad>_<quadrant>_<zone>_<gsd>_<YYYYMMDD>".
+    # The trailing 8-digit date component identifies the acquisition; strip it for the quad key.
+    seen_quads: set[str] = set()
+    unique_features: list[dict] = []
+    for feature in features:
+        fid = feature.get("id", "")
+        parts = fid.rsplit("_", 1)
+        quad_key = (
+            parts[0]
+            if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 8
+            else fid
+        )
+        if quad_key not in seen_quads:
+            seen_quads.add(quad_key)
+            unique_features.append(feature)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     local_paths: list[Path] = []
 
-    # Step 2 — windowed read of each tile via /vsicurl/.
-    for item in items:
-        url: str = item.get("downloadURL", "")
-        if not url:
+    # Step 2 — windowed read of each COG tile via /vsicurl/.
+    for feature in unique_features:
+        cog_url: str = feature.get("assets", {}).get("image", {}).get("href", "")
+        if not cog_url:
             continue
 
-        title: str = item.get("title", "tile")
-        tag = f"{_bbox_tag(bbox_deg)}_{Path(title).stem}"
-        cache_path = output_dir / f"naip_{tag}.tif"
+        feature_id = feature.get("id", "tile")
+        cache_path = output_dir / f"naip_{_bbox_tag(bbox_deg)}_{feature_id}.tif"
 
         if cache_path.exists():
             local_paths.append(cache_path)
             continue
 
-        vsicurl_path = f"/vsicurl/{url}"
+        vsicurl_path = f"/vsicurl/{cog_url}"
         try:
             with rasterio.Env(
                 GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES",
                 GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
-                AWS_NO_SIGN_REQUEST="YES",
             ):
                 with rasterio.open(vsicurl_path) as src:
                     # Transform geographic bbox into the tile's CRS for windowing.
@@ -506,7 +541,7 @@ def _download_naip(bbox_deg: BBox, output_dir: Path) -> list[Path]:
             raise
         except Exception as exc:
             raise DownloadError(
-                f"Failed to fetch NAIP tile from {url}: {exc}"
+                f"Failed to fetch NAIP tile from {cog_url}: {exc}"
             ) from exc
 
         local_paths.append(cache_path)
