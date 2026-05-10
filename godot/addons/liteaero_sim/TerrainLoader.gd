@@ -476,6 +476,11 @@ func _apply_visibility_ranges(node: Node) -> void:
 			var radius := mi.get_aabb().size.length() * 0.5
 			mi.visibility_range_begin = max(0.0, _LOD_VIS_BEGIN_M[lod] - radius)
 			mi.visibility_range_end   = (_LOD_VIS_END_M[lod] + radius) if _LOD_VIS_END_M[lod] > 0.0 else 0.0
+			# Cross-fade self out (not in) at both edges so only one LOD level is
+			# opaque at a time.  Without this, the hysteresis overlap band shows two
+			# terrain meshes simultaneously — the coarser LOD visible as a second
+			# ground layer below the finer one.
+			mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 	for child: Node in node.get_children():
 		_apply_visibility_ranges(child)
