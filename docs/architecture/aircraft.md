@@ -77,11 +77,16 @@ before this call.
 10. Assemble Wind-frame acceleration from thrust, aerodynamic forces, and contact forces
     (transformed body→wind). Gravity is implicit — the allocator generates lift equal to
     `n_z·m·g`, which at equilibrium exactly cancels gravity.
-11. Advance `KinematicState::step()` with the computed Wind-frame acceleration, shaped roll
-    rate, and aerodynamic angle inputs.
+11. Advance position and velocity via `KinematicState::stepPV()` with the computed
+    Wind-frame acceleration and aerodynamic angle inputs. This stores `v_prev` internally
+    but does not yet update `q_nw` or body rates.
 12. Apply terrain hard constraint via `BodyCollider::maxCornerPenetration_m()` and
     `KinematicState::applyTerrainHardConstraint()` if any body-collider corner penetrates
-    terrain after integration.
+    terrain after integration. The constraint modifies velocity before attitude is committed.
+13. Commit attitude via `KinematicState::commitAttitude()` with the shaped roll rate and
+    the integration timestep. This updates `q_nw` using the truly final (post-constraint)
+    velocity and derives body rates. See [defect_kinematic_attitude_model.md](defect_kinematic_attitude_model.md)
+    (D-1) for the rationale.
 
 **Postconditions:** `state()` reflects the aircraft position, velocity, and attitude at
 `time_sec + runner_dt_s`. `Propulsion::thrust_n()` reflects the engine thrust at the last
@@ -339,6 +344,8 @@ classDiagram
 
     class KinematicState {
         +step(time_sec, accel_Wind, rollRate, alpha, beta, alphaDot, betaDot, wind_NED) void
+        +stepPV(time_sec, accel_Wind, alpha, beta, alphaDot, betaDot, wind_NED) void
+        +commitAttitude(rollRate, dt_s) void
         +applyTerrainHardConstraint(penetration_m) void
         +velocity_NED_mps() Vector3f
         +serializeJson() json
@@ -687,15 +694,29 @@ its full configuration and internal state.
         (-T * sα      + F.z_n + G_wind.z()) / _inertia.mass_kg
     }
 
-11. _state.step(time_sec, a_Wind,
-                roll_rate_shaped,
-                lf.alpha_rad,  lf.beta_rad,
-                lf.alphaDot_rps, lf.betaDot_rps,
-                wind_NED_mps)
+11. _state.stepPV(time_sec, a_Wind,
+                  lf.alpha_rad, lf.beta_rad,
+                  lf.alphaDot_rps, lf.betaDot_rps,
+                  wind_NED_mps)
+    // Integrates position and velocity via RK4; captures v_prev internally.
+    // Does NOT update q_nw or body rates yet.
 
 12. if (_bodyCollider->maxCornerPenetration_m() > 0)
         _state.applyTerrainHardConstraint(_bodyCollider->maxCornerPenetration_m())
+    // Terrain constraint applied here — after position/velocity integration but
+    // before attitude update — so q_nw always sees the truly final velocity.
+
+13. _state.commitAttitude(roll_rate_shaped, dt_s)
+    // Updates q_nw and derives body rates from the final (constrained) velocity.
 ```
+
+> **Why the split?** Calling `stepQnw` (the q_nw update) on the pre-constraint velocity
+> and then modifying velocity via `applyTerrainHardConstraint` breaks the invariant
+> `q_nw.x = velocity_NED_mps.normalized()`. The split `stepPV` → terrain constraint →
+> `commitAttitude` sequence ensures `q_nw` is always computed from the final velocity.
+> See [defect_kinematic_attitude_model.md](defect_kinematic_attitude_model.md) (D-1) for
+> the full defect analysis and [equations_of_motion.md](../algorithms/equations_of_motion.md)
+> §Integration Scheme Summary — Trim Aero for the corrected algorithm.
 
 ### Wind-Frame Force Decomposition
 

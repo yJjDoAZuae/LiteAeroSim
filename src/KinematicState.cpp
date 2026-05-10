@@ -172,13 +172,29 @@ void KinematicState::step(double time_sec,
                           const Eigen::Vector3f& wind_NED_mps)
 {
     const float dt = static_cast<float>(time_sec - snapshot_.time_s);
-    snapshot_.time_s = time_sec;
+    stepPV(time_sec, acceleration_Wind_mps, alpha_rad, beta_rad,
+           alphaDot_rps, betaDot_rps, wind_NED_mps);
+    commitAttitude(rollRate_Wind_rps, dt);
+}
 
+void KinematicState::stepPV(double time_sec,
+                             Eigen::Vector3f acceleration_Wind_mps,
+                             float alpha_rad,
+                             float beta_rad,
+                             float alphaDot_rps,
+                             float betaDot_rps,
+                             const Eigen::Vector3f& wind_NED_mps)
+{
+    const float dt = static_cast<float>(time_sec - snapshot_.time_s);
+
+    // Capture v_prev before integration; commitAttitude uses it as the "from" vector.
+    velocity_prev_ned_mps_ = snapshot_.velocity_ned_mps;
+
+    snapshot_.time_s               = time_sec;
     snapshot_.alpha_rad            = alpha_rad;
     snapshot_.beta_rad             = beta_rad;
     snapshot_.alpha_dot_rad_s      = alphaDot_rps;
     snapshot_.beta_dot_rad_s       = betaDot_rps;
-    snapshot_.roll_rate_wind_rad_s = rollRate_Wind_rps;
     snapshot_.wind_ned_mps         = wind_NED_mps;
 
     // Rotate commanded acceleration from Wind frame to NED frame
@@ -195,33 +211,41 @@ void KinematicState::step(double time_sec,
     };
     const PVState pv1 = pvRk4(pv0, accel_NED, dt);
 
-    const Eigen::Vector3f velocity_prev = snapshot_.velocity_ned_mps;
     snapshot_.velocity_ned_mps       = {pv1.vN_mps, pv1.vE_mps, pv1.vD_mps};
     snapshot_.acceleration_ned_mps2  = accel_NED;
     snapshot_.position.latitude_rad  = pv1.lat_rad;
     snapshot_.position.longitude_rad = pv1.lon_rad;
     snapshot_.position.altitude_m    = pv1.alt_m;
+}
 
-    // Propagate q_nw: path-curvature rotation + roll around Wind X axis
-    stepQnw(velocity_prev, snapshot_.velocity_ned_mps, rollRate_Wind_rps, dt, snapshot_.q_nw);
+void KinematicState::commitAttitude(float rollRate_Wind_rps, float dt_s)
+{
+    snapshot_.roll_rate_wind_rad_s = rollRate_Wind_rps;
+
+    // Propagate q_nw: path-curvature rotation + roll around Wind X axis.
+    // velocity_prev_ned_mps_ was set by stepPV and is aligned with q_nw.x by construction.
+    // snapshot_.velocity_ned_mps is the fully modified final velocity for this step.
+    stepQnw(velocity_prev_ned_mps_, snapshot_.velocity_ned_mps,
+            rollRate_Wind_rps, dt_s, snapshot_.q_nw);
 
     // q_wb = Ry(alpha) * Rz(-beta)
     const Eigen::Quaternionf q_wb(
-        Eigen::AngleAxisf(alpha_rad, Eigen::Vector3f::UnitY()) *
-        Eigen::AngleAxisf(-beta_rad, Eigen::Vector3f::UnitZ()));
+        Eigen::AngleAxisf(snapshot_.alpha_rad, Eigen::Vector3f::UnitY()) *
+        Eigen::AngleAxisf(-snapshot_.beta_rad, Eigen::Vector3f::UnitZ()));
 
     // omega_bw_b: rotation rate of Body w.r.t. Wind expressed in Body frame
     Eigen::Vector3f omega_bw_b;
-    omega_bw_b << std::sin(alpha_rad) * betaDot_rps,
-                  alphaDot_rps,
-                  -std::cos(alpha_rad) * betaDot_rps;
+    omega_bw_b << std::sin(snapshot_.alpha_rad) * snapshot_.beta_dot_rad_s,
+                  snapshot_.alpha_dot_rad_s,
+                  -std::cos(snapshot_.alpha_rad) * snapshot_.beta_dot_rad_s;
 
     // omega_wn_n: path-curvature rotation rate of Wind w.r.t. NED in NED frame
     Eigen::Vector3f omega_wn_n = Eigen::Vector3f::Zero();
     const float normV = snapshot_.velocity_ned_mps.norm();
     if (normV > 0.1f) {
         const Eigen::Vector3f kappa =
-            snapshot_.velocity_ned_mps.cross(accel_NED) / (normV * normV * normV);
+            snapshot_.velocity_ned_mps.cross(snapshot_.acceleration_ned_mps2) /
+            (normV * normV * normV);
         omega_wn_n = kappa * normV;
     }
 

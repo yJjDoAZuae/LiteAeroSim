@@ -52,6 +52,8 @@ public:
 
     // ── Simulation engine ─────────────────────────────────────────────────────
 
+    // Convenience wrapper: calls stepPV then commitAttitude immediately.
+    // Use for callers that have no post-integration velocity modifications.
     void step(double time_sec,
               Eigen::Vector3f acceleration_Wind_mps,
               float rollRate_Wind_rps,
@@ -60,6 +62,23 @@ public:
               float alphaDot_rps,
               float betaDot_rps,
               const Eigen::Vector3f& wind_NED_mps);
+
+    // Phase A of the split step: integrate position and velocity via RK4.
+    // Stores v_prev internally; does NOT update q_nw or body rates.
+    // Must be followed by commitAttitude() — with all velocity modifications
+    // (terrain constraints, gear spring forces, etc.) applied between the two.
+    void stepPV(double time_sec,
+                Eigen::Vector3f acceleration_Wind_mps,
+                float alpha_rad,
+                float beta_rad,
+                float alphaDot_rps,
+                float betaDot_rps,
+                const Eigen::Vector3f& wind_NED_mps);
+
+    // Phase B of the split step: update q_nw and body rates using the stored
+    // v_prev and the current (fully modified) velocity as v_new.
+    // dt_s must equal the same timestep passed to stepPV.
+    void commitAttitude(float rollRate_Wind_rps, float dt_s);
 
     // ── Snapshot access ───────────────────────────────────────────────────────
 
@@ -79,7 +98,11 @@ public:
     Eigen::Quaternionf q_nb()  const { return liteaero::nav::KinematicStateUtil::q_nb(snapshot_); }
     Eigen::Quaternionf q_ns()  const { return liteaero::nav::KinematicStateUtil::q_ns(snapshot_); }
     Eigen::Quaternionf q_nl()  const { return liteaero::nav::KinematicStateUtil::q_nl(snapshot_); }
-    Eigen::Quaternionf q_nv()  const { return Eigen::Quaternionf::Identity(); } // not implemented
+    Eigen::Quaternionf q_nv() const {
+        Eigen::Quaternionf result = Eigen::Quaternionf::Identity();
+        stepQnv(snapshot_.velocity_ned_mps, result);
+        return result;
+    }
 
     float alpha()              const { return snapshot_.alpha_rad; }
     float beta()               const { return snapshot_.beta_rad; }
@@ -132,6 +155,7 @@ public:
 protected:
 
     liteaero::nav::KinematicStateSnapshot snapshot_;
+    Eigen::Vector3f velocity_prev_ned_mps_{}; // set by stepPV, consumed by commitAttitude
 
     static void stepQnw(const Eigen::Vector3f& velocity_prev_NED_mps,
                         const Eigen::Vector3f& velocity_NED_mps,

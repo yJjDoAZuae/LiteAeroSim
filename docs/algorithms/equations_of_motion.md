@@ -54,6 +54,21 @@ The DCM and the quaternion are two algebraic realizations of the same underlying
 
 ---
 
+## Part 1 — Trim Aero Model (Implemented)
+
+### Trim Aero Overview
+
+This simulator implements the **trim aerodynamic (trim aero) point-mass model** described in Part 1. The 6DOF model is planned but deferred — see Part 2.
+
+Key distinctions of the trim aero model:
+
+- **Primary attitude quaternion:** `q_nw` (Wind-to-NED). `q_nb` is a **derived** quantity, never stored or integrated directly.
+- **Aerodynamic angles α and β** are inputs solved by the load factor allocator each step. They are not independently integrated.
+- **Attitude is derived** from the velocity vector and aerodynamic angles — it is not an independent integrated state.
+- **Body rates** are derived each step from Wind-frame rates, α, β, α̇, β̇. They are not integrated.
+
+---
+
 ## Velocity and Velocity-Wind Frames
 
 ### Velocity Frame (V)
@@ -134,30 +149,6 @@ $$
 
 ---
 
-## Attitude Kinematics — Quaternion ODE
-
-Attitude is represented as the unit quaternion $q_{nb}$ (Body-to-NED). The quaternion evolves according to:
-
-$$
-\dot{q}_{nb} = \frac{1}{2}\, q_{nb} \otimes \boldsymbol{\omega}_{B/N,\times}^B
-$$
-
-where $\boldsymbol{\omega}_{B/N}^B = [p,\ q,\ r]^T$ is the angular velocity of the Body frame relative to NED, expressed in Body frame coordinates (rad/s), and $\boldsymbol{\omega}_{B/N,\times}^B$ denotes the pure quaternion $[0,\ p,\ q,\ r]^T$.
-
-Discretized with forward Euler at timestep $\Delta t$:
-
-$$
-q_{nb,k+1} = q_{nb,k} + \frac{\Delta t}{2}\, q_{nb,k} \otimes [0,\ p_k,\ q_k,\ r_k]^T
-$$
-
-The result is renormalized to unit length after each step to prevent drift:
-
-$$
-q_{nb,k+1} \leftarrow \frac{q_{nb,k+1}}{\|q_{nb,k+1}\|}
-$$
-
----
-
 ## Velocity Kinematics — Wind Frame Input
 
 The kinematic model accepts net acceleration expressed in the Wind frame $\mathbf{a}_W$ (output of the aerodynamics and propulsion subsystems). It is rotated to NED before integration. Using the DCM $C_{NW}$ or equivalently the quaternion $q_{nw}$:
@@ -221,62 +212,6 @@ $$
 $$
 
 and analogously for $\lambda$ and $h$.
-
----
-
-## Euler Angles (3-2-1 Convention)
-
-Euler angles $(\phi,\, \theta,\, \psi)$ — roll, pitch, heading — parameterize the 3-2-1 (ZYX) rotation sequence from Body to NED. The DCM of this rotation factors as:
-
-$$
-C_{NB} = C_z(\psi)\, C_y(\theta)\, C_x(\phi)
-$$
-
-From the quaternion $q = [w,\ x,\ y,\ z]^T$:
-
-$$
-\phi   = \arctan\!\left(\frac{2(wx + yz)}{1 - 2(x^2 + y^2)}\right)
-$$
-
-$$
-\theta = \arcsin\!\bigl(2(wy - zx)\bigr)
-$$
-
-$$
-\psi   = \arctan\!\left(\frac{2(wz + xy)}{1 - 2(y^2 + z^2)}\right)
-$$
-
----
-
-## Body Rate–Euler Rate Kinematics
-
-The relationship between body angular rates $[p,\, q,\, r]^T$ and Euler angle rates $[\dot\phi,\, \dot\theta,\, \dot\psi]^T$ is:
-
-$$
-\begin{bmatrix} p \\ q \\ r \end{bmatrix}
-=
-\begin{bmatrix}
-1 & 0 & -\sin\theta \\
-0 & \cos\phi & \sin\phi\cos\theta \\
-0 & -\sin\phi & \cos\phi\cos\theta
-\end{bmatrix}
-\begin{bmatrix} \dot\phi \\ \dot\theta \\ \dot\psi \end{bmatrix}
-$$
-
-Inverted (for extracting Euler rates from body rates):
-
-$$
-\begin{bmatrix} \dot\phi \\ \dot\theta \\ \dot\psi \end{bmatrix}
-=
-\begin{bmatrix}
-1 & \sin\phi\tan\theta & \cos\phi\tan\theta \\
-0 & \cos\phi           & -\sin\phi \\
-0 & \sin\phi/\cos\theta & \cos\phi/\cos\theta
-\end{bmatrix}
-\begin{bmatrix} p \\ q \\ r \end{bmatrix}
-$$
-
-This expression is singular at $\theta = \pm 90°$ (gimbal lock). The quaternion ODE is used for attitude propagation; Euler angles are extracted for output and control only.
 
 ---
 
@@ -1108,28 +1043,142 @@ No iteration is required. A solution in this region exists only when $T > 0$ and
 
 ---
 
-## Integration Scheme Summary
+## Integration Scheme Summary — Trim Aero
 
 ```mermaid
 flowchart TD
     IN["Inputs at step k<br/>a_W, rollRate_W, α, β, α̇, β̇<br/>wind_NED"] -->
     ROT["Rotate a_W → NED<br/>a_N = C_NW · a_W"] -->
-    PVRK4["RK4 over joint state (φ, λ, h, v_N, v_E, v_D)<br/>4 evaluations of WGS84 geodetic rates<br/>v_{k+1} = v_k + Δt · a_N  (const-accel equivalent)"] -->
-    ATT["Propagate quaternion<br/>q_{nb,k+1} = q_{nb,k} + Δt/2 · q ⊗ ω<br/>then renormalize"] -->
+    PVRK4["stepPV: RK4 over joint state (φ, λ, h, v_N, v_E, v_D)<br/>4 evaluations of WGS84 geodetic rates<br/>v_{k+1} = v_k + Δt · a_N  (const-accel equivalent)<br/>stores v_prev for commitAttitude"] -->
+    CON["applyTerrainHardConstraint (if needed)<br/>modifies altitude and velocity only"] -->
+    ATT["commitAttitude: Update q_nw (trim aero)<br/>R_vel = setFromTwoVectors(v_hat_prev, v_hat_new)<br/>q_nw = (R_vel ⊗ q_nw_prev ⊗ Rx(p_W·Δt)).normalized()<br/>Invariant: q_nw.x = v_hat_new after each step"] -->
     OUT["KinematicState k+1"]
 ```
 
 Position and velocity are integrated jointly with classical **fourth-order Runge-Kutta
-(RK4)** at a fixed timestep $\Delta t$. Attitude uses forward Euler on the quaternion ODE.
+(RK4)** at a fixed timestep $\Delta t$. Attitude is **not** integrated via a quaternion ODE.
+
+`q_nw` is tracked incrementally: `setFromTwoVectors(v_hat_prev, v_hat_new)` computes the
+minimal rotation in NED that maps the previous velocity direction to the final velocity
+direction. Its rotation axis is always `v_hat_prev × v_hat_new`, which is perpendicular
+to both velocity vectors and therefore **never about the velocity vector itself** — roll is
+preserved automatically. Right-multiplying by `Rx(p_W · Δt)` accumulates commanded
+wind-axis roll.
+
+The invariant `q_nw.x = v_hat` holds after every `commitAttitude` call because
+`commitAttitude` always receives the step-start `v_prev` (aligned with `q_nw.x` by
+construction) and the **fully modified final velocity** as inputs — including any terrain
+constraint modifications applied between `stepPV` and `commitAttitude`.
 
 ---
 
 ## Implementation Notes
 
-- Attitude: `KinematicState::_q_nb` (Body-to-NED quaternion, `Eigen::Quaternionf`)
-- Body rates: `KinematicState::_rates_Body_rps` (p, q, r in rad/s)
-- NED velocity: `KinematicState::_velocity_NED_mps`
-- NED acceleration: `KinematicState::_acceleration_NED_mps`
-- Position: `KinematicState::_positionDatum` (WGS84 lat/lon/alt)
-- Aerodynamic angles α, β are inputs to `step()` — computed by aerodynamics subsystem, not integrated here
+- **Primary attitude quaternion:** `snapshot_.q_nw` (Wind-to-NED, `Eigen::Quaternionf`) — stored in `KinematicStateSnapshot`.
+- **`q_nb` is NOT stored.** It is derived on demand from `q_nw`, `alpha_rad`, and `beta_rad`.
+- **Body rates** `[p, q, r]` are derived each step from Wind-frame rates, α, β, α̇, β̇ — they are not integrated.
+- **NED velocity:** `snapshot_.velocity_ned_mps`
+- **NED acceleration:** `snapshot_.acceleration_ned_mps2`
+- **Position:** `snapshot_.position` (WGS84 lat/lon/alt via `liteaero::nav::GeodeticPosition`)
+- **Aerodynamic angles** α, β are inputs to `stepPV()` — computed by the aerodynamics subsystem each step.
+- **`v_prev`** is captured by `stepPV()` at step start and held until `commitAttitude()` consumes it. It is transient within a single step and is not persisted in `KinematicStateSnapshot`.
+
+---
+
+## Part 2 — 6DOF Model (Deferred)
+
+Both models are planned for this simulator. The trim aero model (Part 1) is the current
+implementation. The 6DOF model described here is deferred pending completion of the trim
+aero implementation.
+
+---
+
+## Euler Angles (3-2-1 Convention)
+
+Euler angles $(\phi,\, \theta,\, \psi)$ — roll, pitch, heading — parameterize the 3-2-1 (ZYX) rotation sequence from Body to NED. The DCM of this rotation factors as:
+
+$$
+C_{NB} = C_z(\psi)\, C_y(\theta)\, C_x(\phi)
+$$
+
+From the quaternion $q = [w,\ x,\ y,\ z]^T$:
+
+$$
+\phi   = \arctan\!\left(\frac{2(wx + yz)}{1 - 2(x^2 + y^2)}\right)
+$$
+
+$$
+\theta = \arcsin\!\bigl(2(wy - zx)\bigr)
+$$
+
+$$
+\psi   = \arctan\!\left(\frac{2(wz + xy)}{1 - 2(y^2 + z^2)}\right)
+$$
+
+Euler angles are a derived display quantity applicable to both the trim aero and 6DOF models.
+
+---
+
+## Body Rate–Euler Rate Kinematics
+
+The relationship between body angular rates $[p,\, q,\, r]^T$ and Euler angle rates $[\dot\phi,\, \dot\theta,\, \dot\psi]^T$ is:
+
+$$
+\begin{bmatrix} p \\ q \\ r \end{bmatrix}
+=
+\begin{bmatrix}
+1 & 0 & -\sin\theta \\
+0 & \cos\phi & \sin\phi\cos\theta \\
+0 & -\sin\phi & \cos\phi\cos\theta
+\end{bmatrix}
+\begin{bmatrix} \dot\phi \\ \dot\theta \\ \dot\psi \end{bmatrix}
+$$
+
+Inverted (for extracting Euler rates from body rates):
+
+$$
+\begin{bmatrix} \dot\phi \\ \dot\theta \\ \dot\psi \end{bmatrix}
+=
+\begin{bmatrix}
+1 & \sin\phi\tan\theta & \cos\phi\tan\theta \\
+0 & \cos\phi           & -\sin\phi \\
+0 & \sin\phi/\cos\theta & \cos\phi/\cos\theta
+\end{bmatrix}
+\begin{bmatrix} p \\ q \\ r \end{bmatrix}
+$$
+
+This expression is singular at $\theta = \pm 90°$ (gimbal lock). In the trim aero model, body rates are derived rather than integrated, so this matrix is only used for display (Euler rate extraction). In the 6DOF model, the quaternion ODE is used for attitude propagation and this matrix is used for Euler rate extraction only.
+
+---
+
+## Attitude Kinematics — Quaternion ODE
+
+Deferred — not yet implemented. Describes the future 6DOF model.
+
+In a 6DOF model, attitude is the PRIMARY integrated state. Attitude is represented as the
+unit quaternion $q_{nb}$ (Body-to-NED). The quaternion evolves according to:
+
+$$
+\dot{q}_{nb} = \frac{1}{2}\, q_{nb} \otimes \boldsymbol{\omega}_{B/N,\times}^B
+$$
+
+where $\boldsymbol{\omega}_{B/N}^B = [p,\ q,\ r]^T$ is the angular velocity of the Body frame relative to NED, expressed in Body frame coordinates (rad/s), and $\boldsymbol{\omega}_{B/N,\times}^B$ denotes the pure quaternion $[0,\ p,\ q,\ r]^T$.
+
+Discretized with forward Euler at timestep $\Delta t$:
+
+$$
+q_{nb,k+1} = q_{nb,k} + \frac{\Delta t}{2}\, q_{nb,k} \otimes [0,\ p_k,\ q_k,\ r_k]^T
+$$
+
+The result is renormalized to unit length after each step to prevent drift:
+
+$$
+q_{nb,k+1} \leftarrow \frac{q_{nb,k+1}}{\|q_{nb,k+1}\|}
+$$
+
+In the 6DOF model, body rates $[p, q, r]$ are either measured (sensor path) or commanded
+(inner-loop control path) and drive attitude propagation directly. Aerodynamic angles α
+and β are then **derived** from the resulting body attitude and the velocity vector —
+the reverse of the trim aero model.
+
 - All stored values are SI: radians, meters, seconds

@@ -273,15 +273,16 @@ void Aircraft::step(double time_sec,
     const float ay = (-T * ca * sb + F.y_n + F_gear_wind.y()) / m + g_wind.y();
     const float az = (-T * sa      + F.z_n + F_gear_wind.z()) / m + g_wind.z();
 
-    // 11. Advance kinematic state
-    _state.step(time_sec,
-                Eigen::Vector3f{ax, ay, az},
-                rollRate_filt_rps,
-                lfa_out.alpha_rad,
-                lfa_out.beta_rad,
-                lfa_out.alphaDot_rps,
-                lfa_out.betaDot_rps,
-                wind_NED_mps);
+    // 11. Advance position and velocity. Attitude is committed after the terrain
+    //     constraint so that stepQnw always sees the truly final velocity.
+    const float dt_s = static_cast<float>(time_sec - _state.time_sec());
+    _state.stepPV(time_sec,
+                  Eigen::Vector3f{ax, ay, az},
+                  lfa_out.alpha_rad,
+                  lfa_out.beta_rad,
+                  lfa_out.alphaDot_rps,
+                  lfa_out.betaDot_rps,
+                  wind_NED_mps);
 
     // 12. Post-integration terrain hard constraint.
     //     The spring-damper in BodyCollider handles low-speed contact physics
@@ -295,6 +296,10 @@ void Aircraft::step(double time_sec,
         if (pen > 0.f)
             _state.applyTerrainHardConstraint(pen);
     }
+
+    // 13. Commit attitude: q_nw sees the truly final velocity — after RK4 and
+    //     after any terrain constraint modification.
+    _state.commitAttitude(rollRate_filt_rps, dt_s);
 }
 
 // ---------------------------------------------------------------------------

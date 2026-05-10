@@ -840,3 +840,266 @@ TEST(KinematicStateSerializationTest, ProtoSchemaVersionMismatchThrows) {
     KinematicState target;
     EXPECT_THROW(target.deserializeJson(snap), std::runtime_error);
 }
+
+// ── Phase IP-1: q_nv() — algebraic VW-frame construction ─────────────────────
+//
+// q_nv() must return the quaternion that maps the VW frame x-axis onto the
+// current airmass-relative velocity direction. These tests specify the algebraic
+// contract for stepQnv via the public q_nv() getter.
+
+TEST(KinematicStateQnvTest, LevelFlightNorth_IsIdentity) {
+    // v = [50, 0, 0]: northward level → VW frame coincides with NED → q_nVW = identity.
+    KinematicState s = makeState1({50.f, 0.f, 0.f});
+    const Eigen::Quaternionf q = s.q_nv();
+    EXPECT_NEAR((q.toRotationMatrix() - Eigen::Matrix3f::Identity()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, LevelFlightNorth_XAxisAligned) {
+    // The x-axis of q_nv must point along the velocity vector.
+    KinematicState s = makeState1({50.f, 0.f, 0.f});
+    const Eigen::Vector3f x_nv = s.q_nv() * Eigen::Vector3f::UnitX();
+    EXPECT_NEAR((x_nv - Eigen::Vector3f::UnitX()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, LevelFlightEast_XAxisAligned) {
+    // v = [0, 50, 0]: eastward level flight → VW x-axis must point east.
+    KinematicState s = makeState1({0.f, 50.f, 0.f});
+    const Eigen::Vector3f x_nv = s.q_nv() * Eigen::Vector3f::UnitX();
+    EXPECT_NEAR((x_nv - Eigen::Vector3f::UnitY()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, LevelFlightEast_YAxisSouth) {
+    // Eastward flight: right of east is south (NED: south = -x).
+    KinematicState s = makeState1({0.f, 50.f, 0.f});
+    const Eigen::Vector3f y_nv = s.q_nv() * Eigen::Vector3f::UnitY();
+    EXPECT_NEAR((y_nv - (-Eigen::Vector3f::UnitX())).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, ClimbingNorth45deg_XAxisAligned) {
+    // v = [V*cos45°, 0, -V*sin45°]: 45° climb northward.
+    // VW x-axis must align with the velocity direction.
+    const float gamma_rad = static_cast<float>(M_PI / 4.0);
+    const float V = 50.f;
+    const Eigen::Vector3f v_NED = {V * std::cos(gamma_rad), 0.f, -V * std::sin(gamma_rad)};
+    KinematicState s = makeState1(v_NED);
+    const Eigen::Vector3f x_nv = s.q_nv() * Eigen::Vector3f::UnitX();
+    EXPECT_NEAR((x_nv - v_NED.normalized()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, ClimbingNorth45deg_YAxisEast) {
+    // Climbing northward: y-axis of VW must remain east (horizontal perpendicular).
+    const float gamma_rad = static_cast<float>(M_PI / 4.0);
+    const float V = 50.f;
+    const Eigen::Vector3f v_NED = {V * std::cos(gamma_rad), 0.f, -V * std::sin(gamma_rad)};
+    KinematicState s = makeState1(v_NED);
+    const Eigen::Vector3f y_nv = s.q_nv() * Eigen::Vector3f::UnitY();
+    EXPECT_NEAR((y_nv - Eigen::Vector3f::UnitY()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, DescendingNorth_XAxisAligned) {
+    // v = [V*cos10°, 0, V*sin10°]: 10° descent northward.
+    const float gamma_rad = static_cast<float>(10.0 * M_PI / 180.0);
+    const float V = 50.f;
+    const Eigen::Vector3f v_NED = {V * std::cos(gamma_rad), 0.f, V * std::sin(gamma_rad)};
+    KinematicState s = makeState1(v_NED);
+    const Eigen::Vector3f x_nv = s.q_nv() * Eigen::Vector3f::UnitX();
+    EXPECT_NEAR((x_nv - v_NED.normalized()).norm(), 0.f, 1e-5f);
+}
+
+TEST(KinematicStateQnvTest, XAxisAlwaysAlignedWithVelocity) {
+    // General property: q_nv().x-axis = velocity.normalized() for any non-zero velocity.
+    const std::vector<Eigen::Vector3f> velocities = {
+        {50.f, 0.f, 0.f}, {0.f, 50.f, 0.f}, {0.f, 0.f, -50.f},
+        {30.f, 40.f, -10.f}, {10.f, -20.f, 30.f}
+    };
+    for (const auto& v : velocities) {
+        KinematicState s = makeState1(v);
+        const Eigen::Vector3f x_nv = s.q_nv() * Eigen::Vector3f::UnitX();
+        EXPECT_NEAR((x_nv - v.normalized()).norm(), 0.f, 1e-4f)
+            << "Failed for v = [" << v.transpose() << "]";
+    }
+}
+
+TEST(KinematicStateQnvTest, ZeroVelocityNoNaN) {
+    // Zero velocity: stepQnv should return a defined quaternion (identity fallback),
+    // not NaN. The public q_nv() must not produce NaN coefficients.
+    KinematicState s = makeState1(Eigen::Vector3f::Zero());
+    const Eigen::Quaternionf q = s.q_nv();
+    EXPECT_FALSE(std::isnan(q.w()));
+    EXPECT_FALSE(std::isnan(q.x()));
+    EXPECT_FALSE(std::isnan(q.y()));
+    EXPECT_FALSE(std::isnan(q.z()));
+}
+
+TEST(KinematicStateQnvTest, NearlyVerticalClimb_XAxisAligned) {
+    // Two velocity vectors nearly straight up with opposite tiny horizontal components.
+    // The VW frame has a topological singularity near vertical (analogous to gimbal
+    // lock): k_hat × T_hat flips sign when the horizontal component crosses zero, so
+    // the VW y-axis can jump 180°. Only the x-axis alignment invariant holds.
+    const float V = 50.f, eps = 0.5f;
+    const Eigen::Vector3f v_before = {+eps, 0.f, -V};
+    const Eigen::Vector3f v_after  = {-eps, 0.f, -V};
+
+    KinematicState s_before = makeState1(v_before);
+    KinematicState s_after  = makeState1(v_after);
+
+    const Eigen::Vector3f x_before = s_before.q_nv() * Eigen::Vector3f::UnitX();
+    const Eigen::Vector3f x_after  = s_after.q_nv()  * Eigen::Vector3f::UnitX();
+    EXPECT_NEAR((x_before - v_before.normalized()).norm(), 0.f, 1e-4f);
+    EXPECT_NEAR((x_after  - v_after.normalized() ).norm(), 0.f, 1e-4f);
+}
+
+// ── Phase IP-3: stepPV / commitAttitude / applyTerrainHardConstraint ──────────
+//
+// Invariant: after every commitAttitude() call,
+//   q_nw() * [1,0,0] ≈ velocity_NED_mps().normalized()
+//
+// These tests verify the invariant holds even when applyTerrainHardConstraint()
+// fires between stepPV() and commitAttitude(), which is the fix for defect D-1.
+
+// Helper: build a q_nw aligned with a given velocity (zero bank).
+static Eigen::Quaternionf qnwFromVelocity(const Eigen::Vector3f& v_NED) {
+    Eigen::Quaternionf q;
+    q.setFromTwoVectors(Eigen::Vector3f::UnitX(), v_NED.normalized());
+    return q;
+}
+
+// Helper: verify the q_nw invariant — Wind x-axis aligned with velocity.
+static void expectQnwInvariant(const KinematicState& s, float tol = 1e-4f) {
+    const Eigen::Vector3f x_wind = s.q_nw() * Eigen::Vector3f::UnitX();
+    EXPECT_NEAR((x_wind - s.velocity_NED_mps().normalized()).norm(), 0.f, tol);
+}
+
+TEST(KinematicStateTerrainQnwTest, InvariantHoldsAfterConstraint_ZeroBank) {
+    // Descending 10° northward, zero bank.
+    const float gamma_rad = static_cast<float>(10.0 * M_PI / 180.0);
+    const float V = 50.f;
+    const Eigen::Vector3f v_NED = {V * std::cos(gamma_rad), 0.f, V * std::sin(gamma_rad)};
+    const Eigen::Quaternionf q_nw_init = qnwFromVelocity(v_NED);
+
+    KinematicState s(0.0, WGS84_Datum(), v_NED,
+                     Eigen::Vector3f::Zero(),  // accel_Wind
+                     q_nw_init,
+                     0.f, 0.f, 0.f, 0.f, 0.f,
+                     Eigen::Vector3f::Zero());
+    expectQnwInvariant(s);  // initial invariant
+
+    const float dt = 0.02f;
+    s.stepPV(dt, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    s.applyTerrainHardConstraint(1.f);  // zeroes vD
+    s.commitAttitude(0.f, dt);
+
+    // Invariant must hold with the constrained (level) velocity.
+    expectQnwInvariant(s);
+    // Zero bank: Wind y-axis must have no downward (NED-z) component.
+    const Eigen::Vector3f y_wind = s.q_nw() * Eigen::Vector3f::UnitY();
+    EXPECT_NEAR(y_wind.z(), 0.f, 1e-3f);
+}
+
+TEST(KinematicStateTerrainQnwTest, InvariantHoldsAfterConstraint_NonzeroBank) {
+    // Same scenario, 30° wind-axis bank. Roll must be preserved after constraint.
+    const float gamma_rad = static_cast<float>(10.0 * M_PI / 180.0);
+    const float bank_rad  = static_cast<float>(30.0 * M_PI / 180.0);
+    const float V = 50.f;
+    const Eigen::Vector3f v_NED = {V * std::cos(gamma_rad), 0.f, V * std::sin(gamma_rad)};
+
+    // q_nw with 30° bank: align with velocity, then roll 30° about Wind x-axis.
+    const Eigen::Quaternionf q_nw_init =
+        qnwFromVelocity(v_NED) *
+        Eigen::AngleAxisf(bank_rad, Eigen::Vector3f::UnitX());
+
+    KinematicState s(0.0, WGS84_Datum(), v_NED,
+                     Eigen::Vector3f::Zero(),
+                     q_nw_init,
+                     0.f, 0.f, 0.f, 0.f, 0.f,
+                     Eigen::Vector3f::Zero());
+    expectQnwInvariant(s);
+
+    const float dt = 0.02f;
+    s.stepPV(dt, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    s.applyTerrainHardConstraint(1.f);
+    s.commitAttitude(0.f, dt);
+
+    // Velocity-alignment invariant holds.
+    expectQnwInvariant(s);
+
+    // Bank is preserved: the relative rotation from q_nv to q_nw should be ≈ Rx(30°).
+    const Eigen::Quaternionf q_nv  = s.q_nv();
+    const Eigen::Quaternionf q_nw  = s.q_nw();
+    const Eigen::Quaternionf delta = q_nv.inverse() * q_nw;
+    const Eigen::AngleAxisf  aa(delta);
+    EXPECT_NEAR(aa.angle(), bank_rad, 5e-3f);
+    EXPECT_NEAR(std::abs(aa.axis().x()), 1.f, 1e-3f);
+}
+
+TEST(KinematicStateTerrainQnwTest, InvariantHoldsAcrossMultipleConstrainedCycles) {
+    // Run 20 cycles of stepPV / constraint / commitAttitude. The invariant must
+    // hold at every cycle — it must not accumulate error with each contact event.
+    const float gamma_rad = static_cast<float>(10.0 * M_PI / 180.0);
+    const float V = 50.f;
+    const Eigen::Vector3f v_NED = {V * std::cos(gamma_rad), 0.f, V * std::sin(gamma_rad)};
+    KinematicState s(0.0, WGS84_Datum(), v_NED,
+                     Eigen::Vector3f::Zero(),
+                     qnwFromVelocity(v_NED),
+                     0.f, 0.f, 0.f, 0.f, 0.f,
+                     Eigen::Vector3f::Zero());
+
+    const float dt = 0.02f;
+    for (int i = 0; i < 20; ++i) {
+        s.stepPV(static_cast<double>(i + 1) * dt,
+                 Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f,
+                 Eigen::Vector3f::Zero());
+        s.applyTerrainHardConstraint(1.f);
+        s.commitAttitude(0.f, dt);
+        expectQnwInvariant(s);
+    }
+}
+
+TEST(KinematicStateTerrainQnwTest, InvariantHoldsWithoutConstraint) {
+    // Normal step (no constraint): invariant must hold. Split must not break the
+    // no-constraint path.
+    const Eigen::Vector3f v_NED = {50.f, 0.f, 0.f};
+    KinematicState s(0.0, WGS84_Datum(), v_NED,
+                     Eigen::Vector3f::Zero(),
+                     qnwFromVelocity(v_NED),
+                     0.f, 0.f, 0.f, 0.f, 0.f,
+                     Eigen::Vector3f::Zero());
+
+    const float dt = 0.02f;
+    s.stepPV(dt, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    s.commitAttitude(0.f, dt);
+    expectQnwInvariant(s);
+}
+
+TEST(KinematicStateTerrainQnwTest, StepWrapperPreservesInvariant) {
+    // step() is now a wrapper around stepPV + commitAttitude; the invariant must
+    // hold after the wrapper call just as it did before the split.
+    const Eigen::Vector3f v_NED = {50.f, 0.f, 0.f};
+    KinematicState s(0.0, WGS84_Datum(), v_NED,
+                     Eigen::Vector3f::Zero(),
+                     qnwFromVelocity(v_NED),
+                     0.f, 0.f, 0.f, 0.f, 0.f,
+                     Eigen::Vector3f::Zero());
+
+    const float dt = 0.02f;
+    s.step(dt, Eigen::Vector3f{0.5f, 0.f, 0.f}, 0.f, 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    expectQnwInvariant(s);
+}
+
+TEST(KinematicStateTerrainQnwTest, NearVerticalClimb_InvariantHolds) {
+    // q_nw invariant must hold for a nearly-vertical velocity direction, which
+    // is the regime where q_nVW has an azimuth discontinuity. Since q_nw is
+    // updated via setFromTwoVectors (not via q_nVW), no discontinuity propagates.
+    const float V = 50.f, eps = 1.f;
+    const Eigen::Vector3f v_NED = {eps, 0.f, -V};  // nearly straight up
+    KinematicState s(0.0, WGS84_Datum(), v_NED,
+                     Eigen::Vector3f::Zero(),
+                     qnwFromVelocity(v_NED),
+                     0.f, 0.f, 0.f, 0.f, 0.f,
+                     Eigen::Vector3f::Zero());
+
+    const float dt = 0.001f;
+    s.stepPV(dt, Eigen::Vector3f::Zero(), 0.f, 0.f, 0.f, 0.f, Eigen::Vector3f::Zero());
+    s.commitAttitude(0.f, dt);
+    expectQnwInvariant(s, 1e-3f);
+}
