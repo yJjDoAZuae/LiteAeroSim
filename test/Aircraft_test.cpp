@@ -534,6 +534,19 @@ static nlohmann::json makeGroundConfig() {
     return cfg;
 }
 
+static nlohmann::json addBodyCollider(nlohmann::json config) {
+    config["body_collider"] = {{"volumes", nlohmann::json::array({
+        {
+            {"name",                 "fuselage"},
+            {"half_extents_body_m",  {1.0f, 0.5f, 0.3f}},
+            {"center_offset_body_m", {0.0f, 0.0f, 0.0f}},
+            {"stiffness_npm",        50000.0f},
+            {"damping_nspm",          2000.0f}
+        }
+    })}};
+    return config;
+}
+
 }  // namespace
 
 TEST(AircraftTest, LandingGear_Airborne_ZeroContact) {
@@ -636,4 +649,57 @@ TEST(AircraftTest, TerrainHardConstraint_KeepsAircraftAboveTerrain) {
         << "Hard constraint must project aircraft above terrain after integration";
     EXPECT_LE(ac->state().velocity_NED_mps().z(), 0.0f)
         << "Hard constraint must zero downward velocity when penetrating terrain";
+}
+
+TEST(AircraftTest, BodyColliderOnly_GlideToImpact_ArrestsDescentAndReportsForce) {
+    // No landing gear — body collider is the only contact model.
+    // Aircraft starts at 5 m AGL, stationary.  At zero airspeed q_inf = 0 so
+    // aerodynamic forces are zero and the aircraft falls under gravity.
+    // Body collider half-extents z = 0.3 m → first corner contact at CG altitude 0.3 m.
+    using namespace liteaero::terrain;
+    FlatTerrain terrain{0.0f};
+
+    auto cfg = addBodyCollider(makeConfig());
+    cfg["initial_state"]["altitude_m"]         = 5.0;
+    cfg["initial_state"]["velocity_north_mps"] = 0.0;
+    cfg["initial_state"]["velocity_east_mps"]  = 0.0;
+    cfg["initial_state"]["velocity_down_mps"]  = 0.0;
+
+    auto ac = std::make_unique<liteaero::simulation::Aircraft>(
+        std::make_unique<StubPropulsion>(0.0f));
+    ac->initialize(cfg, 0.02f);
+    ac->setTerrain(&terrain);
+    ac->reset();
+
+    // Default AircraftCommand: n_z=1, throttle=0, rollRate=0.
+    const liteaero::simulation::AircraftCommand cmd;
+
+    bool  contact_detected  = false;
+    bool  upward_force_seen = false;
+    float min_agl_m         = 1e6f;
+
+    constexpr float kDt    = 0.02f;
+    constexpr int   kSteps = static_cast<int>(6.0f / kDt);  // 6 s
+
+    for (int i = 1; i <= kSteps; ++i) {
+        ac->step(i * static_cast<double>(kDt), cmd, Eigen::Vector3f::Zero(), 1.225f);
+
+        const float agl = ac->agl_m();
+        min_agl_m = std::min(min_agl_m, agl);
+
+        const auto& cf = ac->contactForces();
+        if (cf.weight_on_wheels)          contact_detected  = true;
+        if (cf.force_body_n.z() < -1.0f) upward_force_seen = true;
+    }
+
+    EXPECT_GE(min_agl_m, -0.05f)
+        << "body collider must prevent terrain penetration throughout";
+    EXPECT_TRUE(contact_detected)
+        << "body collider must report weight-on-wheels during impact";
+    EXPECT_TRUE(upward_force_seen)
+        << "contactForces() must reflect body-collider upward force (not gear-only)";
+    // Freefall from 5 m reaches sqrt(2 * 9.8 * 5) ≈ 9.9 m/s; body collider must
+    // arrest the descent to well below that by 6 s.
+    EXPECT_LT(ac->state().velocity_NED_mps().z(), 9.9f)
+        << "body collider must arrest descent velocity after impact";
 }
