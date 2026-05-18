@@ -128,30 +128,34 @@ TEST(WheelUnit, AsymmetricDamping_CompressionHigherThanExtension) {
     p.damping_extension_nspm   = 100.0f;
     p.spring_nonlinearity_nd   = 0.0f;
 
-    // --- Compression step: prev=0, pen=0.1 m, dt=0.02 s → delta_dot = +5 m/s ---
+    // Compression at 5 m/s: contact patch moving toward terrain (+z = travel axis).
+    // delta_dot = v.dot(travel_axis) = +5 m/s → F_damp = 1000 * 5 = 5000 N added.
+    const Eigen::Vector3f v_compress{0.f, 0.f, 5.0f};
     WheelUnit wu_compress;
     wu_compress.initialize(p);
     const auto r_c = wu_compress.step(0.1f, kContactOrigin,
-                                       Eigen::Vector3f::Zero(), kNormalUp,
+                                       v_compress, kNormalUp,
                                        0.f, 0.f, 1.0f, 0.02f);
     const float F_compress = -r_c.force_body_n.z();
 
-    // --- Extension step: preset prev=0.2 m, pen=0.1 m, dt=0.02 s → delta_dot = -5 m/s ---
+    // Extension at 5 m/s: contact patch moving away from terrain (-z).
+    // delta_dot = -5 m/s → F_damp = 100 * (-5) = -500 N (softer).
+    const Eigen::Vector3f v_extend{0.f, 0.f, -5.0f};
     WheelUnit wu_extend;
     wu_extend.initialize(p);
     wu_extend.setStrutState({0.2f, 0.0f, 0.0f});
     const auto r_e = wu_extend.step(0.1f, kContactOrigin,
-                                     Eigen::Vector3f::Zero(), kNormalUp,
+                                     v_extend, kNormalUp,
                                      0.f, 0.f, 1.0f, 0.02f);
     const float F_extend = -r_e.force_body_n.z();
 
     EXPECT_GT(F_compress, F_extend)
-        << "Compression force must exceed extension force at equal |delta_dot|";
+        << "Compression force must exceed extension force at equal |v_strut|";
 }
 
 TEST(WheelUnit, OrificesDamping_ForceScalesQuadratically) {
     // Orifice force = c * |delta_dot| * delta_dot.
-    // At 2× velocity, force must be 4× higher (quadratic).
+    // At 2× velocity the orifice term is 4× — verify via explicit strut velocities.
     WheelUnitParams p = makeWheelParams();
     p.damping_compression_nspm          = 0.0f;
     p.damping_extension_nspm            = 0.0f;
@@ -159,22 +163,23 @@ TEST(WheelUnit, OrificesDamping_ForceScalesQuadratically) {
     p.orifice_damping_extension_ns2pm2   = 500.0f;
     p.spring_nonlinearity_nd            = 0.0f;
 
-    // Step at 1 m/s compression: prev=0, pen = 1*dt, dt=0.01s → delta_dot = 1 m/s
+    // v_strut = 1 m/s: F_spring = 10000*0.01 = 100 N, F_orifice = 500*1 = 500 N
     WheelUnit wu1;
     wu1.initialize(p);
-    const auto r1 = wu1.step(0.01f, kContactOrigin, Eigen::Vector3f::Zero(),
+    const auto r1 = wu1.step(0.01f, kContactOrigin,
+                              Eigen::Vector3f{0.f, 0.f, 1.0f},
                               kNormalUp, 0.f, 0.f, 1.0f, 0.01f);
     const float F1 = -r1.force_body_n.z();
 
-    // Step at 2 m/s compression: prev=0, pen = 2*dt → delta_dot = 2 m/s
+    // v_strut = 2 m/s: F_spring = 10000*0.02 = 200 N, F_orifice = 500*4 = 2000 N
     WheelUnit wu2;
     wu2.initialize(p);
-    const auto r2 = wu2.step(0.02f, kContactOrigin, Eigen::Vector3f::Zero(),
+    const auto r2 = wu2.step(0.02f, kContactOrigin,
+                              Eigen::Vector3f{0.f, 0.f, 2.0f},
                               kNormalUp, 0.f, 0.f, 1.0f, 0.01f);
     const float F2 = -r2.force_body_n.z();
 
-    // F_orifice = c * v^2.  With spring contribution also present, verify F2 > 3*F1
-    // (spring contribution grows linearly while orifice grows quadratically)
+    // F2 / F1 = 2200 / 600 ≈ 3.67 — well above 3×
     EXPECT_GT(F2, 3.0f * F1)
         << "Orifice damping force must grow faster than linearly with velocity";
 }

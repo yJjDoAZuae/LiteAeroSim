@@ -47,11 +47,12 @@ WheelContactForces WheelUnit::step(float                         penetration_m,
         return {};
     }
 
-    // 1. Quasi-static strut deflection
+    // 1. Quasi-static strut deflection.
+    // delta_dot uses the kinematic contact-patch velocity projected onto the travel
+    // axis — this is constant across substeps and independent of δ accumulation,
+    // so damping is correctly present in every substep's output.
     const float delta_new = std::clamp(penetration_m, 0.0f, _params.travel_max_m);
-    const float delta_dot = (dt_s > 0.0f)
-                                ? (delta_new - _strut_deflection_m) / dt_s
-                                : 0.0f;
+    const float delta_dot = contact_vel_body_mps.dot(_params.travel_axis_body);
     _strut_deflection_rate_mps = delta_dot;
     _strut_deflection_m        = delta_new;
 

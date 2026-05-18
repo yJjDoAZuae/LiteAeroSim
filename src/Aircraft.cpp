@@ -165,6 +165,7 @@ void Aircraft::reset() {
     _propulsion->reset();
     if (_has_landing_gear)  _landing_gear.reset();
     if (_has_body_collider) _body_collider.reset();
+    _contact_forces = ContactForces{};
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +244,7 @@ void Aircraft::step(double time_sec,
         contact_forces.moment_body_nm += bc.moment_body_nm;
         contact_forces.weight_on_wheels |= bc.weight_on_wheels;
     }
+    _contact_forces = contact_forces;
 
     // 9. Advance propulsion
     const float T = _propulsion->step(cmd.throttle_nd, V_air, rho_kgm3);

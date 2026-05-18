@@ -272,6 +272,61 @@ TEST(LandingGear, Airborne_StrutDeflectionResetsToZero) {
         << "Strut deflection must reset to zero when aircraft is airborne";
 }
 
+TEST(LandingGear, PenetrationStable_AfterContactStep) {
+    // At constant altitude the normal force must be stable across steps: δ_prev
+    // must not feed back into the penetration calculation and inflate the force.
+    LandingGear gear;
+    gear.initialize(makeTricycleConfig());
+    FlatTestTerrain terrain{0.0f};
+
+    const auto cf1 = gear.step(makeSnap(0.5f), terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+    const float F1 = -cf1.force_body_n.z();
+    ASSERT_GT(F1, 0.0f);
+
+    const auto cf2 = gear.step(makeSnap(0.5f), terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+    const float F2 = -cf2.force_body_n.z();
+
+    EXPECT_NEAR(F2, F1, 1.0f)
+        << "Normal force must be stable at constant altitude (δ_prev must not inflate penetration)";
+}
+
+TEST(LandingGear, SubstepDamping_NotZeroOnLastSubstep) {
+    // With substeps > 1 and a descending aircraft, the force applied to aircraft
+    // dynamics (last substep output) must include the damping contribution — not
+    // be zeroed because δ stopped changing after substep 1.
+    auto config = nlohmann::json::parse(R"({
+        "substeps": 4,
+        "wheel_units": [{
+            "attach_point_body_m":        [0.0, 0.0, 0.5],
+            "travel_axis_body":           [0.0, 0.0, 1.0],
+            "spring_stiffness_npm":       20000.0,
+            "damping_compression_nspm":  500.0,
+            "damping_extension_nspm":    100.0,
+            "spring_nonlinearity_nd":     0.0,
+            "preload_n":                  0.0,
+            "travel_max_m":               0.3,
+            "tyre_radius_m":              0.2,
+            "rolling_resistance_nd":      0.0,
+            "max_brake_torque_nm":        0.0,
+            "is_steerable":               false,
+            "has_brake":                  false
+        }]
+    })");
+    LandingGear gear;
+    gear.initialize(config);
+    FlatTestTerrain terrain{0.0f};
+
+    // alt=0.65 m → penetration = (0.5+0.2) - 0.65 = 0.05 m → F_spring = 20000*0.05 = 1000 N
+    // vel_ned=[0,0,1] → v_strut = 1 m/s → F_damp = 500*1 = 500 N → expected total ≈ 1500 N
+    const auto cf = gear.step(makeSnap(0.65f, {0.0f, 0.0f, 1.0f}),
+                               terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+
+    const float F_z           = -cf.force_body_n.z();
+    const float F_spring_only = 20000.0f * 0.05f;
+    EXPECT_GT(F_z, F_spring_only * 1.2f)
+        << "Damping force must be present in the last-substep output (not zeroed by δ saturation)";
+}
+
 // ---------------------------------------------------------------------------
 // Step D — Pacejka tyre forces
 // ---------------------------------------------------------------------------

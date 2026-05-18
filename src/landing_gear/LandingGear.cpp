@@ -100,7 +100,9 @@ ContactForces LandingGear::step(const liteaero::nav::KinematicStateSnapshot& sna
     const float inner_dt_s = outer_dt_s / static_cast<float>(_config.substeps);
     const int   n          = static_cast<int>(_wheel_units.size());
 
-    // Precompute per-wheel contact geometry (uses previous-step strut deflection)
+    // Precompute per-wheel contact geometry at the undeflected tyre position.
+    // Penetration = how deep the undeflected contact patch is into the terrain.
+    // WheelUnit::step() clamps this to [0, travel_max] — no δ_prev term here.
     std::vector<float>           penetrations(n);
     std::vector<Eigen::Vector3f> contact_points(n);
     std::vector<Eigen::Vector3f> contact_vels(n);
@@ -108,11 +110,9 @@ ContactForces LandingGear::step(const liteaero::nav::KinematicStateSnapshot& sna
 
     for (int i = 0; i < n; ++i) {
         const WheelUnitParams& p  = _config.wheel_units[i];
-        const StrutState       ss = _wheel_units[i].strutState();
 
-        // Contact point in body frame
+        // Contact point in body frame (undeflected strut position)
         const Eigen::Vector3f c_body = p.attach_point_body_m
-                                     + ss.strut_deflection_m * p.travel_axis_body
                                      - p.tyre_radius_m * surface_normal_body;
         contact_points[i] = c_body;
 

@@ -74,12 +74,12 @@ public:
     // Current kinematic state (position, velocity, attitude, aerodynamic angles).
     const KinematicState& state() const { return _state; }
 
-    // Landing gear contact forces from the most recent step().
-    // Returns zero forces when landing gear is not configured or terrain is not set.
-    const ContactForces& contactForces() const { return _landing_gear.contactForces(); }
+    // Combined contact forces (gear + body collider) from the most recent step().
+    // Returns zero forces when no terrain is set or no contact occurred.
+    const ContactForces& contactForces() const { return _contact_forces; }
 
-    // True when any wheel unit was in contact with terrain on the most recent step().
-    bool weightOnWheels() const { return _landing_gear.contactForces().weight_on_wheels; }
+    // True when any contact was detected on the most recent step().
+    bool weightOnWheels() const { return _contact_forces.weight_on_wheels; }
 
     // Height above terrain at the current position (m).
     // Returns -1 if no terrain has been set via setTerrain().
@@ -109,6 +109,7 @@ private:
     std::unique_ptr<Propulsion>                       _propulsion;
     LandingGear                                       _landing_gear;
     BodyCollider                                      _body_collider;
+    ContactForces                                     _contact_forces;
     const liteaero::terrain::Terrain*               _terrain            = nullptr;
     bool                                              _has_landing_gear   = false;
     bool                                              _has_body_collider  = false;
