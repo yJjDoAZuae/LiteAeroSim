@@ -30,6 +30,30 @@ An implementation plan answers the question: *given that the design decisions ar
 
 ---
 
+## Distinction from roadmap plans (`/roadmap`)
+
+| Dimension | Implementation plan (`/impl`) | Roadmap (`/roadmap`) |
+| --- | --- | --- |
+| Location | `docs/implementation/` | `docs/roadmap/` |
+| Granularity | Individual code-level work items | Named capabilities and subsystems |
+| ID scheme | `IP-PLAN-N` (e.g. `IP-LGD-3`) | Human-readable item labels (e.g. `LG-1`, `SB-3`) |
+| Status granularity | `todo` / `active` / `done` / `blocked (IDs)` | Delivered / Pending / Blocked |
+| Dependency tracking | Explicit `IP-*` and `OQ-*` IDs per item | Named item-level blocking dependencies |
+| Design refs | Specific sections of design authority documents | Design authority documents (top-level) |
+| Created when | A roadmap item's design is settled and implementation is authorized | A new capability or subsystem is planned |
+| Maintained by | `/impl` skill | `/roadmap` skill |
+
+**One roadmap item typically spawns one implementation plan.** When a roadmap item is
+authorized for implementation (all open questions resolved, design document complete), create
+an implementation plan with `/impl new`. The roadmap item records *what* is being built;
+the implementation plan records *how* it will be built at code-level granularity.
+
+**Do not use `/impl` to manage roadmap items.** If you need to mark a capability as
+delivered, update blocking dependencies between subsystems, or add a new planned capability,
+use `/roadmap` instead.
+
+---
+
 ## Central location and master index
 
 All plans live in `docs/implementation/`. The file `docs/implementation/PLANS.md` is the master index: every plan is listed there, one line per plan. Cross-plan dependency analysis always starts from the master index.
