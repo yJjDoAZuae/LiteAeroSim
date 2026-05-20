@@ -356,27 +356,26 @@ evaluated.
 
 ## SB-3. Ring Buffer Redesign
 
-**Blocking dependencies:** SB-2 (delivered — existing ring buffer implementation).
+**Blocking dependencies:** SB-2 (delivered — existing ring buffer implementation). SB-3
+must be complete before any roadmap item that introduces a Python-side live telemetry
+consumer (PP-3, PP-4, or any notebook that reads ring buffer position data). It is not
+required for the Godot 3D rendering path.
 
-**Not blocking LS-1.** The MVP live simulation rendering path does not use the ring
-buffer. SB-3 is ordered after LS-1 and before any Python-side live telemetry feature
-that requires accurate multi-type channel data.
+**Design authority:** [`docs/architecture/ring_buffer.md`](../architecture/ring_buffer.md)
+(to be revised — the revised document is the primary deliverable of this item).
 
-The existing `SB-2` ring buffer was designed with a scalar `float` value type
-(`Sample::value`). This is inadequate for:
-
-- **Position precision:** `latitude_rad` ≈ 0.7 rad stored as `float` gives ≈ 0.53 m
-  quantization — visible jitter in any Python position consumer.
-- **Vector/quaternion channels:** attitude, velocity, and force vectors require multiple
-  channels with no atomicity guarantee between them. A Python consumer draining a
-  partial quaternion across a step boundary gets meaningless data.
-- **Future extensibility:** sensors, estimators, and guidance outputs will need `double`,
-  `Eigen::Vector3f`, and `Eigen::Quaternionf` channel types.
+The existing SB-2 ring buffer stores a scalar `float` value per sample (`Sample::value`).
+This is insufficient for three reasons: (a) position channels (`latitude_rad` ≈ 0.7 rad)
+have 0.53 m quantization at float32 precision — visible jitter in any Python position
+consumer; (b) vector and quaternion channels require multiple scalar channels with no
+atomicity guarantee between them, so a consumer draining a partial quaternion across a
+step boundary receives meaningless data; (c) sensor, estimator, and guidance outputs will
+need `double`, `Eigen::Vector3f`, and `Eigen::Quaternionf` types. The redesign resolves
+these problems by choosing a type policy and specifying the migration path from SB-2.
 
 ### Deliverables — Ring Buffer Redesign
 
-Produce a revised [`docs/architecture/ring_buffer.md`](../architecture/ring_buffer.md)
-covering:
+Revised [`docs/architecture/ring_buffer.md`](../architecture/ring_buffer.md) covering:
 
 - **Type policy decision:** choose between (a) upgrading `Sample::value` from `float` to
   `double` (simple, fixes precision, still scalar); (b) typed `Channel<T>` with type
@@ -391,45 +390,34 @@ covering:
 - **Python binding impact:** any type changes affect `bind_ring_buffer.cpp` and
   `test_ring_buffer_bindings.py`.
 
-### Ordering
+### Tests — Ring Buffer Redesign
 
-SB-3 is required before any roadmap item that introduces a Python-side live telemetry
-consumer (e.g., a live time-history panel, a Python logging subscriber, or a notebook
-that reads ring buffer position data). It is not required for the Godot 3D rendering
-path.
+None — this is a design-only item. Implementation of the redesigned ring buffer is a
+separate follow-on item requiring an implementation plan.
 
 ---
 
 ## TB-1. Terrain Build Tool
 
 **Blocking dependencies:** LS-1 (live simulation viewer delivered — establishes the
-Godot scene that consumes the terrain GLB).
+Godot scene that consumes the terrain GLB). No open questions block implementation —
+OQ-TB-1, OQ-TB-2, OQ-TB-3, and OQ-TB-5 are all resolved in the design authority
+document. OQ-TB-4 (triangulation mesh quality) is open but does not block this item.
 
 **Design authority:** [`docs/architecture/terrain_build.md`](../architecture/terrain_build.md).
 
 A single-function automation layer over the existing terrain ingestion tools
-(`python/tools/terrain/`). Given an aircraft configuration JSON path, derives all
+(`python/tools/terrain/`). Given an aircraft configuration JSON path, it derives all
 pipeline parameters — geographic center, bounding box, cruise speed, 10-minute radius,
 altitude-adaptive DEM resolution, download chunk count — and produces a complete terrain
-dataset (`.las_terrain` + `.glb`) without further user interaction.
-
-**Open questions that must be resolved before implementation:**
-
-- **OQ-TB-1** — Does `download.py` need a `resolution_deg` parameter, or should the
-  build tool always request at source native resolution and rely purely on tiling?
-  Altitude-adaptive resolution (design authority §Download Strategy) requires the
-  parameter. Without it, large-area aircraft classes (jet trainer) download 100× more
-  data than needed.
-- **OQ-TB-2** — Should the build tool write a `terrain_config.json` sidecar that the
-  Godot scene reads to set its `world_origin`? Without this, the developer must manually
-  edit the Godot scene after each terrain build.
+dataset (`.las_terrain` + GLB) without further user interaction.
 
 ### Deliverables — Terrain Build Tool
 
 1. **`python/tools/terrain/download.py`** — add `resolution_deg: float | None = None`
-   keyword argument to `download_dem` and `download_imagery` (OQ-TB-1 must be resolved
-   first); update `_bbox_tag` to include resolution so cache entries at different
-   resolutions do not collide.
+   keyword argument to `download_dem` and `download_imagery` (per OQ-TB-1 resolution);
+   update `_bbox_tag` to include resolution so cache entries at different resolutions do
+   not collide.
 2. **`python/tools/terrain/build_terrain.py`** — `build_terrain(aircraft_config_path, *,
    name, radius_m, dem_source, imagery_source, force)` entry point as specified in
    design authority §Entry Point.
@@ -448,35 +436,55 @@ dataset (`.las_terrain` + `.glb`) without further user interaction.
 
 ## 1. Sensor Models — Implementable Subset
 
-**Blocking dependencies:** None. `KinematicState` and `V_Terrain` are implemented.
+**Blocking dependencies:** None for the subset below. `KinematicState` and `Terrain`
+are implemented. Each sensor requires its own design document (with all open questions
+resolved) before implementation can begin. The remaining sensors (`SensorINS`, `SensorAA`,
+`SensorAAR`, `SensorForwardTerrainProfile`, `SensorTrackEstimator`) are deferred to
+item 9; they depend on LiteAero Flight components not yet designed.
 
-Implement the four sensor models whose only dependencies are already available. The
-remaining sensors (`SensorINS`, `SensorAA`, `SensorAAR`, `SensorForwardTerrainProfile`,
-`SensorTrackEstimator`) are deferred to item 11; they depend on LiteAero Flight
-components that are not yet designed.
+**Design authority:** No design documents yet — a design document is the first deliverable
+for each sensor below. Implement in the order listed; `SensorLaserAlt` and `SensorRadAlt`
+outputs are required by the `AnomalyDetector` `AltitudeBelowTerrain` rule (item 6).
+
+The four sensors whose only C++ dependencies are already available:
 
 | Class | Depends on | Hardware modeled |
 | --- | --- | --- |
 | `SensorMag` | `KinematicState` (done) | Triaxial magnetometer — body-frame field with hard-iron bias and soft-iron distortion |
 | `SensorGnss` | `KinematicState` (done) | GNSS receiver — WGS84 position, NED velocity, SOG/COG, fix type, DOP |
-| `SensorLaserAlt` | `V_Terrain` (done) | Laser altimeter — single-beam slant range and AGL altitude |
-| `SensorRadAlt` | `V_Terrain` (done) | Radar altimeter — HAG from `Terrain::heightAboveGround_m` with noise and range saturation |
+| `SensorLaserAlt` | `Terrain` (done) | Laser altimeter — single-beam slant range and AGL altitude |
+| `SensorRadAlt` | `Terrain` (done) | Radar altimeter — HAG from `Terrain::heightAboveGround_m` with noise and range saturation |
 
-Each sensor requires a design document before implementation. Implement in the order
-listed; `SensorLaserAlt` and `SensorRadAlt` outputs are required by the `AnomalyDetector`
-`AltitudeBelowTerrain` rule (item 7).
+### Deliverables — Sensor Models Implementable Subset
+
+For each sensor in the table above:
+
+- Design document in `docs/architecture/` with all open questions resolved.
+- C++ header `include/sensor/Sensor<Name>.hpp` and implementation `src/sensor/Sensor<Name>.cpp`.
+- JSON + proto serialization and round-trip tests.
+- Wired into `Aircraft::step()` and registered in the `ChannelRegistry`.
+
+### Tests — Sensor Models Implementable Subset
+
+One test file per sensor: `test/Sensor<Name>_test.cpp`. Minimum test categories: unit
+(noise model statistics), integration (driven by `KinematicState` from a recorded
+trajectory), and serialization (JSON + proto round-trip).
 
 ---
 
 ## 2. Logged Channel Registry — Design
 
 **Blocking dependencies:** SimRunner (delivered), LandingGear C++ (delivered), item 1
-(sensor models subset). The registry must reflect the complete channel set produced by the
-simulation loop, including gear contact channels and sensor channels.
+(sensor models subset — registry must reflect complete channel set including sensor
+channels).
 
-Produces a formal specification of all `LogSource` registrations in the simulation loop:
-source names, channel names, units, and sampling rates. This document is required before
-`AnomalyDetector` rules and `BehaviorVerifier` criteria can reference channel names.
+**Design authority:** `docs/architecture/channel_registry.md` (to be produced — the
+design document is the sole deliverable of this item).
+
+A formal specification of all `LogSource` registrations in the simulation loop. Required
+before `AnomalyDetector` rules and `BehaviorVerifier` criteria can reference channel
+names, and before the ring buffer channel vocabulary (SB-2/SB-3) can be aligned with
+the logger vocabulary (post_processing.md §DR-9).
 
 ### Deliverables — Logged Channel Registry
 
@@ -490,14 +498,21 @@ Design document (`docs/architecture/channel_registry.md`) specifying:
   `ContactForces`, `AtmosphericState`, and each sensor output struct.
 - Policy for how new subsystems register channels as they are added.
 
+### Tests — Logged Channel Registry
+
+None — design-only item. Implementation of `LogSource` registrations is part of item 6.
+
 ---
 
 ## 3. Real Flight Log Format — Design
 
 **Blocking dependencies:** None. This is a standalone design decision.
 
-Produces a design decision document defining how real aircraft flight logs are loaded by
-`DataOverlay`. Must be resolved before `DataOverlay` can be implemented.
+**Design authority:** `docs/architecture/flight_log_format.md` (to be produced — the
+design document is the sole deliverable of this item).
+
+A design decision document defining how real aircraft flight logs are loaded by
+`DataOverlay`. Must be resolved before `DataOverlay` can be implemented (item 6).
 
 ### Deliverables — Real Flight Log Format
 
@@ -506,28 +521,31 @@ Design document (`docs/architecture/flight_log_format.md`) covering:
 - What log format(s) real aircraft produce (e.g., ArduPilot DataFlash, MAVLink ULOG,
   custom CSV, or a configurable adapter).
 - Channel name mapping from the real-log format to the simulation channel naming
-  convention defined in item 3.
+  convention defined in item 2.
 - Policy for handling channels present in the real log but absent from the sim schema,
   and vice versa.
 - Whether a translation/adapter layer is implemented in `FlightLogReader` or as a
   separate preprocessing step.
 
+### Tests — Real Flight Log Format
+
+None — design-only item. Implementation of `DataOverlay` format adapter is part of item 6.
+
 ---
 
 ## 4. Aerodynamic Coefficient Design Study
 
-**Blocking dependencies:** None. `AeroCoeffEstimator` is implemented.
+**Blocking dependencies:** None. `AeroCoeffEstimator` is implemented. Must be complete
+before item 5 (`Aircraft6DOF`) begins, and before Cfg-1 can be scoped.
 
-Design authority documents:
+**Design authority:**
+- [`docs/architecture/aero_coefficient_model.md`](../architecture/aero_coefficient_model.md) — coefficient model format, sign conventions, propulsion integration
+- [`docs/architecture/aero_coeff_estimator.md`](../architecture/aero_coeff_estimator.md) — estimation methods and `AeroCoeffEstimator` extension
+- [`docs/architecture/propulsion_coeff_estimator.md`](../architecture/propulsion_coeff_estimator.md) — propulsion parameter estimation and propulsion-aero coupling
 
-- Coefficient model format, sign conventions, and propulsion integration:
-  [`docs/architecture/aero_coefficient_model.md`](../architecture/aero_coefficient_model.md)
-- Aerodynamic coefficient estimation methods and `AeroCoeffEstimator` extension:
-  [`docs/architecture/aero_coeff_estimator.md`](../architecture/aero_coeff_estimator.md)
-- Propulsion parameter estimation and propulsion-aero coupling:
-  [`docs/architecture/propulsion_coeff_estimator.md`](../architecture/propulsion_coeff_estimator.md)
-
-Prerequisite for item 5 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-16(c).
+A design study that resolves how aerodynamic and propulsion coefficients are specified
+for `Aircraft6DOF`. Defines `BodyAxisCoeffModel` format, sign conventions, and parameter
+estimation pipeline. Resolves OQ-16(c).
 
 ### Deliverables — Aerodynamic and Propulsion Coefficient Design Study
 
@@ -538,7 +556,9 @@ Prerequisite for item 5 (`Aircraft6DOF` and `BodyAxisCoeffModel`). Resolves OQ-1
 - `BodyAxisCoeffModel` and `PropulsionCouplingCoefficients` formats decided and documented.
 - Element registry updated (`AeroModel` named, `BodyAxisCoeffModel` and `PropulsionCoeffEstimator` formats defined).
 
-Must be complete before item 5 begins.
+### Tests — Aerodynamic Coefficient Design Study
+
+None — design-only item. Implementation of `BodyAxisCoeffModel` and `AeroModel` is item 5.
 
 ---
 
@@ -546,7 +566,8 @@ Must be complete before item 5 begins.
 
 **Blocking dependencies:** Item 4 (aerodynamic coefficient design study).
 
-Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
+**Design authority:** Design document to be produced as the first deliverable of this
+item. Architecture placeholders are defined in
 [`docs/architecture/system/future/element_registry.md`](../architecture/system/future/element_registry.md).
 
 ### Scope — Aircraft6DOF
@@ -555,7 +576,7 @@ Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
   body frame; decouples the 6DOF integrator from the coefficient axis convention.
 - **`BodyAxisCoeffModel`** — implements `AeroModel` using body-axis stability derivatives
   (CX, CY, CZ, Cl, Cm, Cn) as functions of α, β, control surface deflections, and angular
-  rates. Coefficient model format defined by item 5.
+  rates. Coefficient model format defined by item 4.
 - **`Aircraft6DOF`** — full 6DOF dynamics; depends on `AeroModel` for forces and moments;
   accepts `SurfaceDeflectionCommand` (control surface deflection angles + per-motor
   throttle); produces `KinematicStateSnapshot`; used directly by ArduPilot and PX4
@@ -569,84 +590,98 @@ Full 6DOF aircraft dynamics model. Architecture placeholders are defined in
 
 ### Deliverables — Aircraft6DOF
 
-Design authority document. Implementation follows TDD. All new elements include JSON +
-proto serialization and round-trip tests. `Aircraft6DOF` and `Aircraft` must both produce
-`KinematicStateSnapshot` to enable transparent substitution.
+- Design authority document (`docs/architecture/aircraft_6dof.md`) with all open
+  questions resolved.
+- `AeroModel` abstract interface header and implementation skeleton.
+- `BodyAxisCoeffModel` implementing `AeroModel`; JSON + proto serialization.
+- `Aircraft6DOF` class; JSON + proto serialization; wired to `LandingGear` and
+  `SimRunner`.
+- `FBWController` and `SurfaceDeflectionCommand`.
+
+### Tests — Aircraft6DOF
+
+`test/Aircraft6DOF_test.cpp` — unit, integration, and serialization categories per the
+design authority document test strategy. `Aircraft6DOF` and `Aircraft` must both produce
+identical `KinematicStateSnapshot` fields for a trimmed cruise case (transparent
+substitution test).
 
 ---
 
 ## 6. Post-Processing — Analysis Tools Design Harmonization and Implementation
 
-**Blocking dependencies:** Item 3 (Logged Channel Registry), item 4 (Real Flight Log
+**Blocking dependencies:** Item 2 (Logged Channel Registry), item 3 (Real Flight Log
 Format), and LiteAero Flight command channel schema (cross-repo dependency — track in
 LiteAero Flight roadmap).
 
-This item performs a second design pass on the analysis modules in
-[`docs/architecture/post_processing.md`](../architecture/post_processing.md) to replace
-placeholder channel names with concrete names from the channel registry, add the real
-flight log format adapter to `DataOverlay`, and incorporate the LiteAero Flight command
-channel schema into `BehaviorVerifier` criteria. It then implements those modules.
+**Design authority:** [`docs/architecture/post_processing.md`](../architecture/post_processing.md)
+§Analysis Modules.
 
-### Design Harmonization
+A second design pass on the analysis modules in `post_processing.md` to replace
+placeholder channel names with concrete names from the channel registry (item 2), add
+the real flight log format adapter to `DataOverlay` (item 3), and incorporate the LiteAero
+Flight command channel schema into `BehaviorVerifier` criteria. Implementation follows
+the updated design.
 
-Update `docs/architecture/post_processing.md` §Analysis Modules:
+### Deliverables — Analysis Tools
 
-- Replace all channel name references in `AnomalyDetector` rules with names from the
-  Logged Channel Registry (item 3).
-- Specify the `DataOverlay` format adapter for the real flight log format (item 4).
-- Define `BehaviorVerifier` command channel names from the LiteAero Flight command schema.
-- Define the Scenario Reference Data Format for `WaypointReached` and similar criteria.
+Design harmonization:
 
-### Analysis Module Implementation
+- Update `post_processing.md` §Analysis Modules: replace placeholder channel names with
+  names from the Logged Channel Registry; specify `DataOverlay` format adapter per item 3;
+  define `BehaviorVerifier` command channel names from the LiteAero Flight command schema;
+  define the Scenario Reference Data Format for `WaypointReached` and similar criteria.
 
-Implement in dependency order:
+Implementation (in dependency order):
 
 | Module | File | Blocked by |
 | --- | --- | --- |
-| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 3, sensor item 2 |
-| `DataOverlay` | `python/tools/data_overlay.py` | Item 4 |
-| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 3, LiteAero Flight schema |
+| `AnomalyDetector` + rule library | `python/tools/anomaly.py` | Item 2, item 1 sensor models |
+| `DataOverlay` | `python/tools/data_overlay.py` | Item 3 |
+| `BehaviorVerifier` + criterion library | `python/tools/behavior_verifier.py` | Item 2, LiteAero Flight schema |
 
 ### Tests — Analysis Tools
 
-`python/test/test_anomaly.py`, `test_data_overlay.py`, `test_behavior_verifier.py`.
+`python/test/test_anomaly.py` — rule evaluation, sensor channel names from registry.
+`python/test/test_data_overlay.py` — real log format loading, channel mapping.
+`python/test/test_behavior_verifier.py` — criterion evaluation, command channel names.
 
 ---
 
 ## 7. LandingGear — Python Bindings and Scenario Tests
 
 **Blocking dependencies:** LandingGear C++ (delivered, LG-1), PP-1 (delivered —
-visualization tools exist for animation). PP-2 (rework) is delivered.
+visualization tools exist for animation). PP-2 (rework) is delivered. No open questions
+block this item.
 
-Implement Steps G–H from the design authority document
-([`docs/architecture/landing_gear.md`](../architecture/landing_gear.md)).
+**Design authority:**
+- [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) §Steps G–H and §Scenario Tests
+- [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md) §Landing Gear
 
-### Steps G–H
+Implements Steps G–H: expose `LandingGear`, `WheelUnit`, `StrutState`, and `ContactForces`
+to Python via pybind11, rewrite `touchdown_animation.py` to use the C++ bindings, and
+implement four pytest scenario tests using `FlatTerrain`.
 
-#### Step G — Python Bindings (pybind11)
+### Deliverables — LandingGear Python Bindings and Scenario Tests
 
-Expose `LandingGear`, `WheelUnit`, `StrutState`, and `ContactForces` to Python via
-pybind11. Design authority: [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md) — Landing Gear section.
+- `src/python/bind_landing_gear.cpp` — pybind11 bindings for `LandingGear`,
+  `WheelUnit`, `StrutState`, `ContactForces`; registered in `src/python/bindings.cpp`
+  and `src/python/CMakeLists.txt`.
+- `python/scripts/touchdown_animation.py` rewritten to call `LandingGear::step()` via
+  pybind11; Python-side contact physics removed.
+- Four pytest scenario test files (Step H; all use `FlatTerrain` — accurate runway
+  geometry deferred to LG-2).
 
-Rewrite `python/scripts/touchdown_animation.py` to call `LandingGear::step()` via the
-pybind11 module. Remove Python-side contact physics. The Python-side aerodynamics model
-(parameterized from `AeroCoeffEstimator` JSON output) remains until a C++ aerodynamics
-class with bindings exists.
+### Tests — LandingGear Python Bindings and Scenario Tests
 
-#### Step H — Scenario Tests
+`python/test/test_landing_gear_bindings.py` — binding smoke tests: initialize, reset,
+step; `StrutState` and `ContactForces` attribute access.
 
-Implement the four scenario tests from the design authority document as pytest fixtures:
-
-| Scenario | File | Pass criterion |
-| --- | --- | --- |
-| Landing rollout | `python/test/test_landing_rollout.py` | Aircraft decelerates to rest; max $F_z$ within 10% of analytical impulse estimate |
-| Crab landing | `python/test/test_crab_landing.py` | Lateral drift eliminated within 3 s; no diverging yaw oscillation |
-| Takeoff roll | `python/test/test_takeoff_roll.py` | All wheels leave ground at rotation speed; `weight_on_wheels` → false |
-| Bounce (light contact) | `python/test/test_bounce.py` | Contact duration < 0.3 s; $F_z$ peak < 1.5× static weight |
-
-### CMake Addition
-
-See [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md) for the CMake target and conan dependency.
+| Scenario test file | Pass criterion |
+| --- | --- |
+| `test_landing_rollout.py` | Aircraft decelerates to rest; max $F_z$ within 10% of analytical impulse estimate |
+| `test_crab_landing.py` | Lateral drift eliminated within 3 s; no diverging yaw oscillation |
+| `test_takeoff_roll.py` | All wheels leave ground at rotation speed; `weight_on_wheels` → false |
+| `test_bounce.py` | Contact duration < 0.3 s; $F_z$ peak < 1.5× static weight |
 
 ---
 
@@ -654,6 +689,13 @@ See [`docs/architecture/python_bindings.md`](../architecture/python_bindings.md)
 
 **Blocking dependencies:** SimRunner (delivered) for all elements. Item 5 (Aircraft6DOF)
 for `PX4Interface`. `NavigationState` from LiteAero Flight for `QGroundControlLink`.
+Each element requires its own design document before implementation can begin.
+
+**Design authority:** No design documents yet for most elements. `VisualizationLink`
+transport and axis convention are decided — see
+[`docs/architecture/terrain.md`](../architecture/terrain.md) §Game Engine Integration
+and [`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md)
+§Game engine for real-time visualization.
 
 Adapters that connect LiteAero Sim to external systems. All live in the Interface Layer.
 
@@ -664,11 +706,15 @@ Adapters that connect LiteAero Sim to external systems. All live in the Interfac
 | LAS-ext-3 | `QGroundControlLink` | MAVLink over UDP | SimRunner (delivered); `NavigationState` (LiteAero Flight) |
 | LAS-ext-4 | `VisualizationLink` | UDP to Godot 4 GDExtension plugin at simulation rate | SimRunner (delivered); `SimulationFrame` (done) |
 
-Each element requires a design document before implementation. `VisualizationLink`
-transport and axis convention are decided (see
-[`docs/architecture/terrain.md`](../architecture/terrain.md) §Game Engine Integration and
-[`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md)
-§Game engine for real-time visualization).
+### Deliverables — External Interface Elements
+
+For each element: a design document; C++ header and implementation in the Interface
+Layer; integration test demonstrating connection to the target external system.
+
+### Tests — External Interface Elements
+
+Per-element integration test. Automated unit tests covering protocol serialization;
+connection and disconnection handled without blocking `SimRunner`.
 
 ---
 
@@ -676,10 +722,11 @@ transport and axis convention are decided (see
 
 **Blocking dependencies:** LiteAero Flight components not yet designed (`NavigationFilter`
 for `SensorINS`; Guidance for `SensorForwardTerrainProfile`). `SensorAA`, `SensorAAR`,
-and `SensorTrackEstimator` require additional design work beyond their stated hardware
-model.
+and `SensorTrackEstimator` require design work not yet started. Schedule each element
+when its respective LiteAero Flight dependency is available.
 
-Schedule when respective LiteAero Flight dependencies are available.
+**Design authority:** No design documents yet. Each sensor requires a design document
+before implementation can begin.
 
 | Class | Blocked by |
 | --- | --- |
@@ -689,19 +736,39 @@ Schedule when respective LiteAero Flight dependencies are available.
 | `SensorAAR` | Design work item needed |
 | `SensorTrackEstimator` | `SensorAA` or `SensorAAR` |
 
+### Deliverables — Sensor Models Deferred Subset
+
+For each sensor: design document; C++ header and implementation; JSON + proto
+serialization; wired into `Aircraft::step()`.
+
+### Tests — Sensor Models Deferred Subset
+
+One test file per sensor: `test/Sensor<Name>_test.cpp`. Same categories as item 1.
+
 ---
 
 ## 10. Synthetic Perception Sensors — Proposed
 
-**Blocking dependencies:** Design items needed for each sensor before implementation
+**Blocking dependencies:** Design documents needed for each sensor before implementation
 can begin. Schedule when prerequisite sensor and terrain models are stable.
+
+**Design authority:** No design documents yet.
 
 | Element | Responsibility |
 | --- | --- |
-| `SensorCamera` | Synthetic image sensor; generates imagery from terrain and scene model against `V_Terrain` |
-| `SensorLidar` | Synthetic lidar; generates 3D point cloud by ray-casting against `V_Terrain` |
-| `SensorLaserAGL` | Synthetic laser altimeter; computes AGL range by ray-casting against `V_Terrain` |
-| `SensorLineOfSight` | Computes RF link quality and terrain occlusion by ray-casting against `V_Terrain` |
+| `SensorCamera` | Synthetic image sensor; generates imagery from terrain and scene model against `Terrain` |
+| `SensorLidar` | Synthetic lidar; generates 3D point cloud by ray-casting against `Terrain` |
+| `SensorLaserAGL` | Synthetic laser altimeter; computes AGL range by ray-casting against `Terrain` |
+| `SensorLineOfSight` | Computes RF link quality and terrain occlusion by ray-casting against `Terrain` |
+
+### Deliverables — Synthetic Perception Sensors
+
+For each sensor: design document; C++ header and implementation.
+
+### Tests — Synthetic Perception Sensors
+
+Per-sensor test file; scene-level integration test verifying ray-cast results against
+a known synthetic terrain.
 
 ---
 
@@ -709,34 +776,45 @@ can begin. Schedule when prerequisite sensor and terrain models are stable.
 
 **Blocking dependencies:** None.
 
-`liteaero::terrain::V_Terrain` uses the forbidden `V_` Hungarian-notation prefix.
-The correct name is `Terrain`. This rename touches liteaero-flight (the abstract base
-`V_Terrain.hpp`) and all liteaero-sim call sites that include
-`<liteaero/terrain/V_Terrain.hpp>` or reference `liteaero::terrain::V_Terrain`:
+**Design authority:** [`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md)
+§Naming conventions (forbids `V_` Hungarian prefix).
 
-- `include/Aircraft.hpp`
-- `include/landing_gear/LandingGear.hpp`
-- `include/environment/TerrainMesh.hpp` (inherits from `V_Terrain`)
-- All `.cpp` files that use the pointer type directly
+`liteaero::terrain::V_Terrain` uses the forbidden `V_` Hungarian-notation prefix; the
+correct name is `Terrain`. A cross-repository rename of the abstract base class in
+liteaero-flight and all call sites in liteaero-sim.
 
-**Scope:** Cross-repository rename (liteaero-flight + liteaero-sim). Update the Current
-State table, delivered item 14, item LG-1 description, items 2 and 11 of this roadmap,
-and all sensor design documents that reference the interface by name once the rename is
-complete.
+### Deliverables — Terrain Rename
+
+- `V_Terrain.hpp` in liteaero-flight renamed to `Terrain.hpp`; class renamed from
+  `V_Terrain` to `Terrain`.
+- All liteaero-sim headers (`include/Aircraft.hpp`, `include/landing_gear/LandingGear.hpp`,
+  `include/environment/TerrainMesh.hpp`) and all `.cpp` files updated.
+- `V_Terrain.hpp` replaced with a `#error` tombstone (pattern established by LS-1).
+- Current State table, delivered item 14, item LG-1 description, and all sensor design
+  documents that reference the interface by name updated.
+
+### Tests — Terrain Rename
+
+No new tests — all existing C++ tests must pass unchanged after the rename. The rename
+is complete when `grep -r "V_Terrain" include/ src/ test/` returns zero results in
+liteaero-sim.
 
 ---
 
 ## Log-1. Logging Subsystem — Architecture Design
 
 **Blocking dependencies:** None. Resolves OQ-SR-3 in
-[`docs/architecture/sim_runner.md`](../architecture/sim_runner.md).
+[`docs/architecture/sim_runner.md`](../architecture/sim_runner.md). Must be complete
+before item 2 (Logged Channel Registry) can finalize channel names, and before any
+`Logger`-wired `SimRunner` can be implemented.
 
-Produces a formal design document specifying how all per-tick outputs from `SimRunner` are
-delivered to log consumers. The mechanism must handle kinematic state, air data, manual
-input frames, landing gear contact forces, and sensor outputs uniformly — partial solutions
-scoped to a single output type are explicitly prohibited by OQ-SR-3. This item is a
-prerequisite before any `Logger`-wired `SimRunner` can be implemented and before
-`AnomalyDetector` channel names can be finalized (item 6).
+**Design authority:** `docs/architecture/logging_subsystem.md` (to be produced — the
+design document is the sole deliverable of this item).
+
+A formal specification of how all per-tick outputs from `SimRunner` are delivered to log
+consumers. The mechanism must handle kinematic state, air data, manual input frames,
+landing gear contact forces, and sensor outputs uniformly — partial solutions scoped to
+a single output type are prohibited by OQ-SR-3.
 
 ### Deliverables — Logging Subsystem Architecture
 
@@ -756,22 +834,32 @@ Design document (`docs/architecture/logging_subsystem.md`) specifying:
   map to registry channel names and how that naming vocabulary is kept consistent with the
   SB-2 ring buffer channel names (see `post_processing.md` §DR-9).
 
+### Tests — Logging Subsystem Architecture
+
+None — design-only item. Implementation is a separate follow-on item.
+
 ---
 
 ## PP-3. LiveTimeHistoryFigure
 
 **Blocking dependencies:** SB-2 (ring buffer — live data source), Log-1 (logging
 subsystem design — channel names must be finalized before panel definitions can reference
-them). Design authority:
-[`docs/architecture/post_processing.md`](../architecture/post_processing.md)
+them).
+
+**Design authority:** [`docs/architecture/post_processing.md`](../architecture/post_processing.md)
 §`LiveTimeHistoryFigure` and §PP-F19–PP-F22.
 
-Implement `LiveTimeHistoryFigure`: a Panel + Plotly rolling time-history display that
-polls the ring buffer (SB-2) and renders the same panel layout as `TimeHistoryFigure` with
-a rolling time window anchored at the live edge (PP-F19–PP-F22). Panel definitions use the
-same arguments as `TimeHistoryFigure.add_panel` so that a single panel specification works
-for both live and post-processing views without modification (PP-F20). Includes user
-controls for time axis scroll/zoom and per-panel y-axis reset (PP-F21–PP-F22).
+A Panel + Plotly rolling time-history display that polls the ring buffer (SB-2) and
+renders the same panel layout as `TimeHistoryFigure` with a rolling time window anchored
+at the live edge (PP-F19–PP-F22). Panel definitions use the same arguments as
+`TimeHistoryFigure.add_panel` so that a single specification works for both live and
+post-processing views without modification (PP-F20). Includes user controls for time
+axis scroll/zoom and per-panel y-axis reset (PP-F21–PP-F22).
+
+### Deliverables — LiveTimeHistoryFigure
+
+`python/tools/live_time_history.py` — `LiveTimeHistoryFigure` class with `add_panel()`,
+`start()`, `stop()`, and Panel serving; ring buffer polling loop in a background thread.
 
 ### Tests — LiveTimeHistoryFigure
 
@@ -783,79 +871,125 @@ panel layout consistency with `TimeHistoryFigure`.
 ## PP-4. TrajectoryView Mode Segment Coloring
 
 **Blocking dependencies:** Item 2 (Logged Channel Registry — concrete mode channel name
-required); PP-2 (delivered). Design authority:
-[`docs/architecture/post_processing.md`](../architecture/post_processing.md) §Mode
-segment coloring.
+required); PP-2 (delivered).
 
-Extend `RibbonTrail` and `TrajectoryView` to color each trajectory segment according to
-the flight mode active at that timestep, using colors from the `tab10` palette with a
-legend. The mode channel name is taken from the Logged Channel Registry (item 2) so that
-the channel vocabulary is consistent with the ring buffer (DR-5/DR-6).
+**Design authority:** [`docs/architecture/post_processing.md`](../architecture/post_processing.md)
+§Mode segment coloring.
 
-### Tests — Mode Segment Coloring
+Extend `RibbonTrail` and `TrajectoryView` to color each trajectory segment by the flight
+mode active at that timestep, using colors from the `tab10` palette with a legend. The
+mode channel name is taken from the Logged Channel Registry (item 2) to keep the channel
+vocabulary consistent with the ring buffer (DR-5/DR-6).
 
-New tests in `test_ribbon_trail.py` — per-mode color assignment, legend entries, palette
-consistency with `tab10`.
+### Deliverables — TrajectoryView Mode Segment Coloring
+
+Updated `python/tools/trajectory_view.py` — `RibbonTrail` with per-mode color mapping;
+`TrajectoryView` legend panel; mode channel name parameter from registry.
+
+### Tests — TrajectoryView Mode Segment Coloring
+
+New tests in `python/test/test_ribbon_trail.py` — per-mode color assignment, legend
+entries, palette consistency with `tab10`.
 
 ---
 
 ## LG-2. Runway Geometry Extension (OQ-LG-3)
 
-**Blocking dependencies:** LG-1 (delivered). Design authority:
-[`docs/architecture/landing_gear.md`](../architecture/landing_gear.md) §OQ-LG-3.
+**Blocking dependencies:** LG-1 (delivered). Blocked on OQ-LG-3 — the open question
+must be resolved and documented in `landing_gear.md` before implementation begins.
+
+**Design authority:** [`docs/architecture/landing_gear.md`](../architecture/landing_gear.md)
+§OQ-LG-3.
 
 Resolve and implement the runway geometry extension deferred at OQ-LG-3: a planar runway
-patch inset into `TerrainMesh`, or an analytical runway primitive added to `V_Terrain`,
-to support accurate runway contact geometry for takeoff and landing scenario tests.
-Resolution of the open question (planar inset vs. analytical primitive) is the first
-deliverable and must be documented in `landing_gear.md` before implementation begins.
+patch inset into `TerrainMesh`, or an analytical runway primitive added to `Terrain`, to
+support accurate runway contact geometry for takeoff and landing scenario tests.
 
 ### Deliverables — Runway Geometry Extension
 
-- Resolve OQ-LG-3: document the decision in `landing_gear.md`.
-- Implement the chosen approach.
-- Implement the `takeoff_roll.ipynb` and `crab_landing_dynamics.ipynb` scenario tests
-  specified in `landing_gear.md` that require accurate runway surface geometry.
+- Resolve OQ-LG-3 and document the decision in `landing_gear.md`.
+- Implement the chosen approach in C++ (`TerrainMesh` or `Terrain` extension).
+- `python/notebooks/takeoff_roll.ipynb` and `python/notebooks/crab_landing_dynamics.ipynb`
+  — scenario notebooks specified in `landing_gear.md` requiring accurate runway surface
+  geometry.
+
+### Tests — Runway Geometry Extension
+
+`test/LandingGear_Runway_test.cpp` — contact on analytical runway surface; `elevation_m`
+returns runway elevation inside footprint; smooth height transition at runway boundary.
 
 ---
 
 ## Arch-1. `liteaero::` Namespace Migration
 
-**Blocking dependencies:** None — all target namespaces are already final. Design
-authority: [`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md)
+**Blocking dependencies:** None — all target namespaces are already final.
+
+**Design authority:** [`docs/architecture/system/future/decisions.md`](../architecture/system/future/decisions.md)
 §Namespace adoption timing.
 
 Single-step migration of all LiteAero Sim code to the `liteaero::simulation` namespace;
 infrastructure types to `liteaero::control`, `liteaero::terrain`, and `liteaero::log` in
-liteaero-flight. Coordinated with the liteaero-flight repo split milestone. Per the
-architecture decision, this migration is executed as a single coordinated event — not
-incrementally — to avoid a prolonged half-migrated codebase.
+liteaero-flight. Per the architecture decision, this migration is executed as a single
+coordinated event — not incrementally — to avoid a prolonged half-migrated codebase. All
+public headers in `include/`, implementation files in `src/`, and test files in `test/`
+are affected. Proto field names are unaffected (proto field names are snake_case strings,
+not C++ identifiers). This is a cross-repository item (liteaero-flight + liteaero-sim).
 
-**Scope:** All public headers in `include/`; all implementation files in `src/`; all test
-files in `test/`. Proto field names are unaffected (proto field names are snake_case
-strings, not C++ identifiers). Update all documentation that references the old namespace
-form. This is a cross-repository item (liteaero-flight + liteaero-sim).
+### Deliverables — Namespace Migration
+
+All `include/`, `src/`, and `test/` files updated to use `liteaero::simulation` namespace
+wrapping. All documentation updated to reference the new namespace form. Coordinated with
+the liteaero-flight repo split milestone.
+
+### Tests — Namespace Migration
+
+No new tests — all existing C++ tests must pass unchanged after the migration. The
+migration is complete when `grep -r "namespace liteaerosim" include/ src/ test/` returns
+zero results.
 
 ---
 
 ## Cfg-1. ParametricAircraftConfig — Proposed
 
 **Blocking dependencies:** Item 4 (Aerodynamic Coefficient Design Study) must be complete
-before this item can be scoped. Design authority:
-[`docs/architecture/aero_coeff_estimator.md`](../architecture/aero_coeff_estimator.md)
+before this item can be scoped.
+
+**Design authority:** [`docs/architecture/aero_coeff_estimator.md`](../architecture/aero_coeff_estimator.md)
 §ParametricAircraftConfig.
 
-Design and implement `ParametricAircraftConfig` (Python dataclass) and
-`VspGeometryBuilder` for OpenVSP-driven geometry parameterization. Enables DOE coefficient
-sweeps (Latin Hypercube, 500–2000 samples) using `AeroCoeffEstimator`. Not in scope for
-the current design study — a dedicated design item precedes implementation.
+Design and implement `ParametricAircraftConfig` (Python dataclass) and `VspGeometryBuilder`
+for OpenVSP-driven geometry parameterization. Enables DOE coefficient sweeps (Latin
+Hypercube, 500–2000 samples) using `AeroCoeffEstimator`. Not in scope for the current
+design study — a dedicated design item precedes implementation.
+
+### Deliverables — ParametricAircraftConfig
+
+Design document extending `aero_coeff_estimator.md` §ParametricAircraftConfig.
+`python/tools/parametric_config.py` — `ParametricAircraftConfig` dataclass and
+`VspGeometryBuilder`; LHS sampling and batch `AeroCoeffEstimator` invocation.
+
+### Tests — ParametricAircraftConfig
+
+`python/test/test_parametric_config.py` — parameter sweep generates expected number of
+configs; each config produces a valid `AeroCoeffEstimator` output.
 
 ---
 
 ## Path-1. PathSegmentTrochoid — Proposed
 
-**Blocking dependencies:** Design item needed before this item can be scoped.
-`PathSegmentTrochoid` is proposed in
+**Blocking dependencies:** Design document needed before this item can be scoped.
+
+**Design authority:** No design document yet. `PathSegmentTrochoid` is proposed in
 [`docs/architecture/overview.md`](../architecture/overview.md) as a planned path segment
 type. A design document specifying the interface, parameterization, and integration with
 the trajectory representation is required before implementation can begin.
+
+### Deliverables — PathSegmentTrochoid
+
+Design document; C++ header `include/path/PathSegmentTrochoid.hpp` and implementation;
+JSON serialization.
+
+### Tests — PathSegmentTrochoid
+
+`test/PathSegmentTrochoid_test.cpp` — arc length, curvature, and point-on-path
+queries against analytically known trochoid geometry; JSON round-trip.

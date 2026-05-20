@@ -643,7 +643,7 @@ simulation rate.
 
 ## Open Questions
 
-| ID | Status | Blocking |
+| ID | Summary | Blocking |
 | --- | --- | --- |
 | OQ-LG-1 | Pacejka coefficient sourcing | Not blocking |
 | OQ-LG-2 | Richer surface friction model | Not blocking |
@@ -674,22 +674,53 @@ appear too stiff or too progressive. For autolanding validation the error is par
 masked by the friction-circle saturation, but a wrong rollout distance or heading excursion
 budget could produce a misleading pass/fail verdict.
 
-**Options considered:**
+**Alternatives:**
 
-1. **Fixed generic set (current).** Simple, no flight test data required. Acceptable for
-   development verification where absolute deceleration distance tolerances are wide.
-2. **Lookup table per aircraft type.** Coefficients stored in the aircraft JSON config
-   alongside spring stiffness and geometry. No pipeline needed; updated manually from
-   test data or manufacturer specs.
+1. **Fixed generic set (current).** Use the Bakker et al. 1987 coefficients for all
+   aircraft types. The peak friction term $D = \mu F_z$ is scaled by the surface friction
+   coefficient; the shape parameters $B = 10.0$, $C = 1.9$, $E = 0.97$ (longitudinal) and
+   $B = 8.0$, $C = 1.3$, $E = -1.0$ (lateral) are fixed.
+
+   **Benefits:** No flight test data required; no pipeline infrastructure; immediately
+   usable for development.
+
+   **Drawbacks:** Shape parameters are not validated against any specific liteaero tyre;
+   rollout distance and heading excursion pass/fail criteria are order-of-magnitude
+   estimates only.
+
+   **Prerequisites:** None.
+
+2. **Lookup table per aircraft type.** Store per-type Pacejka coefficients ($B$, $C$, $E$
+   longitudinal and lateral) in the aircraft JSON config alongside spring stiffness and
+   geometry. Values are updated manually from test data or manufacturer specifications.
+
+   **Benefits:** Minimal code change; fits naturally into the existing JSON config;
+   decouples coefficient choice from simulation code.
+
+   **Drawbacks:** Requires at least manufacturer tyre data or measurement to populate;
+   no automated update pipeline from flight test.
+
+   **Prerequisites:** Access to tyre specifications or flight test data sufficient to
+   identify $B$, $C$, $E$ for the aircraft's tyre type.
+
 3. **Automated identification from logged rollout data.** A Python-side optimizer fits
-   $B$, $C$, $E$ to measured wheel speed and deceleration from a set of rollout runs.
-   Requires instrumented rollout data (wheel speed sensor, inertial deceleration) — not
-   yet available.
+   $B$, $C$, $E$ to measured wheel speed and longitudinal deceleration from a set of
+   instrumented rollout runs.
 
-**Resolution criteria:** Option 2 (per-type config lookup) is the minimum acceptable for
-production use. Option 3 is reserved until instrumented flight test data exist. Until
-then the fixed set is used and any deceleration distance figures in scenario test pass
-criteria are treated as order-of-magnitude estimates only.
+   **Benefits:** Produces aircraft-specific coefficients validated against real flight
+   data; enables continuous refinement as more data are collected.
+
+   **Drawbacks:** Requires instrumented rollout data (wheel speed sensor, inertial
+   deceleration log) — not yet available; adds a data-processing pipeline dependency.
+
+   **Prerequisites:** Wheel speed sensor and inertial deceleration logging capability;
+   multiple rollout runs with consistent conditions.
+
+**Recommendation:** Option 2 (per-type config lookup) is the minimum acceptable for
+production use. Until per-type data are available, Option 1 (fixed generic set) is used
+and any deceleration distance figures in scenario test pass criteria are treated as
+order-of-magnitude estimates only. Option 3 is reserved until instrumented flight test
+data exist.
 
 ---
 
@@ -709,21 +740,52 @@ limit are both sensitive to $\mu$. The binary model produces a discontinuous ste
 contact force when precipitation transitions on/off during a simulation run, which is
 unphysical and can excite the strut spring.
 
-**Options considered:**
+**Alternatives:**
 
-1. **Binary wet/dry (current).** Sufficient for the autotakeoff/autoland development use
-   case where the scenario either rains or it does not.
-2. **Linear interpolation by precipitation intensity.** `precipitation_mm_hr` drives a
-   blending factor between $\mu_\text{dry}$ and $\mu_\text{wet}$. Avoids the binary
-   step; requires `Atmosphere` to expose precipitation rate.
+1. **Binary wet/dry (current).** Apply a fixed wet multiplier from the `SurfaceType` table
+   when `AtmosphericState::precipitation > 0`, otherwise use the dry coefficient. The
+   transition is a step function with no smoothing.
+
+   **Benefits:** Sufficient for the autotakeoff/autoland development use case where the
+   scenario either rains or it does not; no additional model parameters required.
+
+   **Drawbacks:** Produces a discontinuous step in contact force when precipitation
+   transitions on/off during a run, which is unphysical and can excite the strut spring.
+
+   **Prerequisites:** None.
+
+2. **Linear interpolation by precipitation intensity.** Use `precipitation_mm_hr` as a
+   blending factor between $\mu_\text{dry}$ and $\mu_\text{wet}$, producing a continuous
+   $\mu$ that varies with precipitation rate.
+
+   **Benefits:** Eliminates the binary step; physically more representative of the
+   wet-surface transition.
+
+   **Drawbacks:** Requires `Atmosphere` to expose a precipitation rate field
+   (`precipitation_mm_hr`); the linear relationship between precipitation rate and $\mu$
+   is an approximation with no empirical basis in the current model.
+
+   **Prerequisites:** `Atmosphere` must expose `precipitation_mm_hr`; blending bounds
+   (at what rate is full $\mu_\text{wet}$ reached?) require empirical data or a design
+   decision.
+
 3. **Aquaplaning threshold.** Below the aquaplaning speed ($V_{aq} \approx 9\sqrt{p_t}$
-   where $p_t$ is tyre pressure in psi) full $\mu_\text{wet}$ applies; above it $\mu$
-   drops sharply. Requires tyre pressure as a config parameter.
+   where $p_t$ is tyre pressure in psi) the full wet multiplier applies; above it $\mu$
+   drops sharply toward aquaplaning values (0.05–0.10).
 
-**Resolution criteria:** Option 1 remains in place until a scenario requires differentiated
-friction during a precipitation transition. The `SurfaceType` table in §5 covers the
-current use cases. OQ-LG-2 becomes blocking if an aquaplaning or wet-runway crosswind
-limit scenario is added to the test matrix.
+   **Benefits:** Captures the most safety-critical wet-runway phenomenon (aquaplaning);
+   physically well-grounded; required for crosswind limit scenarios on wet runways.
+
+   **Drawbacks:** Requires tyre pressure as a config parameter; the aquaplaning speed
+   formula assumes a specific tyre geometry; adds a speed-dependent discontinuity in $\mu$.
+
+   **Prerequisites:** Tyre pressure (`tyre_pressure_psi`) added to `WheelUnitParams`;
+   a scenario that requires differentiated aquaplaning behavior.
+
+**Recommendation:** Option 1 remains in place until a scenario requires differentiated
+friction during a precipitation transition. OQ-LG-2 becomes blocking if an aquaplaning
+or wet-runway crosswind limit scenario is added to the test matrix; at that point
+Option 3 is preferred.
 
 ---
 
@@ -745,56 +807,120 @@ flare and rollout zone. Residual height noise at touchdown produces spurious WOW
 oscillations and corrupts the AGL estimate used by the flare guidance. An analytical
 runway eliminates both problems.
 
-**Options considered:**
+**Alternatives:**
 
 1. **Planar inset patch.** A rectangular flat patch at a defined altitude is spliced into
    `TerrainMesh` during tile generation, overriding the LiDAR-derived triangles inside
-   the runway boundary. The `V_Terrain` interface is unchanged. Requires a runway boundary
-   definition in the tile preprocessing pipeline.
+   the runway boundary. The `V_Terrain` interface is unchanged.
+
+   **Benefits:** No changes to the `V_Terrain` C++ interface; the runway appears in the
+   mesh automatically for all consumers of the terrain; frictionAt() coverage requires
+   no extension.
+
+   **Drawbacks:** Requires modifications to the terrain preprocessing pipeline (Python
+   tile builder); runway geometry is baked into the mesh and cannot be changed without
+   rebuilding tiles; does not support longitudinal slope or lateral crown.
+
+   **Prerequisites:** Runway boundary definition (threshold lat/lon, heading, width,
+   length) available to the tile preprocessing pipeline; `terrain_build.md` design
+   updated to cover the runway inset workflow.
+
 2. **Analytical runway primitive in `V_Terrain`.** `V_Terrain` gains a `RunwayPrimitive`
    that overrides `heightAtPosition_m()` and `frictionAt()` inside the runway footprint.
    The footprint is defined by threshold coordinates, heading, width, and length. Supports
    longitudinal slope and lateral crown without mesh refinement.
-3. **Combined: analytical primitive + mesh blend.** The runway primitive provides height
-   and friction; the mesh provides everything else. A transition zone smoothly blends the
-   two in the overrun area. Most physically accurate but most complex.
 
-**Resolution criteria:** OQ-LG-3 is **blocking for runway operations**. Option 2
-(analytical primitive) is the preferred approach because it decouples runway geometry
-from mesh quality and enables precise threshold and centerline coordinates from published
-aeronautical data. Design must be resolved before implementing any autolanding scenario
-that uses a real or representative runway.
+   **Benefits:** Decouples runway geometry from mesh quality; enables precise threshold
+   and centerline coordinates from published aeronautical data; no tile rebuild required
+   when the runway definition changes; supports slope and crown.
+
+   **Drawbacks:** Adds a new interface extension to `V_Terrain`; the `RunwayPrimitive`
+   class requires design, implementation, and integration tests; the boundary between the
+   mesh and the primitive may produce a discontinuous normal at the runway edge.
+
+   **Prerequisites:** `V_Terrain` interface design updated (design document); a strategy
+   for smoothing the mesh-to-primitive transition at the runway boundary.
+
+3. **Combined: analytical primitive + mesh blend.** The runway primitive provides height
+   and friction inside the footprint; the mesh provides everything else; a transition zone
+   smoothly blends the two at the overrun boundary.
+
+   **Benefits:** Most physically accurate; clean separation of runway surface from
+   surrounding terrain; avoids the boundary discontinuity problem of Option 2.
+
+   **Drawbacks:** Most complex implementation; the blending function requires a design
+   decision (width, shape); increases the V_Terrain interface surface area.
+
+   **Prerequisites:** All prerequisites of Option 2, plus a blending strategy design.
+
+**Recommendation:** Option 2 (analytical primitive) is preferred because it decouples
+runway geometry from mesh quality and enables precise threshold and centerline coordinates
+from published aeronautical data. OQ-LG-3 is **blocking for runway operations** and must
+be resolved before implementing any autolanding scenario that uses a real or representative
+runway.
 
 ---
 
 ### OQ-LG-4 — Unsprung Mass and Tyre Spring Compliance
 
 **Question:** Should the wheel and tyre unsprung mass, and the tyre radial spring
-compliance, be modeled as separate degrees of freedom?
+compliance, be modeled as separate degrees of freedom, or is the current quasi-static
+strut approximation sufficient?
 
 **Current state:** The quasi-static strut approximation (§2c) sets strut deflection
 directly to terrain penetration depth, implicitly assuming zero unsprung mass and an
 infinitely stiff tyre. The strut force is transmitted instantaneously to the airframe.
+This approximation eliminates a second-order ODE and its associated stability constraint.
 
-**Why it matters for `Aircraft6DOF`:** In a full 6DOF equations-of-motion model the
-airframe accelerations are computed from the net force, so the spring-mass system
-formed by the strut + airframe mass is the primary frequency of interest. The unsprung
-mass and tyre compliance introduce a second, higher-frequency mode. At small tyre radii
-(0.08 m, typical small UAS) the tyre spring stiffness is very high ($k_t \sim 50{,}000$
-N/m) and the unsprung mass is small ($m_u \sim 0.1$ kg), giving a natural frequency
-$\omega_n = \sqrt{k_t/m_u} \approx 700$ rad/s — well above the 50 Hz outer rate.
-The quasi-static approximation remains valid for `Aircraft6DOF` in this frequency range.
+**Why the approximation matters:** In a full 6DOF equations-of-motion model
+(`Aircraft6DOF`) the airframe accelerations are computed from the net force, so the
+spring-mass system formed by strut + airframe mass is the primary mode of interest.
+Adding unsprung mass $m_u$ and tyre radial spring stiffness $k_t$ introduces a
+second, higher-frequency mode at $\omega_n = \sqrt{k_t / m_u}$. At small tyre radii
+(0.08 m, typical small UAS) $k_t \sim 50{,}000$ N/m and $m_u \sim 0.1$ kg, giving
+$\omega_n \approx 700$ rad/s — well above the 50 Hz outer rate. The quasi-static
+approximation therefore remains valid for `Aircraft6DOF` in this frequency range.
+For the `Aircraft` load-factor model the strut force enters only as a disturbance to the
+allocator; structural strut dynamics are not observable in the allocator outputs, so the
+approximation is unconditionally valid for `Aircraft`.
 
-**Why it does not matter for `Aircraft`:** The `Aircraft` load-factor model sets attitude
-and alpha from commanded load factors via the allocator. The strut force enters as a
-disturbance to the allocator, not as a direct force in Newton's second law. The
-structural dynamics of the strut are not observable in the outputs of the load-factor
-model.
+**Alternatives:**
 
-**Resolution:** Deferred indefinitely for `Aircraft`. For `Aircraft6DOF`, deferred until
-a scenario requires it — most likely a hard landing structural load assessment where peak
-strut force is a design driver. The quasi-static strut is correct for all autolanding
-verification use cases at the current fidelity target.
+1. **Quasi-static strut (current).** Strut deflection is set directly to terrain
+   penetration depth; $\dot{\delta}$ is estimated by finite difference; no unsprung mass
+   ODE is integrated.
+
+   **Benefits:** No ODE to integrate; no stability constraint on $\Delta t$; simpler
+   code; correct for the `Aircraft` load-factor model at all fidelity targets; valid
+   for `Aircraft6DOF` when $\omega_n \gg 1 / (2\Delta t_\text{inner})$.
+
+   **Drawbacks:** Cannot model peak strut load in hard landing structural assessments
+   (where $m_u$ and $k_t$ govern the load amplification); contact force has a step
+   discontinuity at first contact because the tyre compliance is zero.
+
+   **Prerequisites:** None.
+
+2. **Full unsprung-mass + tyre-spring second-order ODE.** Add $m_u$ and $k_t$ as
+   `WheelUnitParams` fields and integrate the two-DOF (strut + tyre) spring-mass system
+   at each substep via the Tustin integrator (OQ-LG-5 resolution).
+
+   **Benefits:** Models the tyre compliance correctly; removes the contact-force step
+   discontinuity; required for peak strut load assessment in structural scenarios.
+
+   **Drawbacks:** Adds two new config parameters ($m_u$, $k_t$) per wheel that are
+   difficult to measure; the Tustin substep count must satisfy the Nyquist criterion for
+   $\omega_n \approx 700$ rad/s, requiring $N_\text{sub} \gg 28$ — impractical at the
+   50 Hz outer rate without reducing $\Delta t_\text{outer}$.
+
+   **Prerequisites:** OQ-LG-5 Tustin integrator implemented; $m_u$ and $k_t$ values
+   sourced from tyre manufacturer data or structural measurements; a hard landing
+   structural assessment scenario that requires the additional fidelity.
+
+**Recommendation:** Option 1 (quasi-static strut) is correct and sufficient for all
+current use cases: autotakeoff/autoland verification with `Aircraft`, and ground contact
+dynamics with `Aircraft6DOF` at the current fidelity target. Option 2 is deferred
+indefinitely for `Aircraft` and deferred for `Aircraft6DOF` until a hard landing
+structural load assessment scenario is added to the test matrix.
 
 ---
 
