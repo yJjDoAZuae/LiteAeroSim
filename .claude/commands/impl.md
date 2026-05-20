@@ -66,20 +66,30 @@ Each work item occupies one row in the plan's item table. The table columns are:
 | `todo` | Not started. All dependencies are satisfied (or this item has none). Ready to begin when instructed. |
 | `active` | Implementation is in progress in the current session or a recent session. |
 | `done` | Implementation is complete, tests pass, and the change is committed. |
-| `blocked` | Cannot begin: either a dependency is not `done`, an open question is unresolved, or a consistency problem exists. A `blocked` item must have a **Blocked reason** noted in its detail row immediately below the table row (see detail format). |
+| `blocked (IP-*)`| Cannot begin because one or more work item dependencies are not yet `done`. List the blocking item IDs in parentheses. |
+| `blocked (OQ-*)`| Cannot begin because one or more open questions in the design documents are unresolved. List the blocking OQ IDs in parentheses. Multiple OQs are comma-separated. |
+| `blocked (IP-*, OQ-*)` | Cannot begin for both reasons. List all blocking IDs together in parentheses. |
+
+Every `blocked` status cell must embed the blocking IDs directly — the reader must be able to see what is blocking the item without reading any note. A `blocked` item must also have a **Blocked reason** paragraph immediately below the table (see example), explaining in one or two sentences why the dependency exists and what must happen to unblock it.
+
+The OQ IDs in `blocked (OQ-*)` must exactly match IDs of open (unresolved) open questions in the referenced design documents. When an open question is resolved, every work item that references it must be updated: remove the OQ from the blocked status and either change status to `todo` (if all other blockers are cleared) or update the remaining blockers.
 
 ### Example table
 
 ```markdown
 | ID | Status | Title | Depends on | Design refs |
 | --- | --- | --- | --- | --- |
-| IP-LGW-1 | done | Add `WheelUnitParams::spindown_time_s` and `spindown_reference_speed_mps` config fields | — | [landing_gear.md §4, OQ-LG-6 resolution](architecture/landing_gear.md) |
-| IP-LGW-2 | todo | Compute `c1`, `c2` from spindown params in `WheelUnit::initialize()` | IP-LGW-1 | [landing_gear.md §OQ-LG-6 resolution](architecture/landing_gear.md) |
-| IP-LGW-3 | todo | Apply linear+quadratic bearing drag in `WheelUnit::step()` airborne branch | IP-LGW-2 | [landing_gear.md §OQ-LG-6 resolution](architecture/landing_gear.md) |
-| IP-LGW-4 | blocked | Replace explicit Euler wheel ODE with Tustin discretization | IP-LGW-3 | [landing_gear.md §4a, OQ-LG-5 resolution](architecture/landing_gear.md) |
+| IP-LGW-1 | done | Add `WheelUnitParams::spindown_time_s` and `spindown_reference_speed_mps` to config and proto | — | [landing_gear.md §OQ-LG-6 resolution](../architecture/landing_gear.md) |
+| IP-LGW-2 | todo | Compute `c1`, `c2` in `WheelUnit::initialize()` from spindown params | IP-LGW-1 | [landing_gear.md §OQ-LG-6 resolution](../architecture/landing_gear.md) |
+| IP-LGW-3 | todo | Apply linear+quadratic bearing drag in `WheelUnit::step()` airborne branch | IP-LGW-2 | [landing_gear.md §OQ-LG-6 resolution](../architecture/landing_gear.md) |
+| IP-LGW-4 | todo | Set `substeps` in config to satisfy 3× Nyquist rule per OQ-LG-5 formula | — | [landing_gear.md §OQ-LG-5 resolution](../architecture/landing_gear.md) |
+| IP-LGW-5 | blocked (IP-LGW-3, IP-LGW-4) | Replace explicit Euler wheel ODE with Tustin discretization in `WheelUnit::step()` | IP-LGW-3, IP-LGW-4 | [landing_gear.md §4a, §OQ-LG-5 resolution](../architecture/landing_gear.md) |
+| IP-LGW-6 | blocked (OQ-LG-8) | Remove rolling-condition clamp after Tustin integrator is verified stable | IP-LGW-5 | [landing_gear.md §4b](../architecture/landing_gear.md) |
 ```
 
-> **IP-LGW-4 blocked reason:** Depends on IP-LGW-3; also requires substep count to be updated (IP-LGW-6) before the Tustin stability benefit is realized.
+> **IP-LGW-5 blocked reason:** Bearing drag (IP-LGW-3) must be in place so that the airborne initial condition is correct before the integrator change is tested; substep count (IP-LGW-4) must be set correctly so the Tustin stability criterion is satisfied from the first commit.
+
+> **IP-LGW-6 blocked reason:** OQ-LG-8 (whether the clamp should be removed entirely or retained as a safety net) is unresolved. Resolve OQ-LG-8 before implementing.
 
 ---
 
@@ -133,13 +143,15 @@ When running `/impl check` or `/impl check-all`, verify all of the following. Re
 | Check | Failure condition |
 | --- | --- |
 | Design ref exists | A referenced document path or section does not exist on disk. |
-| No dangling deps | A `Depends on` ID does not exist in this plan or any registered plan. |
+| No dangling deps | An ID in `Depends on` or in a `blocked (...)` status does not exist in this plan or any registered plan. |
 | No cycles | Dependency graph contains a cycle. |
 | Topo order | A row appears before a row it depends on. |
-| Blocked items annotated | A `blocked` item has no blocked-reason note. |
-| OQ alignment | A work item depends on the resolution of an open question that is not yet resolved in the design document. Mark the item `blocked` and reference the OQ ID. |
+| Blocked status embeds IDs | A `blocked` status cell does not list the blocking IDs in parentheses — e.g., bare `blocked` with no `(...)` is not permitted. |
+| Blocked items have reason note | A `blocked` item has no blocked-reason paragraph immediately below the table. |
+| OQ IDs in status are unresolved | A status cell contains `OQ-*` IDs that are already resolved in the referenced design document. Resolved OQs must be removed from the blocked status; if all blockers are cleared, status becomes `todo`. |
+| Unresolved OQs produce blocked status | A work item's design refs reference a design document section that contains an unresolved open question the item depends on, but the item is not `blocked (OQ-*)`. Mark it blocked and add the OQ ID. |
 | Done items verifiable | A `done` item can be verified by reading the referenced source files. If the implementation cannot be found, downgrade to `todo` and report. |
-| No unresolved design choices | The plan does not contain work items for features whose design is still described as a proposal or open question in the referenced design documents. |
+| No unresolved design choices | The plan does not contain work items for features whose design is still described as a proposal or unresolved open question in the referenced design documents. |
 
 ---
 
