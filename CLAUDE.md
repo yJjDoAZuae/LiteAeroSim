@@ -93,9 +93,13 @@ These rules exist because of concrete past failures. Do not deviate from them.
 12. **Never push to remote repositories** — Do not run `git push` in any form (including `--force`) unless the user has explicitly instructed a push in the current message. The user controls all remote operations.
 13. **Open questions block implementation** — Before beginning any implementation item, verify that the design document contains no unresolved open questions that affect the scope of the work. If open questions exist that bear on the implementation, do not begin — raise them for resolution and, if needed, add a design-resolution roadmap item ahead of the implementation item. Never substitute a judgment call for a missing design decision. Present the open questions to the user and wait for explicit answers before writing any code that depends on them.
 14. **Discovered open questions: document and continue within the unambiguous boundary** — Discovering an open question during implementation is expected and acceptable. The required response is: (a) document the question in detail in the relevant design document immediately; (b) continue implementing everything that does not depend on resolution of that question; (c) do not write any code whose correctness depends on the unresolved choice. Never assume an answer to an undocumented design decision and proceed as if it were settled.
-15. **Open questions in design documents must follow the `/oq` skill format** — Every open question in every architecture and algorithm document must be written using the canonical structure defined in [`.claude/commands/oq.md`](.claude/commands/oq.md): a summary table row, a self-contained problem description, an enumerated alternatives section with benefits and drawbacks for each, and a recommendation. One-line table entries without a full subsection are not permitted. Use the `/oq` skill when adding a new open question. When closing an open question on the user's instruction, replace the subsection with a resolution note and update any dependent sections — but do not begin implementation.
+15. **Open questions in design documents must follow the `/oq` skill format** — Every open question in every architecture and design document must be written using the canonical structure defined in [`.claude/commands/oq.md`](.claude/commands/oq.md): a summary table row, a self-contained problem description, an enumerated alternatives section with benefits and drawbacks for each, and a recommendation. One-line table entries without a full subsection are not permitted. Use the `/oq` skill when adding a new open question. When closing an open question on the user's instruction, replace the subsection with a resolution note and update any dependent sections — but do not begin implementation.
 16. **Implementation plans must follow the `/impl` skill format** — All implementation work must be tracked in a structured plan in `docs/implementation/` and registered in `docs/implementation/PLANS.md`. Use the `/impl` skill to create and maintain plans. Plans are ordered by dependency analysis; no item may precede its dependencies. Every work item must reference the design document section that authorizes it. Before beginning any implementation session, check the relevant plan for consistency using `/impl check`. If no plan exists for the work being requested, create one before writing any code. Implementation planning open questions (sequencing and decomposition ambiguities) are documented with `/oq` in the relevant design document and are distinct from design-choice open questions.
 17. **Roadmap documents are maintained with the `/roadmap` skill** — Roadmap documents in `docs/roadmap/` describe *what to build and why* at subsystem/capability level. They are distinct from implementation plans, which describe *how to build it* at code-level work-item granularity. Use `/roadmap check` to audit roadmap status against the codebase, `/roadmap update` to update blocking dependencies and status, and `/roadmap delivered` to record a completed item. Do not use `/impl` to manage roadmap items, and do not use `/roadmap` to track code-level work items. The canonical format for roadmap documents and the skill's full behavior are defined in [`.claude/commands/roadmap.md`](.claude/commands/roadmap.md).
+18. **Subsystem design documents are maintained with the `/design` skill** — Every subsystem's design authority document lives in `docs/design/` and follows the canonical format defined in [`.claude/commands/design.md`](.claude/commands/design.md): use cases, class hierarchy, model sections with `§N.sub` anchors, integration contract, interface, serialization, computational estimate, open questions, test strategy, and references. Use `/design new` to scaffold, `/design check` to audit, and `/design update` to refresh after implementation changes. Design documents are the primary source of truth cited by implementation plans (`Design refs`) and roadmap items (`Design authority`). Note: existing design documents currently in `docs/architecture/` are fully valid; migration to `docs/design/` is a pending task.
+19. **Algorithm documents are maintained with the `/algo` skill** — Mathematical derivations, discretization methods, and numerical analysis live in `docs/algorithms/` and follow the canonical format in [`.claude/commands/algo.md`](.claude/commands/algo.md). Algorithm documents contain no code, no open questions, and no implementation references. They are cited by design documents; they do not reference design documents, roadmap, or implementation plans.
+20. **Schema documents are maintained with the `/schema` skill** — Serialization format specifications (JSON field tables, proto messages, constraints, validation examples) for complex schemas live in `docs/schemas/` and follow the canonical format in [`.claude/commands/schema.md`](.claude/commands/schema.md). A schema document always links to its owning design document. Create one only when a class has more than ten serialized fields or complex cross-field constraints; simpler classes document serialization in the design document's Serialization section.
+21. **System architecture documents are audited with the `/arch` skill** — `docs/architecture/overview.md` and the state registry in `docs/architecture/system/` follow the canonical format defined in [`.claude/commands/arch.md`](.claude/commands/arch.md). The overview's subsystem registry lists every subsystem with a link to its design document in `docs/design/`. The state registry (`present/` and `future/`) contains exactly six documents per state. Use `/arch check` to audit consistency with the codebase.
 
 ### Architecture at a Glance
 
@@ -121,20 +125,35 @@ Every dynamic element implements: `initialize(config)` → `reset()` → `step(u
 
 Full project documentation lives in [docs/](docs/README.md).
 
-| Document | Contents |
-| --- | --- |
-| [docs/architecture/overview.md](docs/architecture/overview.md) | Layer model, subsystem map, coordinate frames, data flow |
-| [docs/architecture/dynamic_element.md](docs/architecture/dynamic_element.md) | **Design authority** for the `DynamicElement` / `SisoElement` lifecycle contract, Filter hierarchy, Propulsion hierarchy, serialization contract, logging interface |
-| [docs/algorithms/filters.md](docs/algorithms/filters.md) | Filter discretization, Tustin bilinear prewarping, control algorithms |
-| [docs/dependencies/README.md](docs/dependencies/README.md) | License policy, dependency registry, Conan + FetchContent patterns |
-| [docs/installation/README.md](docs/installation/README.md) | Build from source, toolchain setup, first run |
-| [docs/testing/strategy.md](docs/testing/strategy.md) | TDD strategy, required test categories, coverage, known failures |
-| [docs/examples/siso_elements.md](docs/examples/siso_elements.md) | Usage examples for filters, integrators, PID, serialization, logging |
-| [docs/architecture/live_sim_view.md](docs/architecture/live_sim_view.md) | Live simulation viewer — UDP broadcast path, SimSession, Godot scene |
-| [docs/architecture/godot_plugin.md](docs/architecture/godot_plugin.md) | **Design authority** for the Godot 4 GDExtension plugin — SimulationReceiver C++ spec, build system, .gdextension manifest |
-| [docs/guidelines/](docs/guidelines/) | Coding standards — general, C++, Python |
+| Document | Type | Contents |
+| --- | --- | --- |
+| [docs/README.md](docs/README.md) | Index | Full document taxonomy, inter-referencing rules, and document index |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | Architecture | Layer model, subsystem map and registry, coordinate frames, data flow, component lifecycle |
+| [docs/architecture/system/](docs/architecture/system/) | Architecture | State registry: `present/` (current baseline) and `future/` (roadmap target) — six documents each |
+| [docs/design/](docs/design/) | Design | Subsystem design authority documents (migration from `docs/architecture/` pending) |
+| [docs/algorithms/filters.md](docs/algorithms/filters.md) | Algorithm | Filter discretization, Tustin bilinear prewarping, first-order and second-order coefficients |
+| [docs/schemas/aircraft_config_v1.md](docs/schemas/aircraft_config_v1.md) | Schema | `aircraft_config_v1` JSON schema — all field tables and constraints |
+| [docs/implementation/PLANS.md](docs/implementation/PLANS.md) | Index | Master index of all implementation plans with status |
+| [docs/roadmap/aircraft.md](docs/roadmap/aircraft.md) | Roadmap | Aircraft simulation subsystem roadmap — delivered and pending items |
+| [docs/guidelines/](docs/guidelines/) | Standard | Coding standards — general, C++, Python |
+| [docs/testing/strategy.md](docs/testing/strategy.md) | Standard | TDD strategy, required test categories, coverage, known failures |
+| [docs/examples/siso_elements.md](docs/examples/siso_elements.md) | Standard | Usage examples for filters, integrators, PID, serialization, logging |
+| [docs/installation/README.md](docs/installation/README.md) | Standard | Build from source, toolchain setup, first run |
+| [docs/dependencies/README.md](docs/dependencies/README.md) | Standard | License policy, dependency registry, Conan + FetchContent patterns |
 
-**Before implementing any new dynamic element**, read [docs/architecture/dynamic_block.md](docs/architecture/dynamic_block.md).
+**Skill files** (in [`.claude/commands/`](.claude/commands/)):
+
+| Skill | File | Maintains |
+| --- | --- | --- |
+| `/arch` | [arch.md](.claude/commands/arch.md) | `docs/architecture/overview.md` and `system/` state registry |
+| `/design` | [design.md](.claude/commands/design.md) | Subsystem design authority documents in `docs/design/` |
+| `/algo` | [algo.md](.claude/commands/algo.md) | Algorithm documents in `docs/algorithms/` |
+| `/schema` | [schema.md](.claude/commands/schema.md) | Schema documents in `docs/schemas/` |
+| `/roadmap` | [roadmap.md](.claude/commands/roadmap.md) | Roadmap documents in `docs/roadmap/` |
+| `/impl` | [impl.md](.claude/commands/impl.md) | Implementation plans in `docs/implementation/` |
+| `/oq` | [oq.md](.claude/commands/oq.md) | Open questions within architecture and design documents |
+
+**Before implementing any new dynamic element**, read [docs/architecture/dynamic_element.md](docs/architecture/dynamic_element.md).
 
 ---
 
@@ -196,6 +215,10 @@ not declare mcap.
 | Serialized fields | SI unit suffix in field name: `"altitude_m"`, `"roll_rate_rad_s"` |
 | Schema version | Field `"schema_version"` (int) in every serialized object |
 | New dependency | Check license first; use Conan if in ConanCenter, FetchContent pattern 1b otherwise |
+| New design document | Use `/design new` — scaffold in `docs/design/` with all canonical sections |
+| New algorithm document | Use `/algo new` — scaffold in `docs/algorithms/`; no code, no OQs |
+| New schema document | Use `/schema new` — scaffold in `docs/schemas/`; link to owning design doc |
+| New open question | Use `/oq` in the relevant design or architecture document |
 | Angular velocity notation | $\boldsymbol{\omega}_{A/B}^C$: rotation of frame $A$ relative to frame $B$, expressed in frame $C$ |
 | Aspect ratio in math | `$A\!\!R$` (double negative kern) — not plain `$A$` |
 | Subscript chaining | Use multi-step subscripting: $x_{LE_{HT}}$ — not comma notation $x_{LE,HT}$ |
