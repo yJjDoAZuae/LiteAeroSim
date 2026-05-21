@@ -671,7 +671,7 @@ duplication window for all navigation math.
 
 - `liteaero-sim/include/navigation/WGS84.hpp` and `src/navigation/WGS84.cpp` are NOT removed; they remain as the `WGS84_Datum` forwarder implementation. Removal requires updating all sim call sites that construct `WGS84_Datum` directly — deferred to the sim namespace migration.
 - `Aircraft::state()` returning `const liteaero::nav::KinematicStateSnapshot&` — deferred; `Aircraft` still exposes `const KinematicState&`. The `snapshot()` accessor on `KinematicState` bridges the gap.
-- ICD document updates (`liteaero-sim/docs/architecture/system/present/icds.md`, `liteaero-flight/docs/interfaces/icds.md`) — deferred to Step 11 alongside the full ICD cross-reference pass.
+- ICD document updates (`liteaero-flight/docs/interfaces/icds.md`) — deferred to Step 11 alongside the full ICD cross-reference pass.
 - `AircraftCommand` and `NavigationState` message definitions — not yet added to `liteaero_flight.proto`; deferred.
 
 #### Step 7 — Delivered
@@ -730,9 +730,7 @@ PATH="/c/msys64/ucrt64/bin:$PATH" ctest --test-dir build -R Terrain --output-on-
 
 Remove migrated terrain type headers from `liteaero-sim/include/environment/`. Update all
 LiteAero Sim include sites. `TerrainMesh`, `LodSelector`, `FlatTerrain`, `TerrainCell`,
-`MeshQualityVerifier`, and terrain file I/O stay in `liteaero::simulation`. Replace the
-ICD-6 (`V_Terrain`) entry in `liteaero-sim/docs/architecture/system/present/icds.md` with
-a cross-reference to `liteaero-flight/docs/interfaces/icds.md`.
+`MeshQualityVerifier`, and terrain file I/O stay in `liteaero::simulation`. Update `liteaero-flight/docs/interfaces/icds.md` with the ICD-6 (`V_Terrain`) entry.
 
 **Verification:** All LiteAero Sim tests pass.
 
@@ -888,10 +886,10 @@ content.
 **ICD cross-reference audit:**
 
 `liteaero-flight/docs/interfaces/icds.md` populated with full ICD entries for ICD-F1
-through ICD-F6. In `liteaero-sim/docs/architecture/system/present/icds.md`, entries for
-ICD-1, ICD-4, ICD-5, ICD-6, and ICD-7 replaced with cross-references to liteaero-flight.
-ICD-2 (`AtmosphericState`) and ICD-3 (`EnvironmentState`) remain as full definitions in
-the sim file (sim-owned types).
+through ICD-F6. ICD-1, ICD-4, ICD-5, ICD-6, and ICD-7 are owned by liteaero-flight and defined in
+`liteaero-flight/docs/interfaces/icds.md`. ICD-2 (`AtmosphericState`) and ICD-3
+(`EnvironmentState`) are sim-owned types. The present-state ICD document has since
+been retired (present state registry deleted 2026-05-21).
 
 **Doc updates:**
 

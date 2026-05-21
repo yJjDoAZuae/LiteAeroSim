@@ -22,5 +22,4 @@ Each state model is a folder containing the following documents:
 
 | State | Folder | Status | Description |
 | --- | --- | --- | --- |
-| Present State | [present/](present/) | Baseline — pending review | Architecture of the currently implemented codebase |
-| Future State | [future/](future/) | Initial draft — pending review and authorization | Target architecture per the project roadmap |
+| Future State | [future/](future/) | Active | Target architecture per the project roadmap; elements not yet implemented are documented as proposed |

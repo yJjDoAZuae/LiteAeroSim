@@ -51,8 +51,7 @@ the reverse. A design document does not list which implementation plans referenc
 | Document | Contents |
 | --- | --- |
 | [`architecture/overview.md`](architecture/overview.md) | Layer model, subsystem map and registry, coordinate frames, data flow, component lifecycle |
-| [`architecture/system/present/`](architecture/system/present/) | Current baseline state registry: requirements, use cases, element registry, dataflow registry, diagrams, ICDs |
-| [`architecture/system/future/`](architecture/system/future/) | Roadmap-target state registry: same six documents for the planned architecture |
+| [`architecture/system/future/`](architecture/system/future/) | Target state registry: requirements, use cases, element registry, dataflow registry, diagrams, ICDs |
 
 ### Design
 

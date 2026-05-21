@@ -41,8 +41,7 @@ isolation. See `decisions.md` — Docker Containerization for SITL Verification.
 
 ## LiteAero Sim Elements
 
-All present-state elements carry forward (see `present/element_registry.md`), with the
-following additions and clarifications.
+All baseline simulation plant elements carry forward. For current element specifications see the design documents in [`docs/design/`](../../../design/). The following additions and clarifications apply to the future state.
 
 | Element | New / Changed | Notes |
 | --- | --- | --- |
