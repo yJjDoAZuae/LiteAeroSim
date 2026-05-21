@@ -390,62 +390,40 @@ with a deadband below $|\omega_w| < 0.01$ rad/s to avoid chatter).
 
 #### 4a. Integration Method and Stability
 
-The wheel ODE is integrated by explicit Euler:
+The wheel ODE is integrated by **Tustin (bilinear) discretization** using a predictor-corrector
+scheme (OQ-LG-5). At each inner substep:
 
-$$\omega_w^{k+1} = \omega_w^k + \dot{\omega}_w^k\,\Delta t_\text{inner}$$
+1. Compute $\dot{\omega}_w^k$ from $F_x(\omega_w^k)$, $\tau_\text{brake}(\omega_w^k)$, and
+   $\tau_\text{roll}(\omega_w^k)$.
+2. Euler predictor: $\omega^* = \omega_w^k + \dot{\omega}_w^k\,\Delta t_\text{inner}$.
+3. Recompute $F_x(\omega^*)$ via the Pacejka formula with friction-circle saturation;
+   recompute $\tau_\text{brake}(\omega^*)$ and $\tau_\text{roll}(\omega^*)$.
+4. Tustin (trapezoidal) update:
+   $$\omega_w^{k+1} = \omega_w^k + \frac{\Delta t_\text{inner}}{2}\bigl(\dot{\omega}_w^k + \dot{\omega}_w^*\bigr)$$
 
-The Pacejka longitudinal stiffness ($B = 10$, $C = 1.9$) makes explicit Euler conditionally
-stable. The stability criterion for the linearized tyre torque feedback is approximately:
+Tustin is unconditionally stable for linear stiffness and second-order accurate in time.
+The `substeps` value is a configuration parameter set per aircraft in the JSON config.
+For the trim-aero model, it is chosen as a deliberate engineering trade-off between
+integration accuracy and computational cost: the 3× Nyquist accuracy bound from OQ-LG-5
+gives the minimum substep count for high-fidelity wheel spin dynamics, but those values
+are computationally prohibitive for a trim-aero simulation that does not require high
+dynamic fidelity in the wheel spin-up transient. The configured value need not satisfy
+the Nyquist bound; it should be the smallest value that produces acceptable rollout and
+braking behavior for the intended scenario.
 
-$$\Delta t < \frac{2\,I_w}{r_w^2 \cdot B C D / V_\text{ref}}$$
+#### 4b. Rolling-Condition Clamp (Removed)
 
-At $V_\text{ref} \sim 20$ m/s and typical small-UAS parameters ($r_w = 0.08$ m,
-$\mu F_z \sim 40$ N), this bound evaluates to $\sim 1.5$ ms. The inner substep at the
-default $N_\text{sub} = 4$ and outer $\Delta t = 0.02$ s is $\Delta t_\text{inner} = 5$ ms
-— roughly 3× above the stability limit. Increasing $N_\text{sub}$ to satisfy the criterion
-would require $N_\text{sub} \geq 14$, which is impractical for the targeted computational
-budget.
-
-The chosen fix is the **rolling-condition clamp** described in §4b. Implicit Euler
-(which would be unconditionally stable) is a future improvement (OQ-LG-5) but is not
-required once the clamp is in place.
-
-The `substeps` parameter was selected to improve $\dot{\delta}$ estimation accuracy in the
-spring-damper (§2c), not for wheel-spin stability. The two requirements are
-decoupled: the spring-damper benefits from 4 substeps; the wheel spin stability is
-guaranteed by the clamp independently of the substep count.
-
-#### 4b. Rolling-Condition Clamp (Event Detection)
-
-When the explicit Euler step would carry $\omega_w$ across the free-rolling condition
-$\omega_\text{roll} = V_{cx} / r_w$ in a single substep, the update is replaced by a
-snap-to-rolling:
-
-$$\text{if}\quad (\omega_w^k - \omega_\text{roll})\,(\omega_w^{k+1} - \omega_\text{roll}) < 0 \quad \Rightarrow \quad \omega_w^{k+1} \leftarrow \omega_\text{roll}$$
-
-This is the discrete equivalent of zero-crossing event detection for the slip-reversal
-event. It eliminates the limit cycle that arises when the Euler step hunts across
-$\kappa = 0$ every substep: at each substep the traction force reverses, driving $\omega_w$
-to the opposite side of $\omega_\text{roll}$, which reverses again next substep — a
-persistent oscillation that injects fictitious energy into the aircraft through a systematic
-non-zero mean traction force.
-
-The clamp is physically motivated: once the net torque would cross the free-rolling
-condition in one step, it means the wheel is transitioning between driven and braked
-regimes, and the physically correct state is free rolling (zero slip force) at that instant.
-
-The four canonical tyre events handled this way are:
+The rolling-condition clamp that was applied when explicit Euler was the integrator is
+no longer present. The Tustin integrator is unconditionally stable and does not produce
+the limit cycle — hunting across $\kappa = 0$ — that the clamp was designed to suppress.
+The four canonical tyre events are now handled as follows:
 
 | Event | Condition | Action |
 | --- | --- | --- |
-| First contact | $h_i$ transitions $\leq 0 \to > 0$ | $\omega_w \leftarrow V_{cx}/r_w$ (spin-up to rolling) |
-| Liftoff | $h_i$ transitions $> 0 \to \leq 0$ | $\omega_w$ state retained; strut forces zero |
-| Rolling-condition crossing | $(\omega_w - \omega_\text{roll})$ sign change mid-step | $\omega_w \leftarrow \omega_\text{roll}$ (clamp) |
-| Lockup | $\omega_w \to 0$ under full braking | Regularized by rolling-resistance deadband |
-
-First-contact spin-up is not currently implemented as an explicit event (the wheel starts
-from its last known $\omega_w$, which may be zero for a fresh contact); this is captured
-as OQ-LG-6.
+| First contact | `penetration_m` transitions $\leq 0 \to > 0$ | $\omega_w$ arrives from airborne bearing drag (OQ-LG-6); Tustin integrates spin-up naturally |
+| Liftoff | `penetration_m` transitions $> 0 \to \leq 0$ | Strut resets to zero; airborne bearing drag ODE takes over |
+| Free-roll convergence | $\kappa \to 0$ over successive substeps | Tustin integrator converges without clamping |
+| Lockup | $\omega_w \to 0$ under full braking | Regularized by rolling-resistance deadband at $\lvert\omega_w\rvert < 0.01$ rad/s |
 
 ---
 
@@ -601,22 +579,29 @@ message LandingGearState {
 ## Computational Resource Estimate
 
 The landing gear model executes once per outer simulation step. The dominant cost is the
-inner substep loop and the terrain height queries.
+inner substep loop; terrain queries are outer-only and do not scale with $N_{\text{sub}}$.
+
+Terrain height and the surface normal are evaluated once at the outer step (at the aircraft
+CG position) and held constant across all substeps. This is exact for flat terrain and
+introduces a negligible slope-tracking lag for smoothly varying terrain at typical aircraft
+speeds and outer timesteps.
 
 ### Operation Counts (per outer step, tricycle gear — 3 wheel units)
 
 | Operation | Count per substep | Substeps | Total per outer step |
 | --- | --- | --- | --- |
-| `V_Terrain::heightAtPosition_m()` | 3 | 1 (outer only) | **3** |
+| `V_Terrain::heightAtPosition_m()` | — | 1 (outer only) | **1** |
+| Per-wheel contact geometry + penetration | 3 | 1 (outer only) | **3** |
 | Spring-damper force eval | 3 | $N_{\text{sub}}$ | $3 N_{\text{sub}}$ |
-| Pacejka longitudinal formula | 3 | $N_{\text{sub}}$ | $3 N_{\text{sub}}$ |
-| Pacejka lateral formula | 3 | $N_{\text{sub}}$ | $3 N_{\text{sub}}$ |
-| Friction-circle saturation | 3 | $N_{\text{sub}}$ | $3 N_{\text{sub}}$ |
-| Wheel speed integration (Euler) | 3 | $N_{\text{sub}}$ | $3 N_{\text{sub}}$ |
-| Body-frame rotation + moment arm cross product | 3 | 1 (outer only) | **6** |
+| Pacejka longitudinal formula | 6 | $N_{\text{sub}}$ | $6 N_{\text{sub}}$ |
+| Pacejka lateral formula | 6 | $N_{\text{sub}}$ | $6 N_{\text{sub}}$ |
+| Friction-circle saturation | 6 | $N_{\text{sub}}$ | $6 N_{\text{sub}}$ |
+| Wheel speed integration (Tustin) | 3 | $N_{\text{sub}}$ | $3 N_{\text{sub}}$ |
+| Body-frame rotation + moment arm cross product | 3 | 1 (outer only) | **3** |
 
-With the default $N_{\text{sub}} = 4$: **60 floating-point operations per outer step** at
-model complexity, plus 3 terrain queries. All arithmetic is single-precision `float`.
+The Tustin predictor-corrector evaluates Pacejka longitudinal and lateral formulas twice per
+substep (once at $\omega_k$, once at $\omega^*$). $N_\text{sub}$ is set per aircraft by the
+3× Nyquist rule (OQ-LG-5 resolution). All arithmetic is single-precision `float`.
 
 ### Memory Footprint (tricycle gear)
 
@@ -630,11 +615,16 @@ model complexity, plus 3 terrain queries. All arithmetic is single-precision `fl
 
 ### Timing
 
-At a 50 Hz outer rate (0.02 s step) and $N_{\text{sub}} = 4$, the landing gear inner loop
-runs at 200 Hz. The terrain queries dominate wall time on `TerrainMesh` (bilinear
-interpolation over a tile), typically < 1 µs each on a modern desktop CPU. The total
-landing gear contribution to a 50 Hz simulation loop is estimated at **< 20 µs** per step —
-negligible relative to the allocator Newton solve (which dominates).
+At a 50 Hz outer rate (0.02 s step) and $N_{\text{sub}} = 8$, the landing gear inner loop
+runs at 400 Hz. The single terrain height query occurs once per outer step; the inner
+substep loop (Pacejka + spring-damper + Tustin) dominates wall time during contact. The
+total landing gear contribution to a 50 Hz simulation loop is estimated at **< 20 µs** per
+step — negligible relative to the allocator Newton solve (which dominates).
+
+A fast-path skip in `LandingGear::step()` bypasses the entire substep loop when all wheels
+are airborne (penetration ≤ 0), all wheel speeds are zero, and all strut deflections are
+zero. This covers the common cruise and climb segments between taxi events, eliminating
+the substep overhead entirely during airborne flight.
 
 The model does **not** require the outer timestep to be reduced below the standard
 simulation rate.
@@ -652,6 +642,7 @@ simulation rate.
 | OQ-LG-5 | ~~Integration method for wheel spin ODE~~ **Resolved: Tustin; substep count by 3× Nyquist rule** | — |
 | OQ-LG-6 | ~~Airborne wheel spin-down model~~ **Resolved: linear + quadratic bearing drag; spindown-time parametrization** | — |
 | OQ-LG-7 | ~~First-contact wheel speed initial condition~~ **Resolved: no special action; Tustin integrator handles spin-up** | — |
+| OQ-LG-8 | Terrain facet slope ignored in surface normal | Not blocking for paved runways; blocking for sloped unprepared strips |
 
 ---
 
@@ -994,87 +985,94 @@ behavior.
 
 ### OQ-LG-6 — Airborne Wheel Spin-Down Model *(Resolved)*
 
-**Resolution:** Apply a combined linear + quadratic bearing drag torque during the
-airborne phase. Both coefficients are derived from a single user-specified spindown time
-parameter that defines how long the wheel takes to reach the rolling-resistance deadband
-speed starting from the free-rolling rate at minimum flight speed. No aerodynamic area or
-drag coefficient parameters are used.
+**Resolution:** Apply a combined Coulomb + viscous (linear) bearing drag torque during the
+airborne phase. Both coefficients are derived from two user-specified config parameters.
+The Coulomb term ensures the wheel reaches exactly zero angular velocity in finite time
+without any tolerance or deadband. No aerodynamic area or drag coefficient parameters are
+used.
 
 **Drag model:**
 
-During each substep in which `penetration_m` $\leq 0$ (wheel airborne), the wheel ODE is:
+Wheel angular velocity is non-negative ($\omega_w \geq 0$): landing gear wheels only spin
+in the forward direction. During each substep in which `penetration_m` $\leq 0$ (wheel
+airborne), the wheel ODE is:
 
-$$I_w\,\dot{\omega}_w = -(c_1\,\omega_w + c_2\,|\omega_w|\,\omega_w)$$
+$$I_w\,\dot{\omega}_w = -(c_f + c_v\,\omega_w), \quad \omega_w \geq 0$$
 
-where $c_1$ (N·m·s/rad) is the linear (viscous) coefficient and $c_2$ (N·m·s²/rad²) is
-the quadratic coefficient. Both terms always oppose rotation. The linear term dominates at
-low spin rates (bearing viscous drag); the quadratic term dominates at high spin rates
-(hydrodynamic lubrication losses in the bearing). Neither term requires aerodynamic
-parameters or tyre frontal area.
+where $c_f$ (N·m) is the Coulomb (constant-magnitude) bearing friction torque and
+$c_v$ (N·m·s/rad) is the viscous (linear) drag coefficient. Both terms always decelerate
+the wheel. The Coulomb term dominates at low spin rates and provides finite-time
+convergence to zero; the viscous term models lubrication losses at higher spin rates.
+
+**Closed-form solution:**
+
+Since $\omega_w \geq 0$, the ODE is the first-order linear equation:
+
+$$\dot{\omega}_w = -\frac{c_f + c_v\,\omega_w}{I_w}$$
+
+with solution:
+
+$$\omega_w(t) = \left(\omega_0 + \frac{c_f}{c_v}\right)e^{-(c_v/I_w)\,t} - \frac{c_f}{c_v}$$
+
+The zero crossing (finite settling time) occurs at:
+
+$$t^* = \frac{I_w}{c_v}\ln\!\frac{\omega_0 + c_f/c_v}{c_f/c_v}$$
 
 **Parametrization — single spindown time:**
 
 Both coefficients are derived from two config fields on `WheelUnitParams`:
 
-- `spindown_time_s` ($T_\text{sd}$, s) — the time for the wheel to spin down from the
-  reference angular velocity $\omega_\text{ref}$ to the rolling-resistance deadband speed
-  $\omega_\text{db} = 0.01$ rad/s (the same deadband already used in the on-ground rolling
-  resistance model).
+- `spindown_time_s` ($T_\text{sd}$, s) — the time for the wheel to spin down from
+  $\omega_\text{ref}$ to exactly zero (finite settling time, not a deadband threshold).
 - `spindown_reference_speed_mps` ($V_\text{ref}$, m/s) — the minimum credible flight
   speed of the aircraft (approximately stall speed). The reference angular velocity is
   $\omega_\text{ref} = V_\text{ref} / r_w$.
 
-The coefficients are set so that at $\omega_\text{ref}$ both terms contribute equally
-($c_1\,\omega_\text{ref} = c_2\,\omega_\text{ref}^2$, i.e. $c_2 = c_1/\omega_\text{ref}$).
-This gives a single-parameter family in $c_1$, and the spindown time constraint determines
-$c_1$ uniquely. With $c_2 = c_1/\omega_\text{ref}$ the ODE factors as:
+The equal-contribution constraint at $\omega_\text{ref}$ is applied ($c_f = c_v\,\omega_\text{ref}$),
+so both terms contribute equally at the reference speed. With this substitution the
+solution becomes:
 
-$$I_w\,\dot{\omega}_w = -\frac{c_1}{\omega_\text{ref}}\,\omega_w(\omega_\text{ref} + \omega_w)$$
+$$\omega_w(t) = (\omega_0 + \omega_\text{ref})\,e^{-(c_v/I_w)\,t} - \omega_\text{ref}$$
 
-This Bernoulli ODE has the closed-form solution (for $\omega_w \geq 0$):
+Applying the settling condition $\omega_w(T_\text{sd}) = 0$ with $\omega_0 = \omega_\text{ref}$:
 
-$$\omega_w(t) = \frac{\omega_\text{ref}\,e^{-K\,\omega_\text{ref}\,t}}{2 - e^{-K\,\omega_\text{ref}\,t}}, \quad K = \frac{c_1}{I_w\,\omega_\text{ref}}$$
+$$2\omega_\text{ref}\,e^{-(c_v/I_w)T_\text{sd}} = \omega_\text{ref}
+\quad\Longrightarrow\quad
+c_v = \frac{I_w\ln 2}{T_\text{sd}}, \qquad c_f = \frac{I_w\,\omega_\text{ref}\ln 2}{T_\text{sd}}$$
 
-Applying the boundary condition $\omega_w(T_\text{sd}) = \omega_\text{db}$ and solving
-for $K$:
+$T_\text{sd}$ is therefore the exact finite settling time from $\omega_\text{ref}$ to zero.
+For a general initial condition $\omega_0 \leq \omega_\text{ref}$, the settling time is:
 
-$$K = \frac{1}{\omega_\text{ref}\,T_\text{sd}}\ln\!\frac{\omega_\text{ref} + \omega_\text{db}}{2\,\omega_\text{db}}$$
+$$t^* = \frac{T_\text{sd}}{\ln 2}\ln\!\frac{\omega_0 + \omega_\text{ref}}{\omega_\text{ref}} \leq T_\text{sd}$$
 
-Since $\omega_\text{ref} \gg \omega_\text{db}$ this simplifies to approximately:
+**Example:** For the reference small-UAS configuration ($r_w = 0.08$ m,
+$I_w \approx 7.7 \times 10^{-5}$ kg·m², $V_\text{ref} = 20$ m/s →
+$\omega_\text{ref} = 250$ rad/s, $T_\text{sd} = 5$ s):
 
-$$K \approx \frac{\ln(\omega_\text{ref} / 2\,\omega_\text{db})}{\omega_\text{ref}\,T_\text{sd}}$$
+$$c_v = \frac{7.7\times10^{-5} \times 0.693}{5} \approx 1.07\times10^{-5}\ \text{N·m·s/rad}$$
 
-The two model coefficients computed once at `initialize()` are:
+$$c_f = 1.07\times10^{-5} \times 250 \approx 2.67\times10^{-3}\ \text{N·m}$$
 
-$$c_1 = K\,I_w\,\omega_\text{ref}, \qquad c_2 = K\,I_w$$
+The wheel starting from 250 rad/s reaches zero in exactly 5 s. A bounce with 0.1 s
+airborne time retains $\approx 97\%$ of its liftoff speed.
 
-**Example:** For the reference small-UAS configuration ($r_w = 0.08$ m, $I_w \approx
-7.7 \times 10^{-5}$ kg·m², $V_\text{ref} = 20$ m/s → $\omega_\text{ref} = 250$ rad/s,
-$T_\text{sd} = 5$ s):
+**Integration:** The bearing drag ODE is non-stiff ($\tau_\text{eff} = I_w/c_v = T_\text{sd}/\ln 2 \approx
+7.2$ s $\gg \Delta t_\text{inner}$), so the Tustin integrator from OQ-LG-5 applies with
+no substep count constraint. Since $\omega_w \geq 0$ always, the zero crossing is detected
+by checking whether the predictor result $\omega^* \leq 0$: if so, the wheel has stopped
+and $\omega_w$ is set to exactly zero. No tolerance or deadband is used.
 
-$$K \approx \frac{\ln(250/0.02)}{250 \times 5} = \frac{9.43}{1250} \approx 7.5 \times 10^{-3} \text{ rad}^{-1}\text{s}^{-1}$$
+The contact branch enforces $\omega_w \geq 0$ by clamping the Tustin result at zero.
+In normal operation the physics prevent the contact dynamics from driving $\omega_w$
+negative (traction and braking torques both vanish at $\omega_w = 0$), so the clamp
+is a defensive bound rather than a correction.
 
-$$c_1 \approx 7.5\times10^{-3} \times 7.7\times10^{-5} \times 250 \approx 1.45 \times 10^{-4} \text{ N·m·s/rad}$$
-
-$$c_2 \approx 7.5\times10^{-3} \times 7.7\times10^{-5} \approx 5.8 \times 10^{-7} \text{ N·m·s}^2/\text{rad}^2$$
-
-At these values the wheel starting from 250 rad/s reaches the 0.01 rad/s deadband in
-5 s; a bounce with 0.1 s airborne time retains $\approx 96\%$ of its liftoff speed.
-
-**Integration:** The bearing drag ODE is non-stiff ($\tau_\text{eff} \approx T_\text{sd}/
-\ln(\omega_\text{ref}/\omega_\text{db}) \sim 0.5$ s $\gg \Delta t_\text{inner}$), so the
-Tustin integrator from OQ-LG-5 applies with no substep count constraint. Once
-$|\omega_w| < \omega_\text{db}$, $\omega_w$ is snapped to zero by the existing deadband
-logic, satisfying the finite-time-to-zero requirement.
-
-**New config parameters on `WheelUnitParams`:**
+**Config parameters on `WheelUnitParams`:**
 
 | Field | Type | Units | Description |
 | --- | --- | --- | --- |
-| `spindown_time_s` | float | s | Time to decay from $V_\text{ref}/r_w$ to deadband |
+| `spindown_time_s` | float | s | Finite settling time from $V_\text{ref}/r_w$ to zero |
 | `spindown_reference_speed_mps` | float | m/s | Minimum flight speed reference ($V_\text{ref}$) |
-
-*Implementation pending explicit instruction.*
 
 ---
 
@@ -1100,6 +1098,96 @@ No code change is required beyond the OQ-LG-5 and OQ-LG-6 implementations. The
 first-contact case is handled identically to every other contact substep.
 
 *Implementation: no action required beyond OQ-LG-5 and OQ-LG-6.*
+
+---
+
+### OQ-LG-8 — Terrain Facet Slope Ignored in Surface Normal
+
+Both `LandingGear` and `BodyCollider` assume the terrain surface is locally flat and
+horizontal. The surface normal supplied to `WheelUnit::step()` is always the gravitational
+vertical (NED: $[0, 0, -1]^T$), rotated into the body frame by the aircraft's attitude
+quaternion. Neither model queries the terrain mesh for the actual facet normal at the
+contact point. The `BodyCollider` applies its reaction force as NED-up regardless of slope.
+
+This approximation affects four quantities:
+
+- **Strut deflection rate** — $\dot{\delta} = -\mathbf{v}_\text{contact} \cdot
+  \hat{n}_\text{surface}$: on a slope the normal has a horizontal component, coupling
+  longitudinal velocity into the strut force.
+- **Wheel heading projection** — the ground plane is taken as orthogonal to the assumed
+  vertical normal; on a slope the projected wheel-forward direction rotates away from the
+  actual ground plane.
+- **Strut reaction force direction** — $F_z \hat{n}_\text{surface}$ points vertically
+  regardless of slope; on a 5% slope this introduces a ~5% error in the normal component
+  and a ~5% spurious longitudinal component.
+- **Body-collider reaction** — force is assembled as $[0, 0, -F_\text{pen}]^\text{NED}$;
+  on a slope this overestimates the vertical component and omits the slope-parallel
+  component entirely.
+
+For paved runways (slope ≤ 1%, ≈ 0.57°), the normal-direction error is ≤ 1% and the
+cross-coupling into the longitudinal axis is ≤ 1% of the strut force — within engineering
+uncertainty. For unprepared strips (slopes up to 5%, ≈ 2.9°), errors reach ~5% in both
+quantities and may produce a measurable heading excursion bias during rollout.
+
+**Current implementation decision:** The flat-terrain assumption is retained. It is
+correct for paved runway operations and requires no changes to the `Terrain` interface.
+The `Terrain` abstract class (`liteaero::terrain::Terrain`) exposes only
+`elevation_m(lat, lon)` — a scalar height query. No slope, gradient, or normal API
+currently exists in any `Terrain` implementation.
+
+**Alternatives:**
+
+1. **Flat-terrain assumption (current).** The surface normal is always the gravitational
+   vertical. No terrain slope query is made and no `Terrain` API changes are required.
+
+   **Benefits:** Zero additional terrain queries; no API changes; correct for paved
+   runways; consistent with existing `FlatTerrain` and `TerrainMesh` implementations.
+
+   **Drawbacks:** Surface-normal error proportional to terrain slope; incorrect strut
+   force direction and wheel heading on any sloped surface.
+
+   **Prerequisites:** None.
+
+2. **Numerical gradient via finite-difference `elevation_m` calls.** Evaluate terrain
+   height at two geodetic offsets bracketing the contact point and estimate the surface
+   normal from the cross-product of the resulting displacement vectors. Two additional
+   `elevation_m` calls are made once per outer step per contact model (not per substep).
+
+   **Benefits:** No new `Terrain` API; works with any existing implementation; gives
+   a physically consistent normal on smoothly sloped terrain without mesh access.
+
+   **Drawbacks:** Two additional `elevation_m` calls per outer step; the finite-difference
+   step size introduces a smoothing length that suppresses short-wavelength slope
+   variations; numerical gradient is inaccurate near tile edges where the elevation
+   function is discontinuous.
+
+   **Prerequisites:** A documented choice of finite-difference step size (trade-off
+   between spatial resolution and numerical noise).
+
+3. **Add `normalAtPosition()` to the `Terrain` interface.** Extend the `Terrain`
+   abstract class with a method returning the unit surface normal at a geodetic position.
+   Implement it in `TerrainMesh` using barycentric interpolation of per-vertex normals
+   precomputed from triangle facets during mesh loading. `FlatTerrain` returns
+   $[0, 0, -1]^\text{NED}$ trivially.
+
+   **Benefits:** Exact facet normal from the triangle mesh; a single additional API call
+   per outer step; no finite-difference step-size tuning required.
+
+   **Drawbacks:** Requires extending the `Terrain` interface and updating all
+   implementations; precomputing vertex normals increases mesh load time and adds ~12
+   bytes per vertex to memory footprint; normal is only as accurate as the mesh
+   resolution.
+
+   **Prerequisites:** `Terrain` interface change; `TerrainMesh` vertex normal
+   pre-computation during `deserializeLasTerrain()` / `addCell()`; `FlatTerrain`
+   trivial implementation.
+
+**Recommendation:** Alternative 1 (current flat-terrain assumption) is acceptable for
+all planned paved runway operations. Alternative 3 is the preferred long-term solution
+when sloped unprepared-strip operations become a requirement, because it gives the exact
+facet normal with a single API call and no step-size tuning. Alternative 2 is a
+low-cost interim if slope support is needed before the `Terrain` interface can be
+extended.
 
 ---
 

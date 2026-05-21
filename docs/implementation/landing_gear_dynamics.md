@@ -14,7 +14,7 @@ and do not block any work items in this plan.
 **Design authority:** [`landing_gear.md`](../design/landing_gear.md),
 [`aircraft.md`](../design/aircraft.md)
 
-**Last updated:** 2026-05-20
+**Last updated:** 2026-05-21
 
 ---
 
@@ -28,12 +28,12 @@ and do not block any work items in this plan.
 | IP-LGD-4 | done | Implement step 5b symmetric lag filter (τ = 0.10 s) on gear/body-collider vertical load fraction in `Aircraft::step()` | IP-LGD-3 | [aircraft.md §UC-1](../design/aircraft.md) |
 | IP-LGD-5 | done | Implement step 11 body-collider `_n_contact_z_filt` refresh in `Aircraft::step()` to sustain aero suppression during body contact | IP-LGD-3 | [aircraft.md §UC-1](../design/aircraft.md) |
 | IP-LGD-6 | done | Add JSON + proto round-trip serialization for `_n_contact_z_filt` in `Aircraft::serializeJson()`, `deserializeJson()`, `serializeProto()`, `deserializeProto()` | IP-LGD-3 | [aircraft.md §UC-1](../design/aircraft.md) |
-| IP-LGD-7 | todo | Add `spindown_time_s` and `spindown_reference_speed_mps` fields to `WheelUnitParams` struct and to `WheelUnitParams` JSON loading in `LandingGear::initialize()` | — | [landing_gear.md §OQ-LG-6 resolution](../design/landing_gear.md) |
-| IP-LGD-8 | todo | Compute `c1` and `c2` bearing drag coefficients in `WheelUnit::initialize()` from `spindown_time_s` and `spindown_reference_speed_mps` per the closed-form Bernoulli solution | IP-LGD-7 | [landing_gear.md §OQ-LG-6 resolution](../design/landing_gear.md) |
-| IP-LGD-9 | todo | Set `substeps` in the aircraft JSON config file(s) to satisfy the 3× Nyquist substep count bound from the OQ-LG-5 formula for the specific aircraft geometry | — | [landing_gear.md §OQ-LG-5 resolution](../design/landing_gear.md) |
-| IP-LGD-10 | todo | Replace explicit Euler wheel ODE with Tustin discretization in `WheelUnit::step()` contact branch; update computational resource table in landing_gear.md | IP-LGD-9 | [landing_gear.md §OQ-LG-5 resolution, §4a](../design/landing_gear.md) |
-| IP-LGD-11 | todo | Apply linear + quadratic bearing drag with Tustin integration in `WheelUnit::step()` airborne branch | IP-LGD-8, IP-LGD-10 | [landing_gear.md §OQ-LG-6 resolution](../design/landing_gear.md) |
-| IP-LGD-12 | todo | Remove rolling-condition clamp from `WheelUnit::step()` after Tustin integrator is verified stable; update §4a and §4b in landing_gear.md to reflect the new implementation | IP-LGD-10, IP-LGD-11 | [landing_gear.md §OQ-LG-5 resolution, §4b](../design/landing_gear.md) |
+| IP-LGD-7 | done | Add `spindown_time_s` and `spindown_reference_speed_mps` fields to `WheelUnitParams` struct and to `WheelUnitParams` JSON loading in `LandingGear::initialize()` | — | [landing_gear.md §OQ-LG-6 resolution](../design/landing_gear.md) |
+| IP-LGD-8 | done | Compute `c1` and `c2` bearing drag coefficients in `WheelUnit::initialize()` from `spindown_time_s` and `spindown_reference_speed_mps` per the closed-form Bernoulli solution | IP-LGD-7 | [landing_gear.md §OQ-LG-6 resolution](../design/landing_gear.md) |
+| IP-LGD-9 | done | Set `substeps` in the aircraft JSON config file(s) to satisfy the 3× Nyquist substep count bound from the OQ-LG-5 formula for the specific aircraft geometry | — | [landing_gear.md §OQ-LG-5 resolution](../design/landing_gear.md) |
+| IP-LGD-10 | done | Replace explicit Euler wheel ODE with Tustin discretization in `WheelUnit::step()` contact branch; update computational resource table in landing_gear.md | IP-LGD-9 | [landing_gear.md §OQ-LG-5 resolution, §4a](../design/landing_gear.md) |
+| IP-LGD-11 | done | Apply linear + quadratic bearing drag with Tustin integration in `WheelUnit::step()` airborne branch | IP-LGD-8, IP-LGD-10 | [landing_gear.md §OQ-LG-6 resolution](../design/landing_gear.md) |
+| IP-LGD-12 | done | Remove rolling-condition clamp from `WheelUnit::step()` after Tustin integrator is verified stable; update §4a and §4b in landing_gear.md to reflect the new implementation | IP-LGD-10, IP-LGD-11 | [landing_gear.md §OQ-LG-5 resolution, §4b](../design/landing_gear.md) |
 
 ---
 

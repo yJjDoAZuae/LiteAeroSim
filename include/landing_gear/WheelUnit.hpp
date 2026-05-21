@@ -26,6 +26,8 @@ struct WheelUnitParams {
     float           max_brake_torque_nm             = 0.0f;
     bool            is_steerable                    = false;
     bool            has_brake                       = false;
+    float           spindown_time_s                 = 5.0f;
+    float           spindown_reference_speed_mps    = 20.0f;
 };
 
 struct WheelContactForces {
@@ -70,6 +72,8 @@ private:
     float           _strut_deflection_m        = 0.0f;
     float           _strut_deflection_rate_mps = 0.0f;
     float           _wheel_speed_rps           = 0.0f;
+    float           _cf                        = 0.0f;
+    float           _cv                        = 0.0f;
 };
 
 }  // namespace liteaero::simulation

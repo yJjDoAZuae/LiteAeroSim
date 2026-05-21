@@ -372,6 +372,137 @@ TEST(LandingGear, NoseWheelSteering_ProducesYawMoment) {
         << "Non-zero steering angle with forward velocity should produce yaw moment";
 }
 
+// ---------------------------------------------------------------------------
+// Tustin / bearing drag tests
+// ---------------------------------------------------------------------------
+
+TEST(LandingGear, AirborneBearingDrag_WheelReachesExactZero) {
+    // A spinning wheel lifted airborne must reach exactly zero in T_sd seconds
+    // via Coulomb + viscous bearing drag — no deadband tolerance.
+    // Config: r_w=0.2 m, T_sd=2 s, V_ref=20 m/s → omega_ref=100 rad/s.
+    auto config = nlohmann::json::parse(R"({
+        "substeps": 1,
+        "wheel_units": [{
+            "attach_point_body_m":       [0.0, 0.0, 0.5],
+            "travel_axis_body":          [0.0, 0.0, 1.0],
+            "spring_stiffness_npm":      20000.0,
+            "damping_compression_nspm":  500.0,
+            "damping_extension_nspm":    100.0,
+            "spring_nonlinearity_nd":    0.0,
+            "preload_n":                 0.0,
+            "travel_max_m":              0.3,
+            "tyre_radius_m":             0.2,
+            "rolling_resistance_nd":     0.0,
+            "max_brake_torque_nm":       0.0,
+            "is_steerable":              false,
+            "has_brake":                 false,
+            "spindown_time_s":           2.0,
+            "spindown_reference_speed_mps": 20.0
+        }]
+    })");
+    LandingGear gear;
+    gear.initialize(config);
+    FlatTestTerrain terrain{0.0f};
+
+    // Preset wheel to reference speed: omega = V_ref / r_w = 100 rad/s
+    auto state_j = gear.serializeJson();
+    state_j["wheel_units"][0]["wheel_speed_rps"] = 100.0f;
+    gear.deserializeJson(state_j);
+
+    // Run T_sd at 0.01 s steps = 200 steps; Coulomb drag must reach exactly zero
+    for (int i = 0; i < 200; ++i)
+        gear.step(makeSnap(1000.0f), terrain, 0.0f, 0.0f, 0.0f, 0.01f);
+
+    const float omega_final =
+        gear.serializeJson()["wheel_units"][0]["wheel_speed_rps"].get<float>();
+    EXPECT_FLOAT_EQ(omega_final, 0.0f)
+        << "Coulomb bearing drag must bring wheel to exactly zero within T_sd (no deadband)";
+}
+
+TEST(LandingGear, TustinContact_NoLimitCycleAtFreeRoll) {
+    // With Tustin the wheel must NOT hunt across kappa=0 every substep.
+    // At steady forward speed the longitudinal force must be near zero after
+    // a few steps once free-rolling is established.
+    auto config = nlohmann::json::parse(R"({
+        "substeps": 60,
+        "wheel_units": [{
+            "attach_point_body_m":       [0.0, 0.0, 0.5],
+            "travel_axis_body":          [0.0, 0.0, 1.0],
+            "spring_stiffness_npm":      20000.0,
+            "damping_compression_nspm":  500.0,
+            "damping_extension_nspm":    100.0,
+            "spring_nonlinearity_nd":    0.0,
+            "preload_n":                 0.0,
+            "travel_max_m":              0.3,
+            "tyre_radius_m":             0.2,
+            "rolling_resistance_nd":     0.0,
+            "max_brake_torque_nm":       0.0,
+            "is_steerable":              false,
+            "has_brake":                 false,
+            "spindown_time_s":           5.0,
+            "spindown_reference_speed_mps": 20.0
+        }]
+    })");
+    LandingGear gear;
+    gear.initialize(config);
+    FlatTestTerrain terrain{0.0f};
+
+    // Preset wheel to free-roll speed: V_cx = 20 m/s, r_w = 0.2 m → omega = 100 rad/s
+    auto state_j = gear.serializeJson();
+    state_j["wheel_units"][0]["wheel_speed_rps"] = 100.0f;
+    gear.deserializeJson(state_j);
+
+    // Run several steps at forward speed
+    for (int i = 0; i < 5; ++i)
+        gear.step(makeSnap(0.3f, {20.0f, 0.0f, 0.0f}), terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+
+    const float omega = gear.serializeJson()["wheel_units"][0]["wheel_speed_rps"].get<float>();
+    // At zero rolling resistance the free-roll omega = V_cx / r_w = 100 rad/s
+    EXPECT_NEAR(omega, 100.0f, 5.0f)
+        << "Tustin integrator must not produce a limit cycle at kappa=0 (omega must stay near free-roll)";
+}
+
+TEST(LandingGear, BearingDragCoeffs_NonzeroWhenSpindownConfigured) {
+    // Verify that non-trivial spindown params yield a measurable decay in one substep.
+    auto config = nlohmann::json::parse(R"({
+        "substeps": 1,
+        "wheel_units": [{
+            "attach_point_body_m":       [0.0, 0.0, 0.5],
+            "travel_axis_body":          [0.0, 0.0, 1.0],
+            "spring_stiffness_npm":      20000.0,
+            "damping_compression_nspm":  500.0,
+            "damping_extension_nspm":    100.0,
+            "spring_nonlinearity_nd":    0.0,
+            "preload_n":                 0.0,
+            "travel_max_m":              0.3,
+            "tyre_radius_m":             0.2,
+            "rolling_resistance_nd":     0.0,
+            "max_brake_torque_nm":       0.0,
+            "is_steerable":              false,
+            "has_brake":                 false,
+            "spindown_time_s":           5.0,
+            "spindown_reference_speed_mps": 20.0
+        }]
+    })");
+    LandingGear gear;
+    gear.initialize(config);
+    FlatTestTerrain terrain{0.0f};
+
+    auto state_j = gear.serializeJson();
+    state_j["wheel_units"][0]["wheel_speed_rps"] = 100.0f;
+    gear.deserializeJson(state_j);
+
+    // One airborne step — omega must have decreased
+    gear.step(makeSnap(1000.0f), terrain, 0.0f, 0.0f, 0.0f, 0.02f);
+
+    const float omega_after =
+        gear.serializeJson()["wheel_units"][0]["wheel_speed_rps"].get<float>();
+    EXPECT_LT(omega_after, 100.0f)
+        << "Bearing drag must produce nonzero deceleration in first airborne substep";
+    EXPECT_GT(omega_after, 0.0f)
+        << "Bearing drag must not zero wheel speed in a single substep at T_sd=5s";
+}
+
 TEST(LandingGear, DifferentialBrake_ProducesYawMoment) {
     // Differential braking creates asymmetric longitudinal force (F_x) between left and
     // right main wheels, which produces a yaw moment (M_z).  To make the brake torque

@@ -23,6 +23,22 @@ void WheelUnit::initialize(const WheelUnitParams& params) {
     _strut_deflection_m        = 0.0f;
     _strut_deflection_rate_mps = 0.0f;
     _wheel_speed_rps           = 0.0f;
+
+    // Bearing drag coefficients — Coulomb + viscous (OQ-LG-6).
+    // Equal-contribution at omega_ref: c_f = c_v * omega_ref.
+    // Settling condition omega_w(T_sd) = 0 from omega_ref → c_v = I_w * ln2 / T_sd.
+    // I_w = 0.15 * r_w^3 (empirical: m_w = 0.3*r_w, I_w = m_w*r_w^2/2)
+    const float r_w       = params.tyre_radius_m;
+    const float I_w       = 0.15f * r_w * r_w * r_w;
+    const float T_sd      = params.spindown_time_s;
+    const float omega_ref = (r_w > 0.0f) ? params.spindown_reference_speed_mps / r_w : 0.0f;
+    if (omega_ref > 0.0f && T_sd > 0.0f && I_w > 0.0f) {
+        _cv = I_w * std::log(2.0f) / T_sd;
+        _cf = _cv * omega_ref;
+    } else {
+        _cf = 0.0f;
+        _cv = 0.0f;
+    }
 }
 
 void WheelUnit::reset() {
@@ -44,6 +60,23 @@ WheelContactForces WheelUnit::step(float                         penetration_m,
     if (penetration_m <= 0.0f) {
         _strut_deflection_m        = 0.0f;
         _strut_deflection_rate_mps = 0.0f;
+        // Airborne bearing drag — Coulomb + viscous, Tustin predictor-corrector (OQ-LG-6).
+        // Wheels only spin forward (omega >= 0); Coulomb term is always positive.
+        const float r_w_ab  = _params.tyre_radius_m;
+        const float I_w_ab  = 0.15f * r_w_ab * r_w_ab * r_w_ab;
+        const float omega_k = _wheel_speed_rps;
+        if (I_w_ab > 0.0f && (_cf != 0.0f || _cv != 0.0f) && omega_k > 0.0f) {
+            const float drag_k    = _cf + _cv * omega_k;
+            const float odot_k    = -drag_k / I_w_ab;
+            const float omega_star = omega_k + odot_k * dt_s;
+            if (omega_star <= 0.0f) {
+                _wheel_speed_rps = 0.0f;
+            } else {
+                const float drag_star = _cf + _cv * omega_star;
+                const float odot_star = -drag_star / I_w_ab;
+                _wheel_speed_rps = omega_k + 0.5f * dt_s * (odot_k + odot_star);
+            }
+        }
         return {};
     }
 
@@ -110,9 +143,10 @@ WheelContactForces WheelUnit::step(float                         penetration_m,
     //    either speed approaches zero.  Using |V_cx| alone blows kappa up to
     //    thousands near standstill (V_cx → 0, ω > 0), creating a fictitious
     //    traction spike that injects energy and permanently accelerates the aircraft.
-    const float wheel_speed_mps = _params.tyre_radius_m * std::abs(_wheel_speed_rps);
+    const float r_w           = _params.tyre_radius_m;
+    const float wheel_speed_mps = r_w * std::abs(_wheel_speed_rps);
     const float V_ref  = std::max(std::abs(V_cx), wheel_speed_mps) + kVeps;
-    const float kappa = (_params.tyre_radius_m * _wheel_speed_rps - V_cx) / V_ref;
+    const float kappa = (r_w * _wheel_speed_rps - V_cx) / V_ref;
 
     // 6. Slip angle (lateral)
     const float alpha_t = -std::atan2(V_cy, std::abs(V_cx) + kVeps);
@@ -130,34 +164,42 @@ WheelContactForces WheelUnit::step(float                         penetration_m,
         F_y *= scale;
     }
 
-    // 9. Wheel speed integration (Euler)
-    const float r_w           = _params.tyre_radius_m;
-    const float wheel_mass_kg = 0.3f * r_w;          // empirical: m_w ≈ 0.3 * r_w
-    const float I_w           = wheel_mass_kg * r_w * r_w * 0.5f;
-
-    // Brake torque: τ_brake = C_brake * b * ω_w  (arch doc §4)
-    const float tau_brake = (_params.has_brake)
-                                ? _params.max_brake_torque_nm * brake_demand_nd * _wheel_speed_rps
-                                : 0.0f;
-
-    // Rolling resistance torque with 0.01 rad/s deadband
-    const float omega_sign = (_wheel_speed_rps >  0.01f) ?  1.0f
-                           : (_wheel_speed_rps < -0.01f) ? -1.0f
-                           :                               0.0f;
-    const float tau_roll = _params.rolling_resistance_nd * r_w * F_z * omega_sign;
+    // 9. Wheel speed integration — Tustin predictor-corrector (OQ-LG-5)
+    // I_w = m_w * r_w^2 / 2,  m_w ≈ 0.3 * r_w  →  I_w = 0.15 * r_w^3
+    const float I_w = 0.15f * r_w * r_w * r_w;
 
     if (I_w > 0.0f) {
-        const float omega_dot = (-r_w * F_x - tau_brake - tau_roll) / I_w;
-        const float omega_new = _wheel_speed_rps + omega_dot * dt_s;
-        // Clamp: if the Euler step would cross the rolling condition in one substep,
-        // stop at rolling speed.  The Pacejka stiffness (B = 10) makes explicit
-        // Euler unstable at practical substep sizes — the wheel hunts across kappa = 0
-        // every substep, creating a limit cycle that injects fictitious traction energy.
-        const float omega_roll = V_cx / r_w;
-        if ((_wheel_speed_rps - omega_roll) * (omega_new - omega_roll) < 0.f)
-            _wheel_speed_rps = omega_roll;
-        else
-            _wheel_speed_rps = omega_new;
+        // --- torques at ω_k (wheels only spin forward: omega >= 0) ---
+        const float tau_brake_k  = (_params.has_brake)
+                                 ? _params.max_brake_torque_nm * brake_demand_nd * _wheel_speed_rps
+                                 : 0.0f;
+        const float tau_roll_k   = (_wheel_speed_rps > 0.01f)
+                                 ? _params.rolling_resistance_nd * r_w * F_z : 0.0f;
+        const float odot_k       = (-r_w * F_x - tau_brake_k - tau_roll_k) / I_w;
+
+        // --- Euler predictor ---
+        const float omega_star = _wheel_speed_rps + odot_k * dt_s;
+
+        // --- F_x at ω* with friction-circle saturation ---
+        const float ws_star    = r_w * std::abs(omega_star);
+        const float Vref_star  = std::max(std::abs(V_cx), ws_star) + kVeps;
+        const float kappa_star = (r_w * omega_star - V_cx) / Vref_star;
+        float F_x_star = pacejka(kappa_star, 10.0f, 1.9f, friction_mu_nd * F_z, 0.97f);
+        float F_y_star = pacejka(alpha_t,     8.0f, 1.3f, friction_mu_nd * F_z, -1.0f);
+        const float Ftot_star = std::sqrt(F_x_star * F_x_star + F_y_star * F_y_star);
+        if (Ftot_star > F_limit && Ftot_star > 0.0f)
+            F_x_star *= F_limit / Ftot_star;
+
+        // --- torques at ω* ---
+        const float tau_brake_star = (_params.has_brake)
+                                   ? _params.max_brake_torque_nm * brake_demand_nd * omega_star
+                                   : 0.0f;
+        const float tau_roll_star  = (omega_star > 0.01f)
+                                   ? _params.rolling_resistance_nd * r_w * F_z : 0.0f;
+        const float odot_star      = (-r_w * F_x_star - tau_brake_star - tau_roll_star) / I_w;
+
+        // --- Tustin (trapezoidal); clamp at zero — wheels do not spin backwards ---
+        _wheel_speed_rps = std::max(0.0f, _wheel_speed_rps + 0.5f * dt_s * (odot_k + odot_star));
     }
 
     // 10. Force assembly in body frame

@@ -40,6 +40,8 @@ void LandingGear::initialize(const nlohmann::json& config) {
         p.max_brake_torque_nm             = wu_json.value("max_brake_torque_nm", 0.0f);
         p.is_steerable                    = wu_json.value("is_steerable", false);
         p.has_brake                       = wu_json.value("has_brake", false);
+        p.spindown_time_s                 = wu_json.value("spindown_time_s", 5.0f);
+        p.spindown_reference_speed_mps    = wu_json.value("spindown_reference_speed_mps", 20.0f);
 
         _config.wheel_units.push_back(p);
         WheelUnit wu;
@@ -129,6 +131,24 @@ ContactForces LandingGear::step(const liteaero::nav::KinematicStateSnapshot& sna
         friction_mu[i] = _surface_friction
                              .frictionCoefficients(Eigen::Vector3f::Zero())
                              .longitudinal_peak_nd;
+    }
+
+    // Fast-path: all wheels airborne, stopped, and struts neutral — nothing to integrate.
+    // Strut check covers the first airborne step after liftoff (strut still deflected).
+    {
+        bool skip = true;
+        for (int i = 0; i < n; ++i) {
+            const StrutState ss = _wheel_units[i].strutState();
+            if (penetrations[i] > 0.0f || ss.wheel_speed_rps > 0.0f
+                    || ss.strut_deflection_m > 0.0f) {
+                skip = false;
+                break;
+            }
+        }
+        if (skip) {
+            _contact_forces = ContactForces{};
+            return _contact_forces;
+        }
     }
 
     // Inner substep loop — spring-damper + Pacejka run N_sub times at inner_dt_s
